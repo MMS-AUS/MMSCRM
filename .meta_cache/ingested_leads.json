@@ -1,0 +1,26 @@
+[
+  {
+    "meta_leadgen_id": "test_lead_1789970344481",
+    "email": "alex.wright@brisbane.com.au",
+    "phone_number": "0418920194",
+    "primaryMobile": "0418920194",
+    "customerName": "Alexander Wright",
+    "firstName": "Alexander",
+    "lastName": "Wright",
+    "suburb": "Brisbane",
+    "postcode": "4000",
+    "state": "QLD",
+    "address": "",
+    "companyName": "",
+    "custom_fields": {
+      "what_is_your_roof_type": "Tile (Single Storey)",
+      "average_quarterly_power_bill": "$650 - $900",
+      "battery_storage_interest": "Yes, looking for Tesla Powerwall 3 / AlphaESS"
+    },
+    "leadDate": "2026-09-21",
+    "platform": "Meta Lead Ads (Facebook/Instagram)",
+    "source": "Meta Ads",
+    "status": "New Lead",
+    "campaign_name": "Meta QLD Solar & Battery Rebate Boost 2026"
+  }
+]

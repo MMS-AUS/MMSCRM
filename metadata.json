@@ -1,0 +1,6 @@
+{
+  "name": "MySolarCRM",
+  "description": "Enterprise Australian Solar CRM & ERP with CER BridgeSelect STC Portal, Xero financial sync, Gmail API OAuth 2.0 & Pub/Sub sync, OpenSolar 3D, MessageMedia SMS, Mailchimp, WhatsApp Business API, VoIPLine Telecom AU, Meta Ads Lead Sync & CAPI, Microsoft Teams Graph API & Workflows, and Multi-Category Excel Dropdowns & Hardware Batch Management.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
