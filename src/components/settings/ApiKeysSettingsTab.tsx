@@ -901,13 +901,13 @@ export const ApiKeysSettingsTab: React.FC = () => {
         </div>
 
         <div className="relative w-full sm:w-64 shrink-0">
-          <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
             type="text"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             placeholder="Search key or service..."
-            className="w-full bg-[#181818] border border-[#2a2a2a] rounded-xl pl-9 pr-3 py-1.5 text-xs text-white placeholder-gray-500 focus:border-[#bef264] outline-none"
+            className="w-full bg-[#181818] border border-[#2a2a2a] rounded-xl pl-10.5 pr-3 py-1.5 text-xs text-white placeholder-gray-500 focus:border-[#bef264] outline-none"
           />
         </div>
       </div>

@@ -524,13 +524,13 @@ export const GmailSettingsModal: React.FC<GmailSettingsModalProps> = ({
               {/* Search & Filters */}
               <div className="flex flex-col sm:flex-row gap-3 items-center justify-between">
                 <div className="relative w-full sm:w-80">
-                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                   <input
                     type="text"
                     placeholder="Search personal emails, contacts, or subjects..."
                     value={searchQuery}
                     onChange={e => setSearchQuery(e.target.value)}
-                    className={`w-full pl-9 pr-3 py-2 text-xs rounded-lg border focus:outline-none transition-colors ${
+                    className={`w-full pl-11 pr-3 py-2 text-xs rounded-lg border focus:outline-none transition-colors ${
                       isLight
                         ? 'bg-slate-50 border-slate-300 text-slate-900 focus:bg-white focus:border-red-500'
                         : 'bg-[#181818] border-[#2c2c2c] text-white focus:border-red-400'

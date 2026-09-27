@@ -201,7 +201,7 @@ export const OperationalRulesTab: React.FC = () => {
                 Customer Invoiced Rate ($ AUD / Certificate)
               </label>
               <div className="relative">
-                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 font-mono text-sm">$</span>
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 font-mono text-sm pointer-events-none">$</span>
                 <input
                   type="number"
                   step="0.05"
@@ -211,7 +211,7 @@ export const OperationalRulesTab: React.FC = () => {
                   onChange={e =>
                     setFormData({ ...formData, customerStcRateAud: parseFloat(e.target.value) || 0 })
                   }
-                  className="w-full bg-[#121212] border border-[#333] rounded-lg pl-8 pr-28 py-2.5 text-sm text-white focus:border-blue-400 outline-none font-mono font-bold"
+                  className="w-full bg-[#121212] border border-[#333] rounded-lg pl-10 pr-28 py-2.5 text-sm text-white focus:border-blue-400 outline-none font-mono font-bold"
                   placeholder="36.00"
                 />
                 <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 font-mono text-xs">
@@ -254,7 +254,7 @@ export const OperationalRulesTab: React.FC = () => {
                 Internal Claim Rate ($ AUD / Certificate)
               </label>
               <div className="relative">
-                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 font-mono text-sm">$</span>
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 font-mono text-sm pointer-events-none">$</span>
                 <input
                   type="number"
                   step="0.05"
@@ -268,7 +268,7 @@ export const OperationalRulesTab: React.FC = () => {
                       stcTradingRateAud: parseFloat(e.target.value) || 0
                     })
                   }
-                  className="w-full bg-[#121212] border border-[#333] rounded-lg pl-8 pr-28 py-2.5 text-sm text-white focus:border-[#bef264] outline-none font-mono font-bold"
+                  className="w-full bg-[#121212] border border-[#333] rounded-lg pl-10 pr-28 py-2.5 text-sm text-white focus:border-[#bef264] outline-none font-mono font-bold"
                   placeholder="39.50"
                 />
                 <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 font-mono text-xs">
@@ -448,7 +448,7 @@ export const OperationalRulesTab: React.FC = () => {
               Customer Referral Bonus Award ($ AUD)
             </label>
             <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-mono text-xs">$</span>
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-mono text-xs pointer-events-none">$</span>
               <input
                 type="number"
                 step="25"
@@ -456,7 +456,7 @@ export const OperationalRulesTab: React.FC = () => {
                 onChange={e =>
                   setFormData({ ...formData, referralBonusDefaultAud: parseFloat(e.target.value) || 0 })
                 }
-                className="w-full bg-[#181818] border border-[#2d2d2d] rounded-lg pl-7 pr-3 py-2 text-xs text-white focus:border-[#bef264] outline-none font-mono"
+                className="w-full bg-[#181818] border border-[#2d2d2d] rounded-lg pl-9 pr-3 py-2 text-xs text-white focus:border-[#bef264] outline-none font-mono"
               />
             </div>
             <p className="text-[10px] text-gray-500 mt-1">

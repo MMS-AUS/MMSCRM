@@ -168,13 +168,13 @@ export const FeaturesSettingsTab: React.FC = () => {
 
         {/* Search Field */}
         <div className="relative min-w-[220px]">
-          <Search className="w-3.5 h-3.5 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
+          <Search className="w-3.5 h-3.5 text-gray-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
             type="text"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             placeholder="Search features..."
-            className="w-full bg-[#141414] border border-[#262626] rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder-gray-500 focus:border-[#bef264] outline-none"
+            className="w-full bg-[#141414] border border-[#262626] rounded-lg pl-9.5 pr-3 py-1.5 text-xs text-white placeholder-gray-500 focus:border-[#bef264] outline-none"
           />
         </div>
       </div>

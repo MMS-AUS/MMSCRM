@@ -604,13 +604,13 @@ export const SettingsView: React.FC = () => {
 
               {/* Filter Categories Search */}
               <div className="relative">
-                <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500" />
+                <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
                 <input
                   type="text"
                   placeholder="Filter categories..."
                   value={categorySearchQuery}
                   onChange={e => setCategorySearchQuery(e.target.value)}
-                  className="w-full pl-8 pr-2.5 py-1.5 bg-[#181818] border border-[#2b2b2b] rounded-lg text-xs text-white placeholder-gray-500 outline-none focus:border-[#bef264]"
+                  className="w-full pl-9.5 pr-2.5 py-1.5 bg-[#181818] border border-[#2b2b2b] rounded-lg text-xs text-white placeholder-gray-500 outline-none focus:border-[#bef264]"
                 />
               </div>
 

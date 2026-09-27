@@ -389,13 +389,13 @@ export const DropdownExcelSyncModal: React.FC<DropdownExcelSyncModalProps> = ({
                   <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-[#141414] p-3 rounded-xl border border-[#262626]">
                     <div className="flex items-center gap-2 w-full sm:w-auto">
                       <div className="relative flex-1 sm:w-64">
-                        <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                        <Search className="w-3.5 h-3.5 absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
                         <input
                           type="text"
                           placeholder="Search options or categories..."
                           value={searchQuery}
                           onChange={e => setSearchQuery(e.target.value)}
-                          className="w-full pl-8 pr-3 py-1.5 bg-[#181818] border border-[#2b2b2b] rounded-lg text-xs text-white placeholder-gray-500 outline-none focus:border-[#bef264]"
+                          className="w-full pl-9.5 pr-3 py-1.5 bg-[#181818] border border-[#2b2b2b] rounded-lg text-xs text-white placeholder-gray-500 outline-none focus:border-[#bef264]"
                         />
                       </div>
 

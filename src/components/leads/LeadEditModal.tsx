@@ -20,7 +20,8 @@ import {
   Sun,
   DollarSign,
   Hash,
-  Activity
+  Activity,
+  Trash2
 } from 'lucide-react';
 import { LeadDetailsLeftPanel, LeadDetailsFormData } from './LeadDetailsLeftPanel';
 import { LeadCenterTabs } from './LeadCenterTabs';
@@ -37,6 +38,7 @@ export const LeadEditModal: React.FC<LeadEditModalProps> = ({ isOpen, onClose, l
     dropdowns,
     addLead,
     updateLead,
+    deleteLead,
     addLeadActivity,
     toggleLeadActivityTask,
     deleteLeadActivity,
@@ -50,6 +52,7 @@ export const LeadEditModal: React.FC<LeadEditModalProps> = ({ isOpen, onClose, l
 
   const isLight = themeMode === 'corporate-slate';
   const isEditing = Boolean(lead);
+  const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
 
   // Form State encapsulating all Left Panel fields
   const [formData, setFormData] = useState<LeadDetailsFormData>({
@@ -327,6 +330,7 @@ export const LeadEditModal: React.FC<LeadEditModalProps> = ({ isOpen, onClose, l
 
   // Populate state on lead edit or create
   useEffect(() => {
+    setIsConfirmingDelete(false);
     if (lead) {
       const today = new Date().toISOString().split('T')[0];
       setFormData({
@@ -1148,6 +1152,49 @@ export const LeadEditModal: React.FC<LeadEditModalProps> = ({ isOpen, onClose, l
           </div>
 
           <div className="flex items-center gap-2">
+            {isEditing && lead && (
+              <div className="flex items-center gap-1.5">
+                {isConfirmingDelete ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        deleteLead(lead.id);
+                        setIsConfirmingDelete(false);
+                        onClose();
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs shadow-md flex items-center gap-1.5 transition-colors cursor-pointer"
+                      title="Permanently Delete this lead"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Yes, Delete Now</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsConfirmingDelete(false)}
+                      className="px-2.5 py-1.5 rounded-lg bg-[#222] hover:bg-[#333] text-gray-300 text-xs transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setIsConfirmingDelete(true)}
+                    className={`px-3 py-1.5 rounded-lg border text-rose-400 hover:text-rose-300 transition-colors flex items-center gap-1.5 cursor-pointer ${
+                      isLight
+                        ? 'border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-700'
+                        : 'border-rose-900/60 bg-rose-950/40 hover:bg-rose-900/50'
+                    }`}
+                    title="Delete this lead permanently"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete</span>
+                  </button>
+                )}
+              </div>
+            )}
+
             <button
               type="button"
               onClick={onClose}

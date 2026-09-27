@@ -118,13 +118,13 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onCl
               <div>
                 <label className="block text-xs font-semibold text-gray-300 mb-1">Full Name</label>
                 <div className="relative">
-                  <User className="w-4 h-4 text-gray-500 absolute left-3 top-2.5" />
+                  <User className="w-4 h-4 text-gray-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
                     type="text"
                     value={name}
                     onChange={e => setName(e.target.value)}
                     required
-                    className="w-full bg-[#181818] border border-[#2d2d2d] rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-gray-500 focus:border-[#bef264] outline-none"
+                    className="w-full bg-[#181818] border border-[#2d2d2d] rounded-lg pl-11 pr-3 py-2 text-xs text-white placeholder-gray-500 focus:border-[#bef264] outline-none"
                   />
                 </div>
               </div>
@@ -132,13 +132,13 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onCl
               <div>
                 <label className="block text-xs font-semibold text-gray-300 mb-1">Email Address</label>
                 <div className="relative">
-                  <Mail className="w-4 h-4 text-gray-500 absolute left-3 top-2.5" />
+                  <Mail className="w-4 h-4 text-gray-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
                     type="email"
                     value={email}
                     onChange={e => setEmail(e.target.value)}
                     required
-                    className="w-full bg-[#181818] border border-[#2d2d2d] rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-gray-500 focus:border-[#bef264] outline-none"
+                    className="w-full bg-[#181818] border border-[#2d2d2d] rounded-lg pl-11 pr-3 py-2 text-xs text-white placeholder-gray-500 focus:border-[#bef264] outline-none"
                   />
                 </div>
               </div>
@@ -146,13 +146,13 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onCl
               <div>
                 <label className="block text-xs font-semibold text-gray-300 mb-1">Mobile Phone (Australia)</label>
                 <div className="relative">
-                  <Phone className="w-4 h-4 text-gray-500 absolute left-3 top-2.5" />
+                  <Phone className="w-4 h-4 text-gray-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
                     type="text"
                     value={phone}
                     onChange={e => setPhone(e.target.value)}
                     placeholder="+61 4XX XXX XXX"
-                    className="w-full bg-[#181818] border border-[#2d2d2d] rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-gray-500 focus:border-[#bef264] outline-none"
+                    className="w-full bg-[#181818] border border-[#2d2d2d] rounded-lg pl-11 pr-3 py-2 text-xs text-white placeholder-gray-500 focus:border-[#bef264] outline-none"
                   />
                 </div>
               </div>
@@ -160,13 +160,13 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onCl
               <div>
                 <label className="block text-xs font-semibold text-gray-300 mb-1">VoIPLine Direct Dial (AU)</label>
                 <div className="relative">
-                  <Phone className="w-4 h-4 text-emerald-500 absolute left-3 top-2.5" />
+                  <Phone className="w-4 h-4 text-emerald-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
                     type="text"
                     value={voipLineNumber}
                     onChange={e => setVoipLineNumber(e.target.value)}
                     placeholder="+61 2 XXXX XXXX"
-                    className="w-full bg-[#181818] border border-[#2d2d2d] rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-gray-500 focus:border-[#bef264] outline-none font-mono"
+                    className="w-full bg-[#181818] border border-[#2d2d2d] rounded-lg pl-11 pr-3 py-2 text-xs text-white placeholder-gray-500 focus:border-[#bef264] outline-none font-mono"
                   />
                 </div>
               </div>
@@ -174,11 +174,11 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onCl
               <div>
                 <label className="block text-xs font-semibold text-gray-300 mb-1">Department</label>
                 <div className="relative">
-                  <Building className="w-4 h-4 text-gray-500 absolute left-3 top-2.5" />
+                  <Building className="w-4 h-4 text-gray-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <select
                     value={department}
                     onChange={e => setDepartment(e.target.value as any)}
-                    className="w-full bg-[#181818] border border-[#2d2d2d] rounded-lg pl-9 pr-3 py-2 text-xs text-white focus:border-[#bef264] outline-none"
+                    className="w-full bg-[#181818] border border-[#2d2d2d] rounded-lg pl-11 pr-3 py-2 text-xs text-white focus:border-[#bef264] outline-none"
                   >
                     <option value="Management">Management</option>
                     <option value="Sales">Sales &amp; Business Dev</option>
@@ -193,12 +193,12 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onCl
               <div>
                 <label className="block text-xs font-semibold text-gray-300 mb-1">Assigned Domain</label>
                 <div className="relative">
-                  <Globe className="w-4 h-4 text-gray-500 absolute left-3 top-2.5" />
+                  <Globe className="w-4 h-4 text-gray-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
                     type="text"
                     disabled
                     value={currentUser.assignedDomain || 'mysolarcrm.com.au'}
-                    className="w-full bg-[#1e1e1e] border border-[#282828] rounded-lg pl-9 pr-3 py-2 text-xs text-gray-400 font-mono"
+                    className="w-full bg-[#1e1e1e] border border-[#282828] rounded-lg pl-11 pr-3 py-2 text-xs text-gray-400 font-mono"
                   />
                 </div>
               </div>

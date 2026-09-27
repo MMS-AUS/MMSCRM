@@ -23,7 +23,10 @@ import {
   Zap,
   Battery,
   Cpu,
-  Download
+  Download,
+  Trash2,
+  AlertTriangle,
+  RefreshCw
 } from 'lucide-react';
 import { MetaAdsSyncModal } from '../modals/MetaAdsSyncModal';
 import { LeadEditModal } from '../leads/LeadEditModal';
@@ -40,8 +43,18 @@ export const LeadsView: React.FC<{ onNavigateToProjects: () => void }> = ({ onNa
     setIsQuickSmsOpen,
     dropdowns,
     syncGoogleSheetLeads,
+    deleteLead,
+    deleteLeads,
+    deleteDummyLeads,
+    clearAllLeads,
     leadsViewMode: viewMode,
-    setLeadsViewMode: setViewMode
+    setLeadsViewMode: setViewMode,
+    googleSheetUrl,
+    isSheetAutoSyncEnabled,
+    sheetAutoSyncInterval,
+    isSheetSyncing,
+    lastSheetSyncTime,
+    performGoogleSheetSync
   } = useApp();
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -50,11 +63,22 @@ export const LeadsView: React.FC<{ onNavigateToProjects: () => void }> = ({ onNa
   const [platformFilter, setPlatformFilter] = useState<string>('all');
   const [areaFilter, setAreaFilter] = useState<string>('all');
   const [salesPersonFilter, setSalesPersonFilter] = useState<string>('all');
+  const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
 
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
   const [isLeadModalOpen, setIsLeadModalOpen] = useState(false);
   const [editingLead, setEditingLead] = useState<Lead | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
+
+  // In-App Delete Confirmation Modal state (never blocked by iframe sandboxes)
+  const [confirmModal, setConfirmModal] = useState<{
+    type: 'single' | 'selected' | 'dummy' | 'all';
+    title: string;
+    description: string;
+    leadId?: string;
+    leadName?: string;
+    count?: number;
+  } | null>(null);
 
   const filteredLeads = leads.filter(l => {
     const q = searchTerm.toLowerCase();
@@ -108,10 +132,135 @@ export const LeadsView: React.FC<{ onNavigateToProjects: () => void }> = ({ onNa
     }
   };
 
-  const handleQuickSyncSheet = () => {
-    const count = syncGoogleSheetLeads();
-    setFeedback(`Synced and auto-populated ${count} leads from linked Google Sheet.`);
-    setTimeout(() => setFeedback(null), 5000);
+  const handleDeleteLead = (lead: Lead) => {
+    const name = lead.customerName || `${lead.firstName || ''} ${lead.lastName || ''}`.trim() || 'this lead';
+    setConfirmModal({
+      type: 'single',
+      title: 'Delete Lead',
+      description: `Are you sure you want to permanently delete "${name}"? This action cannot be undone.`,
+      leadId: lead.id,
+      leadName: name
+    });
+  };
+
+  const handleDeleteSelected = () => {
+    if (selectedLeadIds.length === 0) return;
+    setConfirmModal({
+      type: 'selected',
+      title: `Delete ${selectedLeadIds.length} Selected Lead(s)`,
+      description: `Are you sure you want to permanently delete all ${selectedLeadIds.length} selected lead(s)? This action cannot be undone.`,
+      count: selectedLeadIds.length
+    });
+  };
+
+  const handleClearAllDummyLeads = () => {
+    const dummyNames = [
+      'callum fletcher',
+      'ashleigh miller',
+      'declan macarthur',
+      'andrew gerber',
+      'tarek assad',
+      'rojin piya',
+      'sheet lead'
+    ];
+    const detectedDummyLeads = leads.filter(l => {
+      const full = `${l.firstName || ''} ${l.lastName || ''}`.trim().toLowerCase();
+      const cust = (l.customerName || '').trim().toLowerCase();
+      const id = (l.id || '').toLowerCase();
+      return (
+        dummyNames.includes(full) ||
+        dummyNames.includes(cust) ||
+        id.includes('lead-andrew-') ||
+        id.includes('lead-tarek-') ||
+        id.includes('lead-rojin-') ||
+        id.includes('lead-sheet-') ||
+        id.includes('dummy')
+      );
+    });
+
+    if (detectedDummyLeads.length > 0) {
+      setConfirmModal({
+        type: 'dummy',
+        title: 'Delete Sample Dummy Leads',
+        description: `Permanently remove all ${detectedDummyLeads.length} sample dummy lead(s) (Callum, Ashleigh, Declan, Andrew, Tarek, Rojin)? Real customer leads will not be affected.`,
+        count: detectedDummyLeads.length
+      });
+    } else {
+      setConfirmModal({
+        type: 'all',
+        title: 'No Dummy Leads Found - Clear All?',
+        description: `No automatic sample leads were detected. Would you like to clear ALL ${leads.length} leads in the system to start with a fresh blank slate?`,
+        count: leads.length
+      });
+    }
+  };
+
+  const handleClearAllLeads = () => {
+    if (leads.length === 0) {
+      setFeedback('There are currently 0 leads in the system.');
+      setTimeout(() => setFeedback(null), 3000);
+      return;
+    }
+    setConfirmModal({
+      type: 'all',
+      title: 'Clear All Leads in CRM',
+      description: `WARNING: Are you sure you want to permanently delete ALL ${leads.length} lead(s) in the system? This action cannot be undone and will completely wipe all lead records.`,
+      count: leads.length
+    });
+  };
+
+  const handleConfirmAction = () => {
+    if (!confirmModal) return;
+
+    if (confirmModal.type === 'single' && confirmModal.leadId) {
+      deleteLead(confirmModal.leadId);
+      setSelectedLeadIds(prev => prev.filter(id => id !== confirmModal.leadId));
+      setFeedback(`Lead "${confirmModal.leadName || 'Lead'}" permanently deleted.`);
+    } else if (confirmModal.type === 'selected') {
+      const count = selectedLeadIds.length;
+      deleteLeads(selectedLeadIds);
+      setSelectedLeadIds([]);
+      setFeedback(`Successfully deleted ${count} selected lead(s).`);
+    } else if (confirmModal.type === 'dummy') {
+      const count = deleteDummyLeads();
+      setSelectedLeadIds([]);
+      setFeedback(`Successfully removed ${count || confirmModal.count || 0} sample dummy lead(s).`);
+    } else if (confirmModal.type === 'all') {
+      const count = leads.length;
+      clearAllLeads();
+      setSelectedLeadIds([]);
+      setFeedback(`Permanently deleted all ${count} leads.`);
+    }
+
+    setConfirmModal(null);
+    setTimeout(() => setFeedback(null), 4000);
+  };
+
+  const handleQuickSyncSheet = async () => {
+    if (!googleSheetUrl) {
+      setIsSyncModalOpen(true);
+      return;
+    }
+
+    try {
+      setFeedback('Syncing latest leads from Google Sheet...');
+      const res = await performGoogleSheetSync();
+      if (res.success) {
+        if (res.addedCount > 0) {
+          setFeedback(`⚡ Google Sheet Synced: ${res.addedCount} new lead(s) ingested (${res.duplicateCount} existing leads safely skipped).`);
+        } else {
+          setFeedback(`⚡ Google Sheet Synced: All ${res.totalRows} leads in your sheet already exist in the system. 0 duplicate leads added.`);
+        }
+      } else {
+        setFeedback(`Google Sheet notice: ${res.error || 'Check spreadsheet permissions'}`);
+        if (res.isPrivate) {
+          setIsSyncModalOpen(true);
+        }
+      }
+    } catch (e: any) {
+      setFeedback('Sync error: ' + (e.message || 'Network error'));
+    }
+    setTimeout(() => setFeedback(null), 6000);
   };
 
   const leadStages = [
@@ -159,22 +308,83 @@ export const LeadsView: React.FC<{ onNavigateToProjects: () => void }> = ({ onNa
             <span>Download Format</span>
           </button>
 
+          {/* Live Auto-Sync Status Indicator */}
+          {googleSheetUrl ? (
+            <button
+              type="button"
+              onClick={() => setIsSyncModalOpen(true)}
+              className={`px-3 py-1.5 rounded-lg border text-xs font-semibold shadow-xs flex items-center gap-2 transition-all ${
+                isSheetAutoSyncEnabled
+                  ? 'bg-emerald-950/30 text-emerald-300 border-emerald-800/50 hover:bg-emerald-900/40'
+                  : 'bg-[#1e1e1e] text-gray-400 border-[#2d2d2d] hover:text-white'
+              }`}
+              title={`Google Sheet live background auto-sync is ${isSheetAutoSyncEnabled ? `ACTIVE (polling every ${sheetAutoSyncInterval}s)` : 'PAUSED'}. Click to configure settings.`}
+            >
+              <span className="relative flex h-2 w-2">
+                {isSheetAutoSyncEnabled ? (
+                  <>
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                  </>
+                ) : (
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-gray-500"></span>
+                )}
+              </span>
+              <span>{isSheetSyncing ? 'Auto-Syncing...' : isSheetAutoSyncEnabled ? `Auto-Sync (${sheetAutoSyncInterval}s)` : 'Auto-Sync Paused'}</span>
+            </button>
+          ) : null}
+
           <button
             onClick={handleQuickSyncSheet}
-            className="px-3.5 py-1.5 rounded-lg bg-[#1e1e1e] hover:bg-[#262626] text-white border border-[#2d2d2d] text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-colors"
-            title="Fetch and auto-populate all fields from linked Google Sheet"
+            disabled={isSheetSyncing}
+            className="px-3.5 py-1.5 rounded-lg bg-[#1e1e1e] hover:bg-[#262626] text-white border border-[#2d2d2d] text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-colors disabled:opacity-60"
+            title="Fetch and auto-populate new rows from linked Google Sheet without creating duplicates"
           >
-            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
-            <span className="hidden sm:inline">Sync Google Sheet</span>
+            {isSheetSyncing ? (
+              <RefreshCw className="w-3.5 h-3.5 text-emerald-400 animate-spin" />
+            ) : (
+              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
+            )}
+            <span className="hidden sm:inline">{isSheetSyncing ? 'Syncing...' : 'Sync Google Sheet'}</span>
           </button>
 
           <button
             onClick={() => setIsSyncModalOpen(true)}
             className="px-3 py-1.5 rounded-lg bg-[#1e1e1e] hover:bg-[#262626] text-gray-300 border border-[#2d2d2d] text-xs font-medium transition-colors"
-            title="Configure Google Sheet webhook and column mapping"
+            title="Configure Google Sheet link, auto-sync frequency, and deduplication rules"
           >
             Sheet Config
           </button>
+
+          {selectedLeadIds.length > 0 && (
+            <button
+              onClick={handleDeleteSelected}
+              className="px-3.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-xs flex items-center gap-1.5 transition-colors"
+              title="Delete all selected leads"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Delete Selected ({selectedLeadIds.length})</span>
+            </button>
+          )}
+
+          <button
+            onClick={handleClearAllDummyLeads}
+            className="px-3 py-1.5 rounded-lg bg-[#222] hover:bg-rose-950/40 text-rose-300 hover:text-rose-200 border border-rose-900/40 hover:border-rose-700/60 text-xs font-medium transition-colors flex items-center gap-1.5"
+            title="Permanently remove sample dummy leads (Callum, Ashleigh, Declan, Andrew, Tarek, Rojin)"
+          >
+            <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+            <span className="hidden sm:inline">Delete Dummy Leads</span>
+          </button>
+
+          {leads.length > 0 && (
+            <button
+              onClick={handleClearAllLeads}
+              className="px-3 py-1.5 rounded-lg bg-[#1a1414] hover:bg-rose-950/60 text-gray-400 hover:text-rose-300 border border-[#332222] hover:border-rose-900/60 text-xs font-medium transition-colors flex items-center gap-1.5"
+              title="Permanently wipe all leads in the system"
+            >
+              <span>Clear All Leads</span>
+            </button>
+          )}
 
           <button
             onClick={handleOpenAddModal}
@@ -205,13 +415,13 @@ export const LeadsView: React.FC<{ onNavigateToProjects: () => void }> = ({ onNa
       <div className="bg-[#181818] p-4 rounded-xl border border-[#262626] shadow-xs space-y-3">
         <div className="flex flex-col sm:flex-row items-center gap-3">
           <div className="relative flex-1 w-full">
-            <Search className="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
+            <Search className="w-4 h-4 text-gray-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
               placeholder="Search leads by customer, phone, email, address, suburb, postcode, rep..."
-              className="w-full text-xs pl-9 pr-4 py-2 rounded-lg bg-[#121212] border border-[#262626] text-white placeholder:text-gray-500 outline-none focus:border-[#bef264]"
+              className="w-full text-xs pl-11 pr-4 py-2 rounded-lg bg-[#121212] border border-[#262626] text-white placeholder:text-gray-500 outline-none focus:border-[#bef264]"
             />
           </div>
 
@@ -398,6 +608,13 @@ export const LeadsView: React.FC<{ onNavigateToProjects: () => void }> = ({ onNa
                                 title="Edit All 23 Lead Fields"
                               >
                                 <Edit className="w-3 h-3" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteLead(lead)}
+                                className="p-1.5 rounded bg-[#262626] hover:bg-rose-950/50 text-gray-400 hover:text-rose-400 border border-[#333] hover:border-rose-800/50 transition-colors"
+                                title="Delete Lead"
+                              >
+                                <Trash2 className="w-3 h-3" />
                               </button>
                             </div>
 
@@ -602,6 +819,13 @@ export const LeadsView: React.FC<{ onNavigateToProjects: () => void }> = ({ onNa
                       <Edit className="w-3 h-3" />
                       <span>Edit</span>
                     </button>
+                    <button
+                      onClick={() => handleDeleteLead(lead)}
+                      className="p-2 rounded-lg bg-[#222] hover:bg-rose-950/50 text-gray-400 hover:text-rose-400 border border-[#2e2e2e] hover:border-rose-800/50 transition-colors"
+                      title="Delete Lead"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
                   </div>
 
                   {isConverted ? (
@@ -632,6 +856,20 @@ export const LeadsView: React.FC<{ onNavigateToProjects: () => void }> = ({ onNa
             <table className="w-full text-left text-xs">
               <thead className="bg-[#121212] text-gray-400 uppercase text-[10px] font-bold border-b border-[#262626] tracking-wider">
                 <tr>
+                  <th className="w-10 px-3 py-3 text-center">
+                    <input
+                      type="checkbox"
+                      checked={filteredLeads.length > 0 && selectedLeadIds.length === filteredLeads.length}
+                      onChange={e => {
+                        if (e.target.checked) {
+                          setSelectedLeadIds(filteredLeads.map(l => l.id));
+                        } else {
+                          setSelectedLeadIds([]);
+                        }
+                      }}
+                      className="rounded border-[#333] bg-[#121212] text-[#bef264] focus:ring-0 cursor-pointer"
+                    />
+                  </th>
                   <th className="px-4 py-3">Lead Date &amp; Customer</th>
                   <th className="px-4 py-3">Platform &amp; Sales Rep</th>
                   <th className="px-4 py-3">Address &amp; Suburb</th>
@@ -644,15 +882,30 @@ export const LeadsView: React.FC<{ onNavigateToProjects: () => void }> = ({ onNa
               <tbody className="divide-y divide-[#222]">
                 {filteredLeads.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
+                    <td colSpan={8} className="px-4 py-8 text-center text-gray-500">
                       No leads matching current search or filters.
                     </td>
                   </tr>
                 ) : (
                   filteredLeads.map(lead => {
                     const isConverted = lead.status === 'Converted to Project';
+                    const isSelected = selectedLeadIds.includes(lead.id);
                     return (
-                      <tr key={lead.id} className="hover:bg-[#202020] transition-colors">
+                      <tr key={lead.id} className={`hover:bg-[#202020] transition-colors ${isSelected ? 'bg-[#bef264]/5' : ''}`}>
+                        <td className="w-10 px-3 py-3 text-center">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={e => {
+                              if (e.target.checked) {
+                                setSelectedLeadIds(prev => [...prev, lead.id]);
+                              } else {
+                                setSelectedLeadIds(prev => prev.filter(id => id !== lead.id));
+                              }
+                            }}
+                            className="rounded border-[#333] bg-[#121212] text-[#bef264] focus:ring-0 cursor-pointer"
+                          />
+                        </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-1.5">
                             <span className="font-bold text-white text-xs hover:text-[#bef264] cursor-pointer" onClick={() => handleOpenEditModal(lead)}>
@@ -773,6 +1026,13 @@ export const LeadsView: React.FC<{ onNavigateToProjects: () => void }> = ({ onNa
                             >
                               <Edit className="w-3.5 h-3.5" />
                             </button>
+                            <button
+                              onClick={() => handleDeleteLead(lead)}
+                              className="p-1.5 rounded bg-[#222] hover:bg-rose-950/50 text-gray-400 hover:text-rose-400 border border-[#2e2e2e] hover:border-rose-800/50 transition-colors"
+                              title="Delete Lead"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
 
                             {isConverted ? (
                               <span className="text-[11px] font-bold text-emerald-400 px-2">Active</span>
@@ -806,6 +1066,45 @@ export const LeadsView: React.FC<{ onNavigateToProjects: () => void }> = ({ onNa
         onClose={() => setIsLeadModalOpen(false)}
         lead={editingLead}
       />
+
+      {/* In-App Delete Confirmation Modal (Bypasses iframe alert/confirm sandbox restrictions) */}
+      {confirmModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+          <div className="w-full max-w-md bg-[#181818] border border-rose-500/40 rounded-2xl p-6 shadow-2xl space-y-4 text-white">
+            <div className="flex items-center gap-3">
+              <div className="p-3 rounded-xl bg-rose-500/20 text-rose-400 border border-rose-500/30 shrink-0">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white">{confirmModal.title}</h3>
+                <p className="text-xs text-rose-300/80 font-medium">Permanent action &bull; No undo</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-gray-300 leading-relaxed bg-[#121212] p-3.5 rounded-xl border border-[#2a2a2a]">
+              {confirmModal.description}
+            </p>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setConfirmModal(null)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold bg-[#262626] hover:bg-[#333] text-gray-300 hover:text-white transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmAction}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white shadow-md flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Confirm &amp; Delete Now</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

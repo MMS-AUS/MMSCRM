@@ -188,7 +188,11 @@ import {
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  // In development, NGINX is on 8080 and proxies to DEFAULT_APP_PORT (3000).
+  // In production (Cloud Run), NGINX_PORT is undefined and Cloud Run sets PORT (8080).
+  const PORT = process.env.NGINX_PORT
+    ? parseInt(process.env.DEFAULT_APP_PORT || '3000', 10)
+    : parseInt(process.env.PORT || process.env.DEFAULT_APP_PORT || '3000', 10);
 
   app.use(express.json());
   app.use(cookieParser());
@@ -264,6 +268,145 @@ async function startServer() {
       return res.status(404).json({ success: false, error: 'Schema file not found' });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // ============================================================================
+  // GOOGLE SHEETS LIVE SYNC & AUTO-SYNC ROUTES
+  // ============================================================================
+  const SHEET_SYNC_CONFIG_FILE = path.join(process.cwd(), '.google_sheet_sync_config.json');
+
+  const getSheetSyncConfig = () => {
+    try {
+      if (fs.existsSync(SHEET_SYNC_CONFIG_FILE)) {
+        return JSON.parse(fs.readFileSync(SHEET_SYNC_CONFIG_FILE, 'utf-8'));
+      }
+    } catch (e) {
+      console.error('Error reading sheet sync config:', e);
+    }
+    return {
+      sheetUrl: '',
+      autoSyncEnabled: true,
+      intervalSeconds: 30,
+      lastSyncTime: null
+    };
+  };
+
+  const saveSheetSyncConfig = (data: Record<string, any>) => {
+    try {
+      const current = getSheetSyncConfig();
+      const updated = { ...current, ...data };
+      fs.writeFileSync(SHEET_SYNC_CONFIG_FILE, JSON.stringify(updated, null, 2), 'utf-8');
+      return updated;
+    } catch (e) {
+      console.error('Error saving sheet sync config:', e);
+      return null;
+    }
+  };
+
+  app.get('/api/leads/sheet-sync-settings', (req, res) => {
+    res.json({ success: true, ...getSheetSyncConfig() });
+  });
+
+  app.post('/api/leads/sheet-sync-settings', (req, res) => {
+    const { sheetUrl, autoSyncEnabled, intervalSeconds, lastSyncTime } = req.body;
+    const updated = saveSheetSyncConfig({
+      ...(sheetUrl !== undefined && { sheetUrl: String(sheetUrl).trim() }),
+      ...(autoSyncEnabled !== undefined && { autoSyncEnabled: Boolean(autoSyncEnabled) }),
+      ...(intervalSeconds !== undefined && { intervalSeconds: Number(intervalSeconds) || 30 }),
+      ...(lastSyncTime !== undefined && { lastSyncTime })
+    });
+    res.json({ success: true, config: updated });
+  });
+
+  app.post('/api/leads/fetch-sheet', async (req, res) => {
+    try {
+      let { sheetUrl } = req.body;
+      if (!sheetUrl || typeof sheetUrl !== 'string') {
+        const stored = getSheetSyncConfig();
+        if (stored.sheetUrl) {
+          sheetUrl = stored.sheetUrl;
+        } else {
+          return res.status(400).json({ success: false, error: 'Google Sheet URL is required' });
+        }
+      }
+
+      sheetUrl = sheetUrl.trim();
+
+      // Automatically persist valid sheet URL to server config
+      saveSheetSyncConfig({ sheetUrl, lastSyncTime: new Date().toISOString() });
+
+      let csvExportUrl = '';
+
+      // 1. Check if user provided a published-to-web link: /d/e/2PACX-...
+      if (sheetUrl.includes('/d/e/') || sheetUrl.includes('/pub')) {
+        const pubMatch = sheetUrl.match(/\/d\/e\/([a-zA-Z0-9-_]+)/);
+        if (pubMatch && pubMatch[1]) {
+          csvExportUrl = `https://docs.google.com/spreadsheets/d/e/${pubMatch[1]}/pub?output=csv`;
+        } else if (sheetUrl.includes('/pub')) {
+          csvExportUrl = sheetUrl.replace(/\/pubhtml.*$/, '/pub?output=csv');
+          if (!csvExportUrl.includes('output=csv')) {
+            csvExportUrl += (csvExportUrl.includes('?') ? '&' : '?') + 'output=csv';
+          }
+        }
+      }
+
+      // 2. Standard Google Sheets URL: /d/SPREADSHEET_ID
+      if (!csvExportUrl) {
+        const match = sheetUrl.match(/\/d\/([a-zA-Z0-9-_]{20,})/);
+        if (!match || !match[1]) {
+          return res.status(400).json({
+            success: false,
+            error: 'Could not extract Google Spreadsheet ID from URL. Expected format: https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit'
+          });
+        }
+        const spreadsheetId = match[1];
+
+        // Extract gid if present (either ?gid=123, &gid=123, or #gid=123)
+        const gidMatch = sheetUrl.match(/[#?&]gid=([0-9]+)/);
+        const gid = gidMatch ? gidMatch[1] : '0';
+
+        csvExportUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=csv&id=${spreadsheetId}&gid=${gid}`;
+      }
+
+      // Append cache-buster timestamp query param to guarantee real-time fresh row updates
+      const nocacheParam = `_t=${Date.now()}`;
+      const finalFetchUrl = csvExportUrl + (csvExportUrl.includes('?') ? '&' : '?') + nocacheParam;
+
+      const response = await fetch(finalFetchUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Cache-Control': 'no-cache, no-store, max-age=0, must-revalidate',
+          'Pragma': 'no-cache'
+        },
+        redirect: 'follow'
+      });
+
+      const contentType = response.headers.get('content-type') || '';
+
+      // If redirected to Google Accounts login or HTML, sheet is private
+      if (contentType.includes('text/html') || response.status === 401 || response.status === 403) {
+        return res.json({
+          success: false,
+          isPrivate: true,
+          error: 'This Google Sheet is currently private or requires sign-in. To allow instant live syncing, in Google Sheets click "Share" (top-right) -> change General access from "Restricted" to "Anyone with the link can view". Alternatively, you can copy-paste the rows or upload your CSV directly into the CRM.'
+        });
+      }
+
+      if (!response.ok) {
+        return res.status(response.status).json({
+          success: false,
+          error: `Google Sheets responded with HTTP ${response.status}: ${response.statusText}`
+        });
+      }
+
+      const csvText = await response.text();
+      return res.json({
+        success: true,
+        csvText
+      });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: 'Failed to fetch sheet: ' + err.message });
     }
   });
 
@@ -3336,7 +3479,12 @@ async function startServer() {
   // ============================================================================
   // VITE DEV SERVER OR STATIC PRODUCTION SERVING
   // ============================================================================
-  if (process.env.NODE_ENV !== 'production') {
+  // In development, mount Vite middlewares; in production, serve dist/ statically
+  const isProd =
+    process.env.NODE_ENV === 'production' ||
+    (!process.env.NGINX_PORT && fs.existsSync(path.join(process.cwd(), 'dist', 'index.html')));
+
+  if (!isProd) {
     const vite = await createViteServer({
       server: { middlewareMode: true, host: '0.0.0.0', port: PORT },
       appType: 'spa'
@@ -3346,6 +3494,9 @@ async function startServer() {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
+      if (req.path.startsWith('/api/')) {
+        return res.status(404).json({ error: 'API route not found' });
+      }
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }

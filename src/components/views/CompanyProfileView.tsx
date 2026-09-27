@@ -623,12 +623,12 @@ export const CompanyProfileView: React.FC = () => {
               <div>
                 <label className="block text-xs font-semibold text-gray-300 mb-1">Company Contact Phone</label>
                 <div className="relative">
-                  <Phone className="w-4 h-4 text-gray-500 absolute left-3 top-2.5" />
+                  <Phone className="w-4 h-4 text-gray-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
                     type="text"
                     value={formData.phone}
                     onChange={e => handleInputChange('phone', e.target.value)}
-                    className="w-full bg-[#181818] border border-[#2d2d2d] rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-gray-500 focus:border-[#bef264] outline-none"
+                    className="w-full bg-[#181818] border border-[#2d2d2d] rounded-lg pl-11 pr-3 py-2 text-xs text-white placeholder-gray-500 focus:border-[#bef264] outline-none"
                   />
                 </div>
               </div>
@@ -636,12 +636,12 @@ export const CompanyProfileView: React.FC = () => {
               <div>
                 <label className="block text-xs font-semibold text-gray-300 mb-1">Company Email</label>
                 <div className="relative">
-                  <Mail className="w-4 h-4 text-gray-500 absolute left-3 top-2.5" />
+                  <Mail className="w-4 h-4 text-gray-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
                     type="email"
                     value={formData.email}
                     onChange={e => handleInputChange('email', e.target.value)}
-                    className="w-full bg-[#181818] border border-[#2d2d2d] rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-gray-500 focus:border-[#bef264] outline-none"
+                    className="w-full bg-[#181818] border border-[#2d2d2d] rounded-lg pl-11 pr-3 py-2 text-xs text-white placeholder-gray-500 focus:border-[#bef264] outline-none"
                   />
                 </div>
               </div>
@@ -649,12 +649,12 @@ export const CompanyProfileView: React.FC = () => {
               <div>
                 <label className="block text-xs font-semibold text-gray-300 mb-1">Headquarters Address</label>
                 <div className="relative">
-                  <MapPin className="w-4 h-4 text-gray-500 absolute left-3 top-2.5" />
+                  <MapPin className="w-4 h-4 text-gray-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
                     type="text"
                     value={formData.address}
                     onChange={e => handleInputChange('address', e.target.value)}
-                    className="w-full bg-[#181818] border border-[#2d2d2d] rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-gray-500 focus:border-[#bef264] outline-none"
+                    className="w-full bg-[#181818] border border-[#2d2d2d] rounded-lg pl-11 pr-3 py-2 text-xs text-white placeholder-gray-500 focus:border-[#bef264] outline-none"
                   />
                 </div>
               </div>
@@ -662,12 +662,12 @@ export const CompanyProfileView: React.FC = () => {
               <div>
                 <label className="block text-xs font-semibold text-gray-300 mb-1">Website URL</label>
                 <div className="relative">
-                  <Globe className="w-4 h-4 text-gray-500 absolute left-3 top-2.5" />
+                  <Globe className="w-4 h-4 text-gray-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
                     type="text"
                     value={formData.website}
                     onChange={e => handleInputChange('website', e.target.value)}
-                    className="w-full bg-[#181818] border border-[#2d2d2d] rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-gray-500 focus:border-[#bef264] outline-none"
+                    className="w-full bg-[#181818] border border-[#2d2d2d] rounded-lg pl-11 pr-3 py-2 text-xs text-white placeholder-gray-500 focus:border-[#bef264] outline-none"
                   />
                 </div>
               </div>
@@ -804,12 +804,12 @@ export const CompanyProfileView: React.FC = () => {
                         One-Time SMS Passcode / Password
                       </label>
                       <div className="relative">
-                        <Lock className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2" />
+                        <Lock className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                         <input
                           type="password"
                           disabled
                           value="••••••••"
-                          className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-8 pr-2.5 py-1.5 text-xs text-slate-800 outline-none"
+                          className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-9.5 pr-2.5 py-1.5 text-xs text-slate-800 outline-none"
                         />
                       </div>
                     </div>

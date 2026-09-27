@@ -149,13 +149,13 @@ export const CRMLoginScreen: React.FC<CRMLoginScreenProps> = ({ onOpenInviteScre
               Corporate Email Address
             </label>
             <div className="relative">
-              <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+              <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 type="email"
                 required
                 value={email}
                 onChange={e => setEmail(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-300 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-amber-500 focus:bg-white transition-colors"
+                className="w-full bg-slate-50 border border-slate-300 rounded-xl pl-11 pr-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-amber-500 focus:bg-white transition-colors"
                 placeholder="you@mysolarcrm.com.au"
               />
             </div>
@@ -170,13 +170,13 @@ export const CRMLoginScreen: React.FC<CRMLoginScreenProps> = ({ onOpenInviteScre
                 </span>
               </div>
               <div className="relative">
-                <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                 <input
                   type="password"
                   required
                   value={password}
                   onChange={e => setPassword(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-300 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-amber-500 focus:bg-white transition-colors"
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl pl-11 pr-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-amber-500 focus:bg-white transition-colors"
                 />
               </div>
             </div>

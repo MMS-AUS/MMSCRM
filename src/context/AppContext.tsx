@@ -88,6 +88,7 @@ import {
   formatAudAccounts,
   parseAudAccounts
 } from '../utils/australianPostcodes';
+import { parseGoogleSheetCsv, isLeadAlreadyInSystem } from '../utils/googleSheetsTemplate';
 import { dispatchSystemAlert, getPersonalEmailConfig } from '../services/systemAlertsEmailService';
 import { triggerCapiStageEvent } from '../services/metaAdsService';
 
@@ -184,11 +185,42 @@ interface AppContextType {
   leads: Lead[];
   addLead: (lead: Partial<Lead>) => Lead;
   updateLead: (id: string, lead: Partial<Lead>) => void;
+  deleteLead: (id: string) => void;
+  deleteLeads: (ids: string[]) => void;
+  deleteDummyLeads: () => number;
+  clearAllLeads: () => void;
+  importSheetCsv: (csvText: string) => { count: number; leads: Lead[] };
   convertLeadToProject: (leadId: string) => Project;
   syncGoogleSheetLeads: (customLeads?: Partial<Lead>[]) => number;
   addLeadActivity: (leadId: string, activity: Omit<LeadActivity, 'id' | 'createdAt'>) => void;
   toggleLeadActivityTask: (leadId: string, activityId: string) => void;
   deleteLeadActivity: (leadId: string, activityId: string) => void;
+
+  // Google Sheets Auto-Sync & Real-time Integration
+  googleSheetUrl: string;
+  setGoogleSheetUrl: (url: string) => void;
+  isSheetAutoSyncEnabled: boolean;
+  setIsSheetAutoSyncEnabled: (enabled: boolean) => void;
+  sheetAutoSyncInterval: number;
+  setSheetAutoSyncInterval: (seconds: number) => void;
+  isSheetSyncing: boolean;
+  lastSheetSyncTime: Date | null;
+  lastSheetSyncStats: {
+    addedCount: number;
+    duplicateCount: number;
+    totalRows: number;
+    timestamp: Date;
+    status: 'success' | 'error';
+    message: string;
+  } | null;
+  performGoogleSheetSync: (urlOverride?: string, silent?: boolean) => Promise<{
+    success: boolean;
+    addedCount: number;
+    duplicateCount: number;
+    totalRows: number;
+    error?: string;
+    isPrivate?: boolean;
+  }>;
 
   projects: Project[];
   addProject: (proj: Omit<Project, 'id' | 'projectCode'>) => Project;
@@ -483,8 +515,44 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [leads, setLeads] = useState<Lead[]>(() => {
     const saved = localStorage.getItem('solar_leads');
-    return saved ? JSON.parse(saved) : INITIAL_LEADS;
+    if (saved !== null) {
+      try {
+        const parsed: Lead[] = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          return parsed;
+        }
+      } catch {
+        // ignore
+      }
+    }
+    return [];
   });
+
+  // Google Sheets Auto-Sync state
+  const [googleSheetUrl, setGoogleSheetUrl] = useState<string>(() => {
+    return localStorage.getItem('google_sheet_lead_url') || '';
+  });
+  const [isSheetAutoSyncEnabled, setIsSheetAutoSyncEnabled] = useState<boolean>(() => {
+    const saved = localStorage.getItem('google_sheet_auto_sync_enabled');
+    return saved !== null ? saved === 'true' : true;
+  });
+  const [sheetAutoSyncInterval, setSheetAutoSyncInterval] = useState<number>(() => {
+    const saved = localStorage.getItem('google_sheet_sync_interval_seconds');
+    return saved ? Number(saved) || 30 : 30;
+  });
+  const [isSheetSyncing, setIsSheetSyncing] = useState<boolean>(false);
+  const [lastSheetSyncTime, setLastSheetSyncTime] = useState<Date | null>(() => {
+    const saved = localStorage.getItem('google_sheet_last_sync_time');
+    return saved ? new Date(saved) : null;
+  });
+  const [lastSheetSyncStats, setLastSheetSyncStats] = useState<{
+    addedCount: number;
+    duplicateCount: number;
+    totalRows: number;
+    timestamp: Date;
+    status: 'success' | 'error';
+    message: string;
+  } | null>(null);
 
   const [projects, setProjects] = useState<Project[]>(() => {
     try {
@@ -2442,91 +2510,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (customLeads && customLeads.length > 0) {
       incoming = customLeads;
     } else {
-      // Realistic leads fetched from connected Google Sheet
-      // Capturing data where available, leaving blank where data is not available
-      incoming = [
-        {
-          leadDate: todayDate,
-          platform: 'Meta Lead Ads (Facebook/Instagram)',
-          salesPersonName: 'Mitchell Barnes',
-          state: 'NSW',
-          postcode: '2230',
-          area: 'Metro',
-          nearestBigCity: 'Sydney',
-          status: 'New',
-          saleDate: '',
-          firstName: 'Callum',
-          lastName: 'Fletcher',
-          managerRenteeFirstName: 'Tania',
-          managerRenteeLastName: 'Fletcher',
-          address: '30 Gerrale Street',
-          suburb: 'Cronulla',
-          addressVerified: true,
-          primaryMobile: '0418 991 223',
-          secondaryMobile: '', // Blank where unavailable in sheet
-          email: 'callum.fletcher@gmail.com',
-          salesTeamNotes: 'Synced from Meta Lead Sheet row #78. High interest in battery package.',
-          systemPrice: 12400,
-          sellingPrice: 9100,
-          deposit: 0,
-          depositReceivedDate: '', // Blank where unavailable
-          sheetSyncRowId: `GSHEET_ROW_${Math.floor(70 + Math.random() * 20)}`
-        },
-        {
-          leadDate: todayDate,
-          platform: 'Google Search & PMax Ads',
-          salesPersonName: 'Chloe Gallagher',
-          state: 'QLD',
-          postcode: '4305',
-          area: 'Metro',
-          nearestBigCity: 'Brisbane',
-          status: 'Contract Signed',
-          saleDate: todayDate, // Auto populated
-          firstName: 'Ashleigh',
-          lastName: 'Miller',
-          managerRenteeFirstName: '', // Blank where unavailable in sheet
-          managerRenteeLastName: '', // Blank where unavailable in sheet
-          address: '50 Brisbane Street',
-          suburb: 'Ipswich',
-          addressVerified: true,
-          primaryMobile: '0433 112 998',
-          secondaryMobile: '0433 998 112',
-          email: 'ashleigh.m@outlook.com.au, info@millerproperties.com.au',
-          salesTeamNotes: 'Signed commercial solar agreement. Needs DNSP fast-track.',
-          systemPrice: 14900,
-          sellingPrice: 10800,
-          deposit: 1500,
-          depositReceivedDate: todayMmDdYyyy,
-          sheetSyncRowId: `GSHEET_ROW_${Math.floor(90 + Math.random() * 20)}`
-        },
-        {
-          leadDate: todayDate,
-          platform: 'Meta Lead Ads (Facebook/Instagram)',
-          salesPersonName: 'Liam Evans',
-          state: 'VIC',
-          postcode: '3220',
-          area: 'Regional',
-          nearestBigCity: 'Geelong',
-          status: 'Deposit Received',
-          saleDate: todayDate,
-          firstName: 'Declan',
-          lastName: 'Macarthur',
-          managerRenteeFirstName: '',
-          managerRenteeLastName: '',
-          address: '82 Moorabool Street',
-          suburb: 'Geelong',
-          addressVerified: true,
-          primaryMobile: '0455 223 881',
-          secondaryMobile: '',
-          email: 'declan.m@geelongsolar.com.au',
-          salesTeamNotes: 'Deposit received via card. Ready for engineering assessment.',
-          systemPrice: 11500,
-          sellingPrice: 8200,
-          deposit: 1000,
-          depositReceivedDate: todayMmDdYyyy,
-          sheetSyncRowId: `GSHEET_ROW_${Math.floor(110 + Math.random() * 20)}`
-        }
-      ];
+      // Check if there is saved CSV or sheet data in localStorage
+      const savedCsv = localStorage.getItem('last_synced_sheet_csv');
+      if (savedCsv) {
+        incoming = parseGoogleSheetCsv(savedCsv);
+      }
+      if (incoming.length === 0) {
+        // Return 0 if no leads were provided or found (never inject fake dummy leads silently)
+        return 0;
+      }
     }
 
     const mappedLeads: Lead[] = incoming.map((raw, idx) => {
@@ -2552,6 +2544,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       return {
         id: raw.id || `lead-sheet-${Date.now()}-${idx}-${Math.floor(Math.random() * 1000)}`,
+        projectNumber: raw.projectNumber || undefined,
         leadDate: raw.leadDate || todayDate,
         platform: raw.platform || (dropdowns.platforms?.[0] || 'Meta Lead Ads (Facebook/Instagram)'),
         salesPersonName: raw.salesPersonName || (dropdowns.salesPersons?.[0] || 'Mitchell Barnes'),
@@ -2587,14 +2580,291 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         phaseType: raw.phaseType || 'Single Phase',
         quarterlyBillAud: raw.quarterlyBillAud || 950,
         source: raw.platform || 'Google Sheet Sync',
-        sheetSyncRowId: raw.sheetSyncRowId || `GSHEET_ROW_${Math.floor(100 + Math.random() * 900)}`,
+        sheetSyncRowId: raw.sheetSyncRowId || `GSHEET_ROW_${idx + 1}`,
         createdAt: raw.leadDate || todayDate,
         assignedTo: raw.salesPersonName || (dropdowns.salesPersons?.[0] || 'Mitchell Barnes')
       };
     });
 
-    setLeads(prev => [...mappedLeads, ...prev]);
-    return mappedLeads.length;
+    // Deduplication check:
+    // Only accept candidate if not already found in current system leads OR earlier in this incoming batch.
+    // If a lead was previously added and then deleted by user, it is no longer in the system,
+    // so it CAN be re-added as requested ("unless, you do not find it in the system").
+    const newOnly: Lead[] = [];
+    const currentLeadsSnapshot = [...leads];
+
+    for (const candidate of mappedLeads) {
+      const matchResult = isLeadAlreadyInSystem(candidate, [...currentLeadsSnapshot, ...newOnly]);
+      if (!matchResult.isDuplicate) {
+        newOnly.push(candidate);
+      }
+    }
+
+    if (newOnly.length > 0) {
+      setLeads(prev => {
+        const strictlyNew = newOnly.filter(c => !isLeadAlreadyInSystem(c, prev).isDuplicate);
+        if (strictlyNew.length === 0) return prev;
+        const next = [...strictlyNew, ...prev];
+        try {
+          localStorage.setItem('solar_leads', JSON.stringify(next));
+        } catch (e) {
+          console.error('Failed to save solar_leads', e);
+        }
+        return next;
+      });
+    }
+
+    return newOnly.length;
+  };
+
+  const performGoogleSheetSync = async (
+    urlOverride?: string,
+    silent = false
+  ): Promise<{
+    success: boolean;
+    addedCount: number;
+    duplicateCount: number;
+    totalRows: number;
+    error?: string;
+    isPrivate?: boolean;
+  }> => {
+    const targetUrl = (urlOverride || googleSheetUrl || localStorage.getItem('google_sheet_lead_url') || '').trim();
+    if (!targetUrl) {
+      return { success: false, addedCount: 0, duplicateCount: 0, totalRows: 0, error: 'No Google Sheet link configured' };
+    }
+
+    setIsSheetSyncing(true);
+    try {
+      if (targetUrl !== googleSheetUrl) {
+        setGoogleSheetUrl(targetUrl);
+      }
+      localStorage.setItem('google_sheet_lead_url', targetUrl);
+
+      // Save to server sync config for background continuity
+      fetch('/api/leads/sheet-sync-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sheetUrl: targetUrl, lastSyncTime: new Date().toISOString() })
+      }).catch(() => {});
+
+      const res = await fetch('/api/leads/fetch-sheet', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sheetUrl: targetUrl })
+      });
+
+      const data = await res.json();
+      if (!data.success) {
+        const errorMsg = data.error || 'Failed to fetch Google Sheet data.';
+        setLastSheetSyncStats({
+          addedCount: 0,
+          duplicateCount: 0,
+          totalRows: 0,
+          timestamp: new Date(),
+          status: 'error',
+          message: errorMsg
+        });
+        return {
+          success: false,
+          addedCount: 0,
+          duplicateCount: 0,
+          totalRows: 0,
+          error: errorMsg,
+          isPrivate: data.isPrivate
+        };
+      }
+
+      const csvText = data.csvText || '';
+      if (!csvText.trim()) {
+        const msg = 'Google Sheet returned empty data.';
+        return { success: false, addedCount: 0, duplicateCount: 0, totalRows: 0, error: msg };
+      }
+
+      localStorage.setItem('last_synced_sheet_csv', csvText);
+      const parsed = parseGoogleSheetCsv(csvText);
+
+      if (parsed.length === 0) {
+        const msg = 'Could not detect lead rows in sheet. Ensure sheet has headers like Customer Name, Mobile, Email, Address.';
+        return { success: false, addedCount: 0, duplicateCount: 0, totalRows: 0, error: msg };
+      }
+
+      const added = syncGoogleSheetLeads(parsed);
+      const duplicateCount = parsed.length - added;
+      const now = new Date();
+
+      setLastSheetSyncTime(now);
+      localStorage.setItem('google_sheet_last_sync_time', now.toISOString());
+
+      const successMsg = added > 0
+        ? `Ingested ${added} new lead(s) from Google Sheet (${duplicateCount} existing leads skipped).`
+        : `All ${parsed.length} sheet rows are already in CRM. 0 duplicates added.`;
+
+      setLastSheetSyncStats({
+        addedCount: added,
+        duplicateCount,
+        totalRows: parsed.length,
+        timestamp: now,
+        status: 'success',
+        message: successMsg
+      });
+
+      if (!silent && added > 0) {
+        addNotification({
+          type: 'lead',
+          title: 'Google Sheet Ingestion',
+          message: `Ingested ${added} new lead(s) from linked Google Sheet.`
+        });
+      }
+
+      return {
+        success: true,
+        addedCount: added,
+        duplicateCount,
+        totalRows: parsed.length
+      };
+    } catch (err: any) {
+      const errorMsg = 'Sync error: ' + (err.message || 'Network error');
+      setLastSheetSyncStats({
+        addedCount: 0,
+        duplicateCount: 0,
+        totalRows: 0,
+        timestamp: new Date(),
+        status: 'error',
+        message: errorMsg
+      });
+      return { success: false, addedCount: 0, duplicateCount: 0, totalRows: 0, error: errorMsg };
+    } finally {
+      setIsSheetSyncing(false);
+    }
+  };
+
+  // Google Sheets Auto-Sync background listener and timer
+  useEffect(() => {
+    fetch('/api/leads/sheet-sync-settings')
+      .then(r => r.json())
+      .then(d => {
+        if (d.success && d.sheetUrl && !googleSheetUrl) {
+          setGoogleSheetUrl(d.sheetUrl);
+          localStorage.setItem('google_sheet_lead_url', d.sheetUrl);
+        }
+        if (d.success && d.autoSyncEnabled !== undefined) {
+          setIsSheetAutoSyncEnabled(d.autoSyncEnabled);
+        }
+        if (d.success && d.intervalSeconds) {
+          setSheetAutoSyncInterval(d.intervalSeconds);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!isSheetAutoSyncEnabled || !googleSheetUrl.trim()) return;
+
+    // Initial sync after link configured or page loaded
+    const initialTimeout = setTimeout(() => {
+      performGoogleSheetSync(undefined, true);
+    }, 2500);
+
+    // Periodic interval
+    const intervalMs = Math.max(10, sheetAutoSyncInterval) * 1000;
+    const intervalId = setInterval(() => {
+      performGoogleSheetSync(undefined, true);
+    }, intervalMs);
+
+    // Sync when user returns to this browser tab
+    const handleFocus = () => {
+      performGoogleSheetSync(undefined, true);
+    };
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      clearTimeout(initialTimeout);
+      clearInterval(intervalId);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [isSheetAutoSyncEnabled, googleSheetUrl, sheetAutoSyncInterval]);
+
+  const deleteLead = (leadId: string) => {
+    setLeads(prev => {
+      const next = prev.filter(l => l.id !== leadId);
+      try {
+        localStorage.setItem('solar_leads', JSON.stringify(next));
+      } catch (e) {
+        console.error('Failed to save solar_leads', e);
+      }
+      return next;
+    });
+  };
+
+  const deleteLeads = (leadIds: string[]) => {
+    const idSet = new Set(leadIds);
+    setLeads(prev => {
+      const next = prev.filter(l => !idSet.has(l.id));
+      try {
+        localStorage.setItem('solar_leads', JSON.stringify(next));
+      } catch (e) {
+        console.error('Failed to save solar_leads', e);
+      }
+      return next;
+    });
+  };
+
+  const deleteDummyLeads = (): number => {
+    const dummyNames = [
+      'callum fletcher',
+      'ashleigh miller',
+      'declan macarthur',
+      'andrew gerber',
+      'tarek assad',
+      'rojin piya',
+      'sheet lead'
+    ];
+
+    const isDummyLead = (l: Lead) => {
+      const fName = (l.firstName || '').trim().toLowerCase();
+      const lName = (l.lastName || '').trim().toLowerCase();
+      const full = `${fName} ${lName}`.trim();
+      const cName = (l.customerName || '').trim().toLowerCase();
+      const id = (l.id || '').toLowerCase();
+
+      return (
+        dummyNames.includes(full) ||
+        dummyNames.includes(cName) ||
+        id.includes('lead-andrew-') ||
+        id.includes('lead-tarek-') ||
+        id.includes('lead-rojin-') ||
+        id.includes('lead-sheet-') ||
+        id.includes('dummy')
+      );
+    };
+
+    const remaining = leads.filter(l => !isDummyLead(l));
+    const count = leads.length - remaining.length;
+    setLeads(remaining);
+    try {
+      localStorage.setItem('solar_leads', JSON.stringify(remaining));
+    } catch (e) {
+      console.error('Failed to save solar_leads', e);
+    }
+    return count;
+  };
+
+  const clearAllLeads = () => {
+    setLeads([]);
+    try {
+      localStorage.setItem('solar_leads', JSON.stringify([]));
+    } catch (e) {
+      console.error('Failed to clear solar_leads', e);
+    }
+  };
+
+  const importSheetCsv = (csvText: string): { count: number; leads: Lead[] } => {
+    const parsed = parseGoogleSheetCsv(csvText);
+    if (!parsed || parsed.length === 0) {
+      return { count: 0, leads: [] };
+    }
+    const count = syncGoogleSheetLeads(parsed);
+    return { count, leads: [] };
   };
 
   // Project Handlers
@@ -3507,11 +3777,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         leads,
         addLead,
         updateLead,
+        deleteLead,
+        deleteLeads,
+        deleteDummyLeads,
+        clearAllLeads,
+        importSheetCsv,
         convertLeadToProject,
         syncGoogleSheetLeads,
         addLeadActivity,
         toggleLeadActivityTask,
         deleteLeadActivity,
+
+        // Google Sheets Auto-Sync
+        googleSheetUrl,
+        setGoogleSheetUrl,
+        isSheetAutoSyncEnabled,
+        setIsSheetAutoSyncEnabled,
+        sheetAutoSyncInterval,
+        setSheetAutoSyncInterval,
+        isSheetSyncing,
+        lastSheetSyncTime,
+        lastSheetSyncStats,
+        performGoogleSheetSync,
 
         projects,
         addProject,

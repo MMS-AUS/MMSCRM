@@ -529,13 +529,13 @@ export const ReferralBonusView: React.FC = () => {
       {/* Filter and Search Bar */}
       <div className="bg-[#1e1e1e] p-4 rounded-xl border border-[#2d2d2d] shadow-xs flex flex-col sm:flex-row items-center justify-between gap-3">
         <div className="relative flex-1 w-full">
-          <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
             type="text"
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
             placeholder="Search by referral code, referrer, referral name, phone, suburb, project code..."
-            className="w-full text-xs pl-9 pr-4 py-2 rounded-lg bg-[#121212] border border-[#262626] text-white placeholder:text-gray-500 outline-none focus:border-[#bef264]"
+            className="w-full text-xs pl-11 pr-4 py-2 rounded-lg bg-[#121212] border border-[#262626] text-white placeholder:text-gray-500 outline-none focus:border-[#bef264]"
           />
         </div>
 
@@ -1013,7 +1013,7 @@ export const ReferralBonusView: React.FC = () => {
                     Referral Amount (AUD Account Currency) <span className="text-rose-400">*</span>
                   </label>
                   <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-gray-400 text-xs">
+                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 font-bold text-gray-400 text-xs pointer-events-none">
                       $ AUD
                     </span>
                     <input
@@ -1023,7 +1023,7 @@ export const ReferralBonusView: React.FC = () => {
                       value={referralAmount}
                       onChange={e => setReferralAmount(e.target.value)}
                       placeholder="500.00"
-                      className="w-full text-xs pl-16 pr-4 py-2.5 rounded-lg border border-[#262626] bg-[#121212] text-white font-mono font-bold focus:border-[#bef264] outline-none"
+                      className="w-full text-xs pl-20 pr-4 py-2.5 rounded-lg border border-[#262626] bg-[#121212] text-white font-mono font-bold focus:border-[#bef264] outline-none"
                       required
                     />
                   </div>

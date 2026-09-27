@@ -218,7 +218,7 @@ export const JoinERPSetPasswordScreen: React.FC<JoinERPSetPasswordScreenProps> =
               Create New Password
             </label>
             <div className="relative">
-              <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+              <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
                 <KeyRound className="w-4 h-4" />
               </div>
               <input
@@ -227,7 +227,7 @@ export const JoinERPSetPasswordScreen: React.FC<JoinERPSetPasswordScreenProps> =
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 placeholder="Enter at least 8 characters..."
-                className="w-full pl-9 pr-10 py-2.5 bg-white border border-slate-300 rounded-xl text-xs text-slate-900 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 outline-none transition-all placeholder:text-slate-400"
+                className="w-full pl-11 pr-10 py-2.5 bg-white border border-slate-300 rounded-xl text-xs text-slate-900 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 outline-none transition-all placeholder:text-slate-400"
               />
               <button
                 type="button"
@@ -244,7 +244,7 @@ export const JoinERPSetPasswordScreen: React.FC<JoinERPSetPasswordScreenProps> =
               Confirm Password
             </label>
             <div className="relative">
-              <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+              <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
                 <Lock className="w-4 h-4" />
               </div>
               <input
@@ -253,7 +253,7 @@ export const JoinERPSetPasswordScreen: React.FC<JoinERPSetPasswordScreenProps> =
                 value={confirmPassword}
                 onChange={e => setConfirmPassword(e.target.value)}
                 placeholder="Confirm your new password..."
-                className="w-full pl-9 pr-3 py-2.5 bg-white border border-slate-300 rounded-xl text-xs text-slate-900 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 outline-none transition-all placeholder:text-slate-400"
+                className="w-full pl-11 pr-3 py-2.5 bg-white border border-slate-300 rounded-xl text-xs text-slate-900 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 outline-none transition-all placeholder:text-slate-400"
               />
             </div>
           </div>

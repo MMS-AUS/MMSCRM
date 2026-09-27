@@ -153,12 +153,9 @@ export const CompaniesView: React.FC = () => {
   };
 
   const handleDeleteCompany = (comp: Company) => {
-    const confirmDelete = window.confirm(`Are you sure you want to delete company "${comp.name}"? This action cannot be undone.`);
-    if (confirmDelete) {
-      deleteCompany(comp.id);
-      setSuccessToast(`Company "${comp.name}" deleted.`);
-      setTimeout(() => setSuccessToast(null), 3500);
-    }
+    deleteCompany(comp.id);
+    setSuccessToast(`Company "${comp.name}" deleted.`);
+    setTimeout(() => setSuccessToast(null), 3500);
   };
 
   const filteredCompanies = companies.filter(c => {
@@ -251,13 +248,13 @@ export const CompaniesView: React.FC = () => {
       {/* Search & Filter Bar */}
       <div className="bg-[#1e1e1e] p-4 rounded-xl border border-[#2d2d2d] shadow-xs flex flex-col sm:flex-row items-center gap-3">
         <div className="relative flex-1 w-full">
-          <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
             type="text"
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
             placeholder="Search companies by name, ABN, suburb, owner..."
-            className="w-full text-xs pl-9 pr-4 py-2 rounded-lg bg-[#121212] border border-[#262626] text-white placeholder:text-gray-500 outline-none focus:border-[#bef264]"
+            className="w-full text-xs pl-11 pr-4 py-2 rounded-lg bg-[#121212] border border-[#262626] text-white placeholder:text-gray-500 outline-none focus:border-[#bef264]"
           />
         </div>
 

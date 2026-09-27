@@ -669,13 +669,13 @@ export const XeroSettingsModal: React.FC<XeroSettingsModalProps> = ({
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
                 <div className="flex items-center gap-2 flex-1 max-w-md">
                   <div className="relative flex-1">
-                    <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                     <input
                       type="text"
                       value={invoiceSearch}
                       onChange={e => setInvoiceSearch(e.target.value)}
                       placeholder="Search Invoice #, customer, reference..."
-                      className="w-full text-xs pl-8 pr-3 py-2 bg-[#141414] border border-[#262626] rounded-lg text-white outline-none focus:border-sky-400"
+                      className="w-full text-xs pl-9.5 pr-3 py-2 bg-[#141414] border border-[#262626] rounded-lg text-white outline-none focus:border-sky-400"
                     />
                   </div>
 
@@ -836,13 +836,13 @@ export const XeroSettingsModal: React.FC<XeroSettingsModalProps> = ({
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="flex items-center gap-2 flex-1 max-w-md">
                   <div className="relative flex-1">
-                    <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                     <input
                       type="text"
                       value={quoteSearch}
                       onChange={e => setQuoteSearch(e.target.value)}
                       placeholder="Search Quote #, customer, title..."
-                      className="w-full text-xs pl-8 pr-3 py-2 bg-[#141414] border border-[#262626] rounded-lg text-white outline-none focus:border-sky-400"
+                      className="w-full text-xs pl-9.5 pr-3 py-2 bg-[#141414] border border-[#262626] rounded-lg text-white outline-none focus:border-sky-400"
                     />
                   </div>
 
@@ -1010,13 +1010,13 @@ export const XeroSettingsModal: React.FC<XeroSettingsModalProps> = ({
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="flex items-center gap-2 flex-1 max-w-md">
                   <div className="relative flex-1">
-                    <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                     <input
                       type="text"
                       value={billSearch}
                       onChange={e => setBillSearch(e.target.value)}
                       placeholder="Search Bill #, vendor, reference..."
-                      className="w-full text-xs pl-8 pr-3 py-2 bg-[#141414] border border-[#262626] rounded-lg text-white outline-none focus:border-sky-400"
+                      className="w-full text-xs pl-9.5 pr-3 py-2 bg-[#141414] border border-[#262626] rounded-lg text-white outline-none focus:border-sky-400"
                     />
                   </div>
 
@@ -1195,13 +1195,13 @@ export const XeroSettingsModal: React.FC<XeroSettingsModalProps> = ({
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="flex items-center gap-2 flex-1 max-w-md">
                   <div className="relative flex-1">
-                    <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                     <input
                       type="text"
                       value={contactSearch}
                       onChange={e => setContactSearch(e.target.value)}
                       placeholder="Search name, email, Xero Contact ID..."
-                      className="w-full text-xs pl-8 pr-3 py-2 bg-[#141414] border border-[#262626] rounded-lg text-white outline-none focus:border-sky-400"
+                      className="w-full text-xs pl-9.5 pr-3 py-2 bg-[#141414] border border-[#262626] rounded-lg text-white outline-none focus:border-sky-400"
                     />
                   </div>
 

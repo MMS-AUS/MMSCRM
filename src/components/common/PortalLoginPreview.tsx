@@ -175,9 +175,9 @@ export const PortalLoginPreview: React.FC<PortalLoginPreviewProps> = ({
             </label>
             <div className="relative">
               {loginMethod === 'sms' ? (
-                <Smartphone className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <Smartphone className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
               ) : (
-                <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
               )}
               <input
                 type={loginMethod === 'sms' ? 'tel' : 'email'}
@@ -185,7 +185,7 @@ export const PortalLoginPreview: React.FC<PortalLoginPreviewProps> = ({
                 value={email}
                 onChange={e => setEmail(e.target.value)}
                 placeholder={loginMethod === 'sms' ? '+61 412 889 012' : 'user@domain.com'}
-                className="w-full bg-white border border-slate-300 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 rounded-lg pl-9 pr-3 py-2 text-xs text-slate-900 outline-none font-mono transition-all placeholder-slate-400"
+                className="w-full bg-white border border-slate-300 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 rounded-lg pl-11 pr-3 py-2 text-xs text-slate-900 outline-none font-mono transition-all placeholder-slate-400"
               />
             </div>
           </div>
@@ -229,13 +229,13 @@ export const PortalLoginPreview: React.FC<PortalLoginPreviewProps> = ({
                 </button>
               </div>
               <div className="relative">
-                <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                 <input
                   type="password"
                   required
                   value={password}
                   onChange={e => setPassword(e.target.value)}
-                  className="w-full bg-white border border-slate-300 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 rounded-lg pl-9 pr-3 py-2 text-xs text-slate-900 outline-none transition-all placeholder-slate-400"
+                  className="w-full bg-white border border-slate-300 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 rounded-lg pl-11 pr-3 py-2 text-xs text-slate-900 outline-none transition-all placeholder-slate-400"
                 />
               </div>
             </div>
