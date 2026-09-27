@@ -19,10 +19,15 @@ import {
   ExternalLink,
   Sparkles,
   Search,
-  Filter
+  Filter,
+  Database,
+  Code2,
+  Download,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 
-interface ConfigField {
+export interface ConfigField {
   key: string;
   label: string;
   category: 'supabase' | 'firebase' | 'azure_teams' | 'xero' | 'gmail' | 'solar' | 'general';
@@ -87,16 +92,275 @@ const CATEGORY_META: Record<
   }
 };
 
+export const DEFAULT_MANAGED_FIELDS: ConfigField[] = [
+  // Supabase
+  {
+    key: 'SUPABASE_URL',
+    label: 'Supabase Project URL',
+    category: 'supabase',
+    isSecret: false,
+    value: '',
+    isConfigured: false,
+    source: 'none',
+    placeholder: 'https://xyzcompany.supabase.co',
+    helpText: 'Found in Supabase Dashboard -> Project Settings -> API -> Project URL'
+  },
+  {
+    key: 'SUPABASE_ANON_KEY',
+    label: 'Supabase Anon / Public Key',
+    category: 'supabase',
+    isSecret: true,
+    value: '',
+    isConfigured: false,
+    source: 'none',
+    placeholder: 'eyJhbGciOi...',
+    helpText: 'Found in Supabase Project Settings -> API -> Project API keys (anon public)'
+  },
+  {
+    key: 'SUPABASE_SERVICE_ROLE_KEY',
+    label: 'Supabase Service Role Key (Secret)',
+    category: 'supabase',
+    isSecret: true,
+    value: '',
+    isConfigured: false,
+    source: 'none',
+    placeholder: 'eyJhbGciOi...',
+    helpText: 'Required for backend database operations and full CRM table access'
+  },
+  {
+    key: 'NEXT_PUBLIC_SUPABASE_URL',
+    label: 'Next Public Supabase URL (Mirror)',
+    category: 'supabase',
+    isSecret: false,
+    value: '',
+    isConfigured: false,
+    source: 'none',
+    placeholder: 'https://xyzcompany.supabase.co',
+    helpText: 'Mirrors SUPABASE_URL for client-side libraries'
+  },
+
+  // Firebase
+  {
+    key: 'VITE_FIREBASE_API_KEY',
+    label: 'Firebase Web API Key',
+    category: 'firebase',
+    isSecret: false,
+    value: '',
+    isConfigured: false,
+    source: 'none',
+    placeholder: 'AIzaSy...',
+    helpText: 'Found in Firebase Console -> Project Settings -> Your apps -> Web app config'
+  },
+  {
+    key: 'VITE_FIREBASE_PROJECT_ID',
+    label: 'Firebase Project ID',
+    category: 'firebase',
+    isSecret: false,
+    value: '',
+    isConfigured: false,
+    source: 'none',
+    placeholder: 'my-solar-crm-project',
+    helpText: 'Your unique Firebase project identifier'
+  },
+  {
+    key: 'VITE_FIREBASE_APP_ID',
+    label: 'Firebase App ID',
+    category: 'firebase',
+    isSecret: false,
+    value: '',
+    isConfigured: false,
+    source: 'none',
+    placeholder: '1:123456789:web:...',
+    helpText: 'The web app identifier from Firebase project settings'
+  },
+  {
+    key: 'VITE_FIREBASE_AUTH_DOMAIN',
+    label: 'Firebase Auth Domain',
+    category: 'firebase',
+    isSecret: false,
+    value: '',
+    isConfigured: false,
+    source: 'none',
+    placeholder: 'project-id.firebaseapp.com',
+    helpText: 'Authorized OAuth domain for client popups'
+  },
+
+  // Microsoft Teams & Azure Entra ID
+  {
+    key: 'AZURE_CLIENT_ID',
+    label: 'Azure Application (Client) ID',
+    category: 'azure_teams',
+    isSecret: false,
+    value: '',
+    isConfigured: false,
+    source: 'none',
+    placeholder: '00000000-0000-0000-0000-000000000000',
+    helpText: 'Application (client) ID from Microsoft Entra / Azure Portal App Registrations'
+  },
+  {
+    key: 'AZURE_TENANT_ID',
+    label: 'Azure Directory (Tenant) ID',
+    category: 'azure_teams',
+    isSecret: false,
+    value: '',
+    isConfigured: false,
+    source: 'none',
+    placeholder: '00000000-0000-0000-0000-000000000000 or common',
+    helpText: 'Directory (tenant) ID GUID, or "common" for multi-tenant accounts'
+  },
+  {
+    key: 'AZURE_CLIENT_SECRET',
+    label: 'Azure Client Secret Value',
+    category: 'azure_teams',
+    isSecret: true,
+    value: '',
+    isConfigured: false,
+    source: 'none',
+    placeholder: 'Value from Certificates & secrets',
+    helpText: 'Generated secret value from Azure Portal -> Certificates & secrets'
+  },
+
+  // Xero
+  {
+    key: 'XERO_CLIENT_ID',
+    label: 'Xero Client ID',
+    category: 'xero',
+    isSecret: false,
+    value: '',
+    isConfigured: false,
+    source: 'none',
+    placeholder: 'Xero App Client ID GUID',
+    helpText: 'From developer.xero.com -> My Apps -> Configuration'
+  },
+  {
+    key: 'XERO_CLIENT_SECRET',
+    label: 'Xero Client Secret',
+    category: 'xero',
+    isSecret: true,
+    value: '',
+    isConfigured: false,
+    source: 'none',
+    placeholder: 'Xero App Client Secret',
+    helpText: 'Generated secret from Xero Developer Portal'
+  },
+  {
+    key: 'XERO_REDIRECT_URI',
+    label: 'Xero Redirect URI',
+    category: 'xero',
+    isSecret: false,
+    value: '',
+    isConfigured: false,
+    source: 'none',
+    placeholder: 'https://<app-domain>/api/auth/xero/callback',
+    helpText: 'Must match authorized redirect URI configured in Xero Developer Portal'
+  },
+
+  // Gmail / Google Cloud
+  {
+    key: 'GMAIL_CLIENT_ID',
+    label: 'Google OAuth Client ID',
+    category: 'gmail',
+    isSecret: false,
+    value: '',
+    isConfigured: false,
+    source: 'none',
+    placeholder: 'xxxx.apps.googleusercontent.com',
+    helpText: 'From Google Cloud Console -> APIs & Services -> Credentials'
+  },
+  {
+    key: 'GMAIL_CLIENT_SECRET',
+    label: 'Google OAuth Client Secret',
+    category: 'gmail',
+    isSecret: true,
+    value: '',
+    isConfigured: false,
+    source: 'none',
+    placeholder: 'GOCSPX-...',
+    helpText: 'Client secret from Google Cloud OAuth credential'
+  },
+  {
+    key: 'GMAIL_REDIRECT_URI',
+    label: 'Google OAuth Redirect URI',
+    category: 'gmail',
+    isSecret: false,
+    value: '',
+    isConfigured: false,
+    source: 'none',
+    placeholder: 'https://<app-domain>/api/auth/gmail/callback',
+    helpText: 'Must match Authorized redirect URI in Google Cloud Console'
+  },
+
+  // Solar & Imagery APIs
+  {
+    key: 'OPENSOLAR_API_KEY',
+    label: 'OpenSolar API Key',
+    category: 'solar',
+    isSecret: true,
+    value: '',
+    isConfigured: false,
+    source: 'none',
+    placeholder: 'os_live_...',
+    helpText: 'API Key from OpenSolar settings for automatic project and BOM synchronization'
+  },
+  {
+    key: 'NEARMAP_API_KEY',
+    label: 'Nearmap High-Res Imagery Key',
+    category: 'solar',
+    isSecret: true,
+    value: '',
+    isConfigured: false,
+    source: 'none',
+    placeholder: 'nm_...',
+    helpText: 'Aerial rooftop CAD imagery for precise solar array layouts'
+  },
+
+  // General & App URLs
+  {
+    key: 'NEXT_PUBLIC_APP_URL',
+    label: 'Public Application URL',
+    category: 'general',
+    isSecret: false,
+    value: '',
+    isConfigured: false,
+    source: 'none',
+    placeholder: 'https://your-crm.example.com',
+    helpText: 'Canonical base URL of your CRM deployment'
+  },
+  {
+    key: 'APP_URL',
+    label: 'Internal App URL',
+    category: 'general',
+    isSecret: false,
+    value: '',
+    isConfigured: false,
+    source: 'none',
+    placeholder: 'https://your-crm.example.com',
+    helpText: 'Used for internal webhook routing and callback redirects'
+  }
+];
+
 export const ApiKeysSettingsTab: React.FC = () => {
-  const [fields, setFields] = useState<ConfigField[]>([]);
-  const [formValues, setFormValues] = useState<Record<string, string>>({});
+  // Start with default fields immediately so fields are never blank
+  const [fields, setFields] = useState<ConfigField[]>(DEFAULT_MANAGED_FIELDS);
+  const [formValues, setFormValues] = useState<Record<string, string>>(() => {
+    const map: Record<string, string> = {};
+    DEFAULT_MANAGED_FIELDS.forEach(f => {
+      map[f.key] = f.value || '';
+    });
+    return map;
+  });
   const [visibleSecrets, setVisibleSecrets] = useState<Record<string, boolean>>({});
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // Schema state
+  const [schemaSql, setSchemaSql] = useState<string>('');
+  const [isSchemaLoading, setIsSchemaLoading] = useState(false);
+  const [isSchemaOpen, setIsSchemaOpen] = useState(false);
 
   // Diagnostic ping states
   const [testingProvider, setTestingProvider] = useState<string | null>(null);
@@ -107,23 +371,70 @@ export const ApiKeysSettingsTab: React.FC = () => {
     try {
       const res = await fetch('/api/system/credentials');
       const data = await res.json();
-      if (data.success && Array.isArray(data.credentials)) {
+      if (data.success && Array.isArray(data.credentials) && data.credentials.length > 0) {
         setFields(data.credentials);
-        const map: Record<string, string> = {};
-        data.credentials.forEach((f: ConfigField) => {
-          map[f.key] = f.value || '';
+        setFormValues(prev => {
+          const map = { ...prev };
+          data.credentials.forEach((f: ConfigField) => {
+            if (f.value !== undefined && f.value !== '') {
+              map[f.key] = f.value;
+            }
+          });
+          return map;
         });
-        setFormValues(map);
       }
     } catch (err: any) {
-      setFeedback({ type: 'error', message: 'Failed to load credentials from server: ' + err.message });
+      console.warn('[Credentials] Failed to load server credentials:', err);
     } finally {
       setIsLoading(false);
     }
   };
 
+  const loadSchemaSql = async () => {
+    if (schemaSql) return;
+    setIsSchemaLoading(true);
+    try {
+      const res = await fetch('/api/system/schema-sql');
+      const data = await res.json();
+      if (data.success && data.sql) {
+        setSchemaSql(data.sql);
+      }
+    } catch (err) {
+      console.warn('[Schema] Failed to load schema SQL:', err);
+    } finally {
+      setIsSchemaLoading(false);
+    }
+  };
+
+  const copySchemaSql = async () => {
+    try {
+      let codeToCopy = schemaSql;
+      if (!codeToCopy) {
+        const res = await fetch('/api/system/schema-sql');
+        const data = await res.json();
+        if (data.success && data.sql) {
+          codeToCopy = data.sql;
+          setSchemaSql(data.sql);
+        }
+      }
+
+      if (codeToCopy) {
+        await navigator.clipboard.writeText(codeToCopy);
+        setCopiedKey('master_sql_schema');
+        setTimeout(() => setCopiedKey(null), 2500);
+        setFeedback({
+          type: 'success',
+          message: 'Master Supabase SQL migration script (22 CRM tables) copied to clipboard!'
+        });
+      }
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: 'Failed to copy SQL: ' + err.message });
+    }
+  };
+
   useEffect(() => {
     loadCredentials();
+    loadSchemaSql();
   }, []);
 
   const handleInputChange = (key: string, value: string) => {
@@ -474,6 +785,88 @@ export const ApiKeysSettingsTab: React.FC = () => {
         </div>
       </div>
 
+      {/* DEDICATED SUPABASE MASTER SQL MIGRATION SCRIPT CARD */}
+      {(selectedCategory === 'all' || selectedCategory === 'supabase') && (
+        <div className="p-5 bg-gradient-to-r from-[#0d1f18] via-[#122820] to-[#141414] border border-emerald-500/30 rounded-2xl space-y-3.5 shadow-sm">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                  <Database className="w-4 h-4" />
+                </div>
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <span>Supabase Master SQL Table Migration Script</span>
+                  <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                    22 CRM Tables
+                  </span>
+                </h3>
+              </div>
+              <p className="text-xs text-gray-300 max-w-3xl leading-relaxed">
+                Run this complete script in your Supabase project (<strong>SQL Editor &rarr; New Query &rarr; Paste &amp; Run</strong>). It automatically provisions all CRM tables for <code className="text-emerald-400 font-mono">leads</code>, <code className="text-emerald-400 font-mono">projects</code>, <code className="text-emerald-400 font-mono">jobs</code>, <code className="text-emerald-400 font-mono">contacts</code>, <code className="text-emerald-400 font-mono">project_documents</code>, <code className="text-emerald-400 font-mono">sync_queue</code>, and all third-party integrations (Xero, Gmail, WhatsApp, VoIPLine, MessageMedia, Teams) with Row Level Security &amp; indexes.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <a
+                href="/api/system/schema-sql?download=true"
+                download="supabase_mysolarcrm_master_schema.sql"
+                className="flex items-center gap-1.5 px-3 py-2 bg-[#1b2b24] hover:bg-[#23382f] text-emerald-300 hover:text-white border border-emerald-500/30 rounded-xl text-xs font-semibold transition-all"
+                title="Download .sql migration script file"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Download .sql</span>
+              </a>
+
+              <button
+                type="button"
+                onClick={copySchemaSql}
+                className="flex items-center gap-1.5 px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl text-xs font-bold transition-all shadow-xs"
+              >
+                {copiedKey === 'master_sql_schema' ? (
+                  <Check className="w-4 h-4 text-slate-950" />
+                ) : (
+                  <Copy className="w-4 h-4" />
+                )}
+                <span>{copiedKey === 'master_sql_schema' ? 'Copied Master SQL!' : 'Copy Master SQL'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const next = !isSchemaOpen;
+                  setIsSchemaOpen(next);
+                  if (next && !schemaSql) loadSchemaSql();
+                }}
+                className="flex items-center gap-1.5 px-3 py-2 bg-[#1b2b24] hover:bg-[#23382f] text-gray-300 hover:text-white border border-[#2f4239] rounded-xl text-xs font-semibold transition-all"
+              >
+                <Code2 className="w-3.5 h-3.5 text-emerald-400" />
+                <span>{isSchemaOpen ? 'Hide SQL' : 'View SQL Code'}</span>
+                {isSchemaOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+              </button>
+
+              <a
+                href="https://supabase.com/dashboard/project/_/sql"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 px-3 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-xl text-xs font-semibold transition-all"
+              >
+                <span>Supabase SQL Editor</span>
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+            </div>
+          </div>
+
+          {/* Expandable SQL Preview */}
+          {isSchemaOpen && (
+            <div className="pt-2">
+              <div className="p-3 bg-[#0a120e] border border-emerald-500/20 rounded-xl max-h-96 overflow-y-auto font-mono text-[11px] text-emerald-200/90 whitespace-pre">
+                {isSchemaLoading ? 'Loading full SQL schema...' : (schemaSql || 'Click "Copy Master SQL" or Download above to retrieve the full 22-table script.')}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Category Filter Pills & Search */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 max-w-full no-scrollbar">
@@ -521,12 +914,7 @@ export const ApiKeysSettingsTab: React.FC = () => {
 
       {/* Credentials Input List */}
       <div className="space-y-3">
-        {isLoading ? (
-          <div className="p-12 text-center text-gray-400 text-xs flex items-center justify-center gap-2">
-            <RefreshCw className="w-4 h-4 animate-spin text-[#bef264]" />
-            <span>Loading credentials registry...</span>
-          </div>
-        ) : filteredFields.length === 0 ? (
+        {filteredFields.length === 0 ? (
           <div className="p-8 text-center text-gray-500 text-xs bg-[#141414] border border-[#262626] rounded-xl">
             No variables match your current filter.
           </div>

@@ -249,6 +249,24 @@ async function startServer() {
     }
   });
 
+  app.get('/api/system/schema-sql', (req, res) => {
+    try {
+      const sqlPath = path.join(process.cwd(), 'supabase', 'full_schema.sql');
+      if (fs.existsSync(sqlPath)) {
+        const sql = fs.readFileSync(sqlPath, 'utf-8');
+        if (req.query.download === 'true') {
+          res.setHeader('Content-Type', 'application/sql');
+          res.setHeader('Content-Disposition', 'attachment; filename="supabase_mysolarcrm_master_schema.sql"');
+          return res.send(sql);
+        }
+        return res.json({ success: true, sql });
+      }
+      return res.status(404).json({ success: false, error: 'Schema file not found' });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   // ============================================================================
   // XERO OAUTH 2.0 API ROUTES
   // ============================================================================

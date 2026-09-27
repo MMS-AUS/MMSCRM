@@ -28,7 +28,10 @@ import {
   FileDown,
   BookOpen,
   Search,
-  Key
+  Key,
+  Database,
+  Copy,
+  ExternalLink
 } from 'lucide-react';
 import { UserProfile, UserRole, RoleAccessConfig } from '../../types';
 import { FeaturesSettingsTab } from '../settings/FeaturesSettingsTab';
@@ -452,6 +455,58 @@ export const SettingsView: React.FC = () => {
       {/* TAB 3: DROPDOWNS & HARDWARE */}
       {activeTab === 'dropdowns' && (
         <div className="space-y-6">
+          {/* Supabase SQL Migration Script Access Card */}
+          <div className="bg-gradient-to-r from-[#0e2119] via-[#122820] to-[#141414] border border-emerald-500/30 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shrink-0">
+                <Database className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="font-bold text-sm text-white">Supabase CRM Tables SQL Migration Script</h3>
+                  <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold">
+                    22 Tables &amp; RLS
+                  </span>
+                </div>
+                <p className="text-xs text-gray-300 mt-0.5">
+                  Looking for the Supabase SQL migration script? Copy the complete schema for leads, projects, jobs, and all CRM integrations to run in your Supabase SQL Editor.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const res = await fetch('/api/system/schema-sql');
+                    const data = await res.json();
+                    if (data.success && data.sql) {
+                      await navigator.clipboard.writeText(data.sql);
+                      setFeedback('Copied Supabase master SQL migration script (22 CRM tables) to clipboard!');
+                      setTimeout(() => setFeedback(null), 3500);
+                    }
+                  } catch {
+                    setFeedback('Error copying SQL script.');
+                  }
+                }}
+                className="px-3.5 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs"
+              >
+                <Copy className="w-3.5 h-3.5" />
+                <span>Copy Master SQL Script</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab('api-keys')}
+                className="px-3 py-2 rounded-lg bg-[#1a2e24] hover:bg-[#233f31] border border-emerald-500/30 text-emerald-300 hover:text-white text-xs font-semibold flex items-center gap-1.5 transition-colors"
+              >
+                <Key className="w-3.5 h-3.5" />
+                <span>Open API Keys &amp; Secrets Tab</span>
+              </button>
+            </div>
+          </div>
+
           {/* Excel Multi-Category Batch Engine Card */}
           <div className="bg-[#141414] border border-[#262626] rounded-xl p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4 shadow-sm">
             <div className="space-y-1.5">
