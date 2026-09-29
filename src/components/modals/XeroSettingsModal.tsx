@@ -675,7 +675,7 @@ export const XeroSettingsModal: React.FC<XeroSettingsModalProps> = ({
                       value={invoiceSearch}
                       onChange={e => setInvoiceSearch(e.target.value)}
                       placeholder="Search Invoice #, customer, reference..."
-                      className="w-full text-xs pl-9.5 pr-3 py-2 bg-[#141414] border border-[#262626] rounded-lg text-white outline-none focus:border-sky-400"
+                      className="w-full text-xs pl-10 pr-3 py-2 bg-[#141414] border border-[#262626] rounded-lg text-white outline-none focus:border-sky-400"
                     />
                   </div>
 
@@ -842,7 +842,7 @@ export const XeroSettingsModal: React.FC<XeroSettingsModalProps> = ({
                       value={quoteSearch}
                       onChange={e => setQuoteSearch(e.target.value)}
                       placeholder="Search Quote #, customer, title..."
-                      className="w-full text-xs pl-9.5 pr-3 py-2 bg-[#141414] border border-[#262626] rounded-lg text-white outline-none focus:border-sky-400"
+                      className="w-full text-xs pl-10 pr-3 py-2 bg-[#141414] border border-[#262626] rounded-lg text-white outline-none focus:border-sky-400"
                     />
                   </div>
 
@@ -1016,7 +1016,7 @@ export const XeroSettingsModal: React.FC<XeroSettingsModalProps> = ({
                       value={billSearch}
                       onChange={e => setBillSearch(e.target.value)}
                       placeholder="Search Bill #, vendor, reference..."
-                      className="w-full text-xs pl-9.5 pr-3 py-2 bg-[#141414] border border-[#262626] rounded-lg text-white outline-none focus:border-sky-400"
+                      className="w-full text-xs pl-10 pr-3 py-2 bg-[#141414] border border-[#262626] rounded-lg text-white outline-none focus:border-sky-400"
                     />
                   </div>
 
@@ -1201,7 +1201,7 @@ export const XeroSettingsModal: React.FC<XeroSettingsModalProps> = ({
                       value={contactSearch}
                       onChange={e => setContactSearch(e.target.value)}
                       placeholder="Search name, email, Xero Contact ID..."
-                      className="w-full text-xs pl-9.5 pr-3 py-2 bg-[#141414] border border-[#262626] rounded-lg text-white outline-none focus:border-sky-400"
+                      className="w-full text-xs pl-10 pr-3 py-2 bg-[#141414] border border-[#262626] rounded-lg text-white outline-none focus:border-sky-400"
                     />
                   </div>
 

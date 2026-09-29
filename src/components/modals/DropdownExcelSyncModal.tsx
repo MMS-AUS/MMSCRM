@@ -395,7 +395,7 @@ export const DropdownExcelSyncModal: React.FC<DropdownExcelSyncModalProps> = ({
                           placeholder="Search options or categories..."
                           value={searchQuery}
                           onChange={e => setSearchQuery(e.target.value)}
-                          className="w-full pl-9.5 pr-3 py-1.5 bg-[#181818] border border-[#2b2b2b] rounded-lg text-xs text-white placeholder-gray-500 outline-none focus:border-[#bef264]"
+                          className="w-full pl-10 pr-3 py-1.5 bg-[#181818] border border-[#2b2b2b] rounded-lg text-xs text-white placeholder-gray-500 outline-none focus:border-[#bef264]"
                         />
                       </div>
 

@@ -749,6 +749,7 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
               Street Address
             </label>
             <div className="relative">
+              <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
               <input
                 type="text"
                 placeholder="Start typing street address (e.g. 12 Castle Street)..."
@@ -759,7 +760,6 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
                 }}
                 className="w-full pl-11 pr-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
               />
-              <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
             </div>
 
             {/* Address Suggestions Dropdown */}
@@ -1458,7 +1458,7 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
                     setFormData(prev => ({ ...prev, systemPrice: formatAudAccounts(parsed) }));
                   }
                 }}
-                className="w-full pl-9 pr-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs font-mono text-white focus:border-[#bef264] focus:outline-none transition-colors"
+                className="w-full pl-10 pr-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs font-mono text-white focus:border-[#bef264] focus:outline-none transition-colors"
               />
             </div>
           </div>
@@ -1480,7 +1480,7 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
                     setFormData(prev => ({ ...prev, sellingPrice: formatAudAccounts(parsed) }));
                   }
                 }}
-                className="w-full pl-9 pr-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs font-mono text-white focus:border-[#bef264] focus:outline-none transition-colors"
+                className="w-full pl-10 pr-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs font-mono text-white focus:border-[#bef264] focus:outline-none transition-colors"
               />
             </div>
           </div>
@@ -1502,7 +1502,7 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
                     setFormData(prev => ({ ...prev, deposit: formatAudAccounts(parsed) }));
                   }
                 }}
-                className="w-full pl-9 pr-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs font-mono text-white focus:border-[#bef264] focus:outline-none transition-colors"
+                className="w-full pl-10 pr-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs font-mono text-white focus:border-[#bef264] focus:outline-none transition-colors"
               />
             </div>
           </div>

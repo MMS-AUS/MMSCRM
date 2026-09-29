@@ -809,7 +809,7 @@ export const CompanyProfileView: React.FC = () => {
                           type="password"
                           disabled
                           value="••••••••"
-                          className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-9.5 pr-2.5 py-1.5 text-xs text-slate-800 outline-none"
+                          className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-10 pr-2.5 py-1.5 text-xs text-slate-800 outline-none"
                         />
                       </div>
                     </div>

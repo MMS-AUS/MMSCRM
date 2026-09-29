@@ -463,51 +463,86 @@ export function parseGoogleSheetCsv(csvText: string): Partial<Lead>[] {
     if (!firstName && !lastName && !fullName && !email && !rawMobile) continue;
 
     let leadDate = getValue('leadDate');
-    if (!leadDate) {
-      leadDate = new Date().toISOString().split('T')[0];
-    } else {
+    if (leadDate) {
       const dateParts = leadDate.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
       if (dateParts) {
-        const m = dateParts[1].padStart(2, '0');
-        const d = dateParts[2].padStart(2, '0');
+        const p1 = parseInt(dateParts[1], 10);
+        const p2 = parseInt(dateParts[2], 10);
         const y = dateParts[3];
+        // Standard Australian format is DD/MM/YYYY
+        let d = String(p1).padStart(2, '0');
+        let m = String(p2).padStart(2, '0');
+        if (p1 <= 12 && p2 > 12) {
+          // US format MM/DD/YYYY
+          m = String(p1).padStart(2, '0');
+          d = String(p2).padStart(2, '0');
+        }
         leadDate = `${y}-${m}-${d}`;
       }
+    } else {
+      // Leave field blank when not provided in Google Sheet
+      leadDate = '';
     }
 
-    const sysSize = parseFloat(getValue('systemSizeKw')) || undefined;
-    const sysPrice = parseFloat(getValue('systemPrice').replace(/[^0-9.]/g, '')) || undefined;
-    const sellPrice = parseFloat(getValue('sellingPrice').replace(/[^0-9.]/g, '')) || undefined;
-    const depositAmt = parseFloat(getValue('deposit').replace(/[^0-9.]/g, '')) || 0;
+    const rawSysSize = getValue('systemSizeKw');
+    const sysSize = rawSysSize ? parseFloat(rawSysSize.replace(/[^0-9.]/g, '')) : undefined;
+
+    const rawSysPrice = getValue('systemPrice');
+    const sysPrice = rawSysPrice ? (parseFloat(rawSysPrice.replace(/[^0-9.]/g, '')) || rawSysPrice) : undefined;
+
+    const rawSellPrice = getValue('sellingPrice');
+    const sellPrice = rawSellPrice ? (parseFloat(rawSellPrice.replace(/[^0-9.]/g, '')) || rawSellPrice) : undefined;
+
+    const rawDeposit = getValue('deposit');
+    const depositAmt = rawDeposit ? (parseFloat(rawDeposit.replace(/[^0-9.]/g, '')) || rawDeposit) : undefined;
+
+    const rawBattery = getValue('batteryRequired');
+    let batteryRequired: boolean | undefined = undefined;
+    if (rawBattery) {
+      const bStr = rawBattery.toLowerCase().trim();
+      batteryRequired = bStr === 'true' || bStr === 'yes' || bStr === 'y' || bStr === '1';
+    }
+
     const rowExplicitId = getValue('id');
     const sheetSyncRowId = rowExplicitId || `GSHEET_ROW_${i + 1}`;
 
+    let computedCustomerName = fullName || '';
+    if (!computedCustomerName && (firstName || lastName)) {
+      computedCustomerName = `${firstName} ${lastName}`.trim();
+    }
+    if (!computedCustomerName) {
+      computedCustomerName = rawMobile || email || '';
+    }
+
+    // ONLY populate fields which have data in Google Sheets (leave missing fields completely blank)
     parsedLeads.push({
       id: rowExplicitId || undefined,
-      projectNumber: getValue('projectNumber') || undefined,
-      leadDate,
-      platform: getValue('platform') || 'Google Sheet Sync',
-      salesPersonName: getValue('salesPersonName') || 'Mitchell Barnes',
-      status: (getValue('status') as any) || 'New',
-      firstName: firstName || 'Lead',
+      projectNumber: getValue('projectNumber') || '',
+      leadDate: leadDate || '',
+      platform: getValue('platform') || '',
+      salesPersonName: getValue('salesPersonName') || '',
+      status: (getValue('status') as any) || '',
+      firstName: firstName || '',
       lastName: lastName || '',
-      customerName: fullName || `${firstName} ${lastName}`.trim() || 'Valued Customer',
-      primaryMobile: rawMobile,
-      secondaryMobile: rawSecondary,
-      email,
-      address: getValue('address'),
-      suburb: getValue('suburb'),
-      state: (getValue('state') as any) || 'NSW',
-      postcode: getValue('postcode'),
-      area: (getValue('area') as any) || undefined,
-      nearestBigCity: getValue('nearestBigCity') || undefined,
-      systemSizeKw: sysSize || 10.4,
-      batteryRequired: getValue('batteryRequired') ? (getValue('batteryRequired').toLowerCase().startsWith('y') || getValue('batteryRequired') === 'true') : false,
-      propertyType: getValue('propertyType') || 'Residential Single-Storey',
-      roofType: getValue('roofType') || 'Colorbond / Metal Sheet',
-      systemPrice: sysPrice,
-      sellingPrice: sellPrice,
-      deposit: depositAmt,
+      customerName: computedCustomerName,
+      primaryMobile: rawMobile || '',
+      secondaryMobile: rawSecondary || '',
+      email: email || '',
+      address: getValue('address') || '',
+      suburb: getValue('suburb') || '',
+      state: (getValue('state') as any) || '',
+      postcode: getValue('postcode') || '',
+      area: (getValue('area') as any) || '',
+      nearestBigCity: getValue('nearestBigCity') || '',
+      systemSizeKw: sysSize !== undefined && !isNaN(sysSize) ? sysSize : undefined,
+      batteryRequired,
+      propertyType: getValue('propertyType') || '',
+      roofType: getValue('roofType') || '',
+      systemPrice: sysPrice !== undefined ? sysPrice : '',
+      sellingPrice: sellPrice !== undefined ? sellPrice : '',
+      deposit: depositAmt !== undefined ? depositAmt : '',
+      depositReceivedDate: getValue('depositReceivedDate') || '',
+      saleDate: getValue('saleDate') || '',
       sheetSyncRowId,
       salesTeamNotes: getValue('salesTeamNotes') || ''
     });
@@ -836,12 +871,39 @@ export function applySheetUpdatesToLead(
     }
   }
 
-  // Aliases sync
+  // Aliases & derived fields sync
   if (incoming.primaryMobile && incoming.primaryMobile !== existing.phone) {
     updated.phone = incoming.primaryMobile;
+  } else if (incoming.phone && incoming.phone !== existing.primaryMobile) {
+    updated.primaryMobile = incoming.phone;
+    updated.phone = incoming.phone;
   }
+
   if (incoming.salesPersonName && incoming.salesPersonName !== existing.assignedTo) {
     updated.assignedTo = incoming.salesPersonName;
+  } else if (incoming.assignedTo && incoming.assignedTo !== existing.salesPersonName) {
+    updated.salesPersonName = incoming.assignedTo;
+    updated.assignedTo = incoming.assignedTo;
+  }
+
+  // Ensure full customerName is consistent if first or last name changed
+  if (incoming.firstName || incoming.lastName) {
+    const fn = updated.firstName || '';
+    const ln = updated.lastName || '';
+    const full = `${fn} ${ln}`.trim();
+    if (full && full !== updated.customerName) {
+      updated.customerName = full;
+      hasChanges = true;
+    }
+  }
+
+  // Address verification flag sync
+  if (incoming.address !== undefined || incoming.postcode !== undefined) {
+    const verified = Boolean(updated.address && updated.postcode);
+    if (updated.addressVerified !== verified) {
+      updated.addressVerified = verified;
+      hasChanges = true;
+    }
   }
 
   return { hasChanges, updatedLead: updated, changedFields };

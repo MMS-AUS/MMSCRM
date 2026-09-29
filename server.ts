@@ -74,6 +74,14 @@ import {
 } from './server/bridgeselect';
 
 import {
+  getDbLeads,
+  saveDbLeads,
+  deleteDbLead,
+  deleteDbLeads,
+  clearAllDbLeads,
+  syncSheetLeadsWithDb
+} from './server/leadsDb';
+import {
   mapJobToBridgeSelectPayload,
   validateBridgeSelectPayload
 } from './src/utils/bridgeselectMapper';
@@ -407,6 +415,126 @@ async function startServer() {
       });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: 'Failed to fetch sheet: ' + err.message });
+    }
+  });
+
+  // ============================================================================
+  // LEADS DATABASE CRUD & SHEET SYNC ROUTES
+  // ============================================================================
+
+  /**
+   * GET /api/leads - Returns all leads from persistent database (sorted by date desc)
+   */
+  app.get('/api/leads', async (req, res) => {
+    try {
+      const leads = await getDbLeads();
+      return res.json({ success: true, leads });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: 'Failed to get leads: ' + err.message });
+    }
+  });
+
+  /**
+   * POST /api/leads - Create or update a single lead in the database
+   */
+  app.post('/api/leads', async (req, res) => {
+    try {
+      const lead = req.body;
+      if (!lead || !lead.id) {
+        return res.status(400).json({ success: false, error: 'Lead with valid id is required' });
+      }
+      const current = await getDbLeads();
+      const existingIdx = current.findIndex(l => l.id === lead.id);
+      let next;
+      if (existingIdx >= 0) {
+        next = [...current];
+        next[existingIdx] = { ...next[existingIdx], ...lead };
+      } else {
+        next = [lead, ...current];
+      }
+      await saveDbLeads(next);
+      return res.json({ success: true, lead });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: 'Failed to save lead: ' + err.message });
+    }
+  });
+
+  /**
+   * POST /api/leads/batch-sync - Synchronize Google Sheet leads directly into the database.
+   * - Deleted leads in the CRM will be re-synced because they are no longer in the DB.
+   * - Existing leads have their updated details merged.
+   * - Strict deduplication ensures no duplicate entry is created.
+   */
+  app.post('/api/leads/batch-sync', async (req, res) => {
+    try {
+      const { leads: incomingLeads } = req.body;
+      if (!Array.isArray(incomingLeads)) {
+        return res.status(400).json({ success: false, error: 'Array of incoming leads is required' });
+      }
+      const result = await syncSheetLeadsWithDb(incomingLeads);
+      return res.json({ success: true, ...result });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: 'Failed to sync leads: ' + err.message });
+    }
+  });
+
+  /**
+   * DELETE /api/leads/:id - Permanently deletes a lead from the database and Supabase.
+   * When deleted from database, a subsequent Google Sheet sync will re-sync this lead
+   * if it is still present in the Google Sheet.
+   */
+  app.delete('/api/leads/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      await deleteDbLead(id);
+      return res.json({ success: true, deletedId: id, message: `Lead ${id} permanently removed from database` });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: 'Failed to delete lead: ' + err.message });
+    }
+  });
+
+  /**
+   * POST /api/leads/delete-batch - Permanently deletes multiple leads from the database and Supabase.
+   */
+  app.post('/api/leads/delete-batch', async (req, res) => {
+    try {
+      const { ids } = req.body;
+      if (!Array.isArray(ids) || ids.length === 0) {
+        return res.status(400).json({ success: false, error: 'Array of lead IDs is required' });
+      }
+      await deleteDbLeads(ids);
+      return res.json({ success: true, deletedCount: ids.length, message: `${ids.length} lead(s) permanently removed from database` });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: 'Failed to delete leads: ' + err.message });
+    }
+  });
+
+  /**
+   * POST /api/leads/clear-all - Permanently clears all leads from the database and Supabase.
+   */
+  app.post('/api/leads/clear-all', async (req, res) => {
+    try {
+      await clearAllDbLeads();
+      return res.json({ success: true, message: 'All leads permanently cleared from database' });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: 'Failed to clear leads: ' + err.message });
+    }
+  });
+
+  /**
+   * POST /api/leads/seed-if-empty - Seeds server database from client cache if server is empty
+   */
+  app.post('/api/leads/seed-if-empty', async (req, res) => {
+    try {
+      const { leads: clientLeads } = req.body;
+      const current = await getDbLeads();
+      if (current.length === 0 && Array.isArray(clientLeads) && clientLeads.length > 0) {
+        await saveDbLeads(clientLeads);
+        return res.json({ success: true, seeded: clientLeads.length });
+      }
+      return res.json({ success: true, count: current.length });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: 'Failed to seed leads: ' + err.message });
     }
   });
 

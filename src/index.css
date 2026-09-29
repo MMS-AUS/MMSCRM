@@ -504,8 +504,54 @@ select:focus option:checked {
   color: #0f172a !important;
   box-shadow: 0 1px 2px 0 rgba(15, 23, 42, 0.04) !important;
   border-radius: 0.5rem !important;
-  padding: 0.5rem 0.75rem !important;
   font-size: 0.75rem !important;
+}
+
+/* Default padding only for inputs/selects that do not specify custom left/horizontal padding */
+.theme-light input:not([type="checkbox"]):not([type="radio"]):not([class*="pl-"]):not([class*="px-"]):not([class*="p-"]),
+.theme-light select:not([class*="pl-"]):not([class*="px-"]):not([class*="p-"]),
+.theme-light textarea:not([class*="pl-"]):not([class*="px-"]):not([class*="p-"]) {
+  padding: 0.5rem 0.75rem;
+}
+
+/* Ensure inputs with icons (such as search fields, email/phone/lock fields) never have icon overlapping text */
+input[class*="pl-11"], select[class*="pl-11"],
+.theme-light input[class*="pl-11"], .theme-light select[class*="pl-11"] {
+  padding-left: 2.75rem !important;
+}
+
+input[class*="pl-10"], select[class*="pl-10"],
+.theme-light input[class*="pl-10"], .theme-light select[class*="pl-10"] {
+  padding-left: 2.5rem !important;
+}
+
+input[class*="pl-9"], select[class*="pl-9"],
+.theme-light input[class*="pl-9"], .theme-light select[class*="pl-9"] {
+  padding-left: 2.25rem !important;
+}
+
+input[class*="pl-12"], select[class*="pl-12"],
+.theme-light input[class*="pl-12"], .theme-light select[class*="pl-12"] {
+  padding-left: 3rem !important;
+}
+
+input[class*="pl-14"], select[class*="pl-14"],
+.theme-light input[class*="pl-14"], .theme-light select[class*="pl-14"] {
+  padding-left: 3.5rem !important;
+}
+
+input[class*="pl-20"], select[class*="pl-20"],
+.theme-light input[class*="pl-20"], .theme-light select[class*="pl-20"] {
+  padding-left: 5rem !important;
+}
+
+/* Safeguard: any input accompanied by an absolute left icon or currency badge gets sufficient left clearance */
+.relative > svg[class*="absolute"][class*="left-"] ~ input,
+.relative > span[class*="absolute"][class*="left-"] ~ input,
+.relative > div[class*="absolute"][class*="left-"] ~ input,
+.relative > input:has(~ svg[class*="absolute"][class*="left-"]),
+.relative > input:has(~ span[class*="absolute"][class*="left-"]) {
+  padding-left: 2.75rem !important;
 }
 
 .theme-light input:focus,

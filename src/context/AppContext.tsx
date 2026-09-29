@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import {
   UserProfile,
   UserRole,
@@ -88,7 +88,12 @@ import {
   formatAudAccounts,
   parseAudAccounts
 } from '../utils/australianPostcodes';
-import { parseGoogleSheetCsv, isLeadAlreadyInSystem } from '../utils/googleSheetsTemplate';
+import {
+  parseGoogleSheetCsv,
+  isLeadAlreadyInSystem,
+  sortLeadsByDateDesc,
+  applySheetUpdatesToLead
+} from '../utils/googleSheetsTemplate';
 import { dispatchSystemAlert, getPersonalEmailConfig } from '../services/systemAlertsEmailService';
 import { triggerCapiStageEvent } from '../services/metaAdsService';
 
@@ -207,6 +212,7 @@ interface AppContextType {
   lastSheetSyncTime: Date | null;
   lastSheetSyncStats: {
     addedCount: number;
+    updatedCount?: number;
     duplicateCount: number;
     totalRows: number;
     timestamp: Date;
@@ -216,6 +222,7 @@ interface AppContextType {
   performGoogleSheetSync: (urlOverride?: string, silent?: boolean) => Promise<{
     success: boolean;
     addedCount: number;
+    updatedCount: number;
     duplicateCount: number;
     totalRows: number;
     error?: string;
@@ -519,7 +526,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       try {
         const parsed: Lead[] = JSON.parse(saved);
         if (Array.isArray(parsed)) {
-          return parsed;
+          return sortLeadsByDateDesc(parsed);
         }
       } catch {
         // ignore
@@ -527,6 +534,46 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     return [];
   });
+
+  // Keep a synchronous ref for leads to eliminate any stale closures in auto-sync timers and callbacks
+  const leadsRef = useRef<Lead[]>(leads);
+  useEffect(() => {
+    leadsRef.current = leads;
+  }, [leads]);
+
+  // Sync leads with persistent server database on mount
+  useEffect(() => {
+    fetch('/api/leads')
+      .then(r => r.json())
+      .then(d => {
+        if (d.success && Array.isArray(d.leads) && d.leads.length > 0) {
+          const sorted = sortLeadsByDateDesc(d.leads);
+          setLeads(sorted);
+          leadsRef.current = sorted;
+          try {
+            localStorage.setItem('solar_leads', JSON.stringify(sorted));
+          } catch (e) {
+            console.warn('Failed to save solar_leads to localStorage', e);
+          }
+        } else {
+          // If server database is empty but client has local leads, seed the server database
+          const local = localStorage.getItem('solar_leads');
+          if (local) {
+            try {
+              const parsed = JSON.parse(local);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                fetch('/api/leads/seed-if-empty', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ leads: parsed })
+                }).catch(() => {});
+              }
+            } catch {}
+          }
+        }
+      })
+      .catch(err => console.warn('Could not fetch server leads:', err));
+  }, []);
 
   // Google Sheets Auto-Sync state
   const [googleSheetUrl, setGoogleSheetUrl] = useState<string>(() => {
@@ -1767,7 +1814,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       assignedTo: lead.salesPersonName || lead.assignedTo || (dropdowns.salesPersons?.[0] || 'Mitchell Barnes')
     };
 
-    setLeads(prev => [newLead, ...prev]);
+    setLeads(prev => sortLeadsByDateDesc([newLead, ...prev]));
 
     // Dispatch automated email alert for new incoming lead
     const customerPrimaryEmail = newLead.email ? newLead.email.split(',')[0].trim() : '';
@@ -1796,7 +1843,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const todayDate = new Date().toISOString().split('T')[0];
     const todayMmDdYyyy = `${String(new Date().getMonth() + 1).padStart(2, '0')}/${String(new Date().getDate()).padStart(2, '0')}/${new Date().getFullYear()}`;
 
-    setLeads(prev => prev.map(l => {
+    setLeads(prev => sortLeadsByDateDesc(prev.map(l => {
       if (l.id !== id) return l;
 
       const merged = { ...l, ...updated };
@@ -2026,7 +2073,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
 
       return merged;
-    }));
+    })));
   };
 
   const addLeadAttachment = (
@@ -2524,43 +2571,39 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const mappedLeads: Lead[] = incoming.map((raw, idx) => {
       const fName = (raw.firstName || '').trim();
       const lName = (raw.lastName || '').trim();
-      const fullName = (raw.customerName || `${fName} ${lName}`.trim()) || 'Sheet Lead';
-      const cleanPrimary = formatAustralianMobile(raw.primaryMobile || raw.phone || '');
+      const fullName = (raw.customerName || `${fName} ${lName}`.trim()) || raw.primaryMobile || raw.email || '';
+      const cleanPrimary = (raw.primaryMobile || raw.phone) ? formatAustralianMobile(raw.primaryMobile || raw.phone || '') : '';
       const cleanSecondary = raw.secondaryMobile ? formatAustralianMobile(raw.secondaryMobile) : '';
-      const st = raw.state || 'NSW';
+      const st = raw.state || '';
       const pc = raw.postcode || '';
-      const calculatedArea = raw.area || (pc ? classifyAustralianPostcode(pc, String(st)) : 'Metro');
-      const calculatedCity = raw.nearestBigCity || getNearestBigCity(raw.suburb, pc, String(st));
 
-      const status = raw.status || 'New';
-      let saleDate = raw.saleDate || '';
-      if (status === 'Contract Signed' && !saleDate) {
-        saleDate = todayDate;
-      }
-      let depositReceivedDate = raw.depositReceivedDate || '';
-      if (status === 'Deposit Received' && !depositReceivedDate) {
-        depositReceivedDate = todayMmDdYyyy;
-      }
+      // Only populate fields that have data in Google Sheets; leave missing fields blank
+      const area = raw.area || '';
+      const nearestCity = raw.nearestBigCity || '';
+      const status = raw.status || '';
+      const saleDate = raw.saleDate || '';
+      const depositReceivedDate = raw.depositReceivedDate || '';
+      const leadDate = raw.leadDate || '';
 
       return {
         id: raw.id || `lead-sheet-${Date.now()}-${idx}-${Math.floor(Math.random() * 1000)}`,
-        projectNumber: raw.projectNumber || undefined,
-        leadDate: raw.leadDate || todayDate,
-        platform: raw.platform || (dropdowns.platforms?.[0] || 'Meta Lead Ads (Facebook/Instagram)'),
-        salesPersonName: raw.salesPersonName || (dropdowns.salesPersons?.[0] || 'Mitchell Barnes'),
+        projectNumber: raw.projectNumber || '',
+        leadDate: leadDate,
+        platform: raw.platform || '',
+        salesPersonName: raw.salesPersonName || '',
         state: st,
         postcode: pc,
-        area: calculatedArea,
-        nearestBigCity: calculatedCity,
-        status,
-        saleDate,
+        area: area,
+        nearestBigCity: nearestCity,
+        status: status,
+        saleDate: saleDate,
         firstName: fName,
         lastName: lName,
         managerRenteeFirstName: raw.managerRenteeFirstName || '',
         managerRenteeLastName: raw.managerRenteeLastName || '',
         address: raw.address || '',
-        suburb: raw.suburb || `${st} Metro`,
-        addressVerified: raw.addressVerified ?? (Boolean(raw.address && raw.postcode)),
+        suburb: raw.suburb || '',
+        addressVerified: raw.addressVerified ?? Boolean(raw.address && raw.postcode),
         primaryMobile: cleanPrimary,
         secondaryMobile: cleanSecondary,
         email: raw.email || '',
@@ -2568,43 +2611,56 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         systemPrice: raw.systemPrice !== undefined ? raw.systemPrice : '',
         sellingPrice: raw.sellingPrice !== undefined ? raw.sellingPrice : '',
         deposit: raw.deposit !== undefined ? raw.deposit : '',
-        depositReceivedDate,
+        depositReceivedDate: depositReceivedDate,
 
-        // Legacy & Solar project technical fields
+        // Legacy & Solar project technical fields - only populated if provided in Google Sheet, otherwise blank
         customerName: fullName,
         phone: cleanPrimary,
-        systemSizeKw: raw.systemSizeKw || 10.4,
-        batteryRequired: raw.batteryRequired ?? true,
-        propertyType: raw.propertyType || 'Residential Single-Storey',
-        roofType: raw.roofType || 'Colorbond / Metal Sheet',
-        phaseType: raw.phaseType || 'Single Phase',
-        quarterlyBillAud: raw.quarterlyBillAud || 950,
-        source: raw.platform || 'Google Sheet Sync',
+        systemSizeKw: raw.systemSizeKw !== undefined ? raw.systemSizeKw : (undefined as any),
+        batteryRequired: raw.batteryRequired !== undefined ? raw.batteryRequired : (undefined as any),
+        propertyType: raw.propertyType || '',
+        roofType: raw.roofType || '',
+        phaseType: raw.phaseType || '',
+        quarterlyBillAud: raw.quarterlyBillAud !== undefined ? raw.quarterlyBillAud : (undefined as any),
+        source: raw.platform || '',
         sheetSyncRowId: raw.sheetSyncRowId || `GSHEET_ROW_${idx + 1}`,
-        createdAt: raw.leadDate || todayDate,
-        assignedTo: raw.salesPersonName || (dropdowns.salesPersons?.[0] || 'Mitchell Barnes')
+        createdAt: leadDate,
+        assignedTo: raw.salesPersonName || ''
       };
     });
 
-    // Deduplication check:
-    // Only accept candidate if not already found in current system leads OR earlier in this incoming batch.
-    // If a lead was previously added and then deleted by user, it is no longer in the system,
-    // so it CAN be re-added as requested ("unless, you do not find it in the system").
+    // Deduplication & Change Detection:
+    // 1. If candidate matches an existing lead in the CRM, check for changes and sync updates
+    // 2. If candidate is genuinely new (or was previously deleted from CRM/database), ingest as a new lead!
+    // 3. Always sort the leads on the basis of the Lead date, latest first
     const newOnly: Lead[] = [];
-    const currentLeadsSnapshot = [...leads];
+    // Read from synchronous leadsRef to guarantee no stale closures in timers or listeners
+    const currentLeadsSnapshot = [...leadsRef.current];
+    const updatedLeadsMap = new Map<string, Lead>();
 
     for (const candidate of mappedLeads) {
       const matchResult = isLeadAlreadyInSystem(candidate, [...currentLeadsSnapshot, ...newOnly]);
-      if (!matchResult.isDuplicate) {
+      if (matchResult.isDuplicate && matchResult.matchedLead) {
+        // Matched an existing lead! Check for changes in details
+        const baseLead = updatedLeadsMap.get(matchResult.matchedLead.id) || matchResult.matchedLead;
+        const { hasChanges, updatedLead } = applySheetUpdatesToLead(baseLead, candidate);
+        if (hasChanges) {
+          updatedLeadsMap.set(matchResult.matchedLead.id, updatedLead);
+        }
+      } else if (!matchResult.isDuplicate) {
         newOnly.push(candidate);
       }
     }
 
-    if (newOnly.length > 0) {
+    if (newOnly.length > 0 || updatedLeadsMap.size > 0) {
       setLeads(prev => {
-        const strictlyNew = newOnly.filter(c => !isLeadAlreadyInSystem(c, prev).isDuplicate);
-        if (strictlyNew.length === 0) return prev;
-        const next = [...strictlyNew, ...prev];
+        // Apply changes to existing leads
+        const withUpdates = prev.map(l => updatedLeadsMap.get(l.id) || l);
+        // Filter strictly new leads against state to prevent any duplicate entry
+        const strictlyNew = newOnly.filter(c => !isLeadAlreadyInSystem(c, withUpdates).isDuplicate);
+        // Always sort on the basis of the Lead date, latest first
+        const next = sortLeadsByDateDesc([...strictlyNew, ...withUpdates]);
+        leadsRef.current = next;
         try {
           localStorage.setItem('solar_leads', JSON.stringify(next));
         } catch (e) {
@@ -2612,9 +2668,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
         return next;
       });
+
+      // Synchronize with persistent server database (and Supabase)
+      fetch('/api/leads/batch-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leads: mappedLeads })
+      }).catch(err => console.warn('[AppContext] Failed to sync leads to server db:', err));
     }
 
-    return newOnly.length;
+    const resObj = Object.assign(Object(newOnly.length), {
+      addedCount: newOnly.length,
+      updatedCount: updatedLeadsMap.size,
+      duplicateCount: mappedLeads.length - newOnly.length,
+      totalRows: mappedLeads.length,
+      newLeads: newOnly,
+      valueOf() { return newOnly.length; }
+    });
+
+    return resObj as any;
   };
 
   const performGoogleSheetSync = async (
@@ -2623,6 +2695,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   ): Promise<{
     success: boolean;
     addedCount: number;
+    updatedCount: number;
     duplicateCount: number;
     totalRows: number;
     error?: string;
@@ -2630,7 +2703,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }> => {
     const targetUrl = (urlOverride || googleSheetUrl || localStorage.getItem('google_sheet_lead_url') || '').trim();
     if (!targetUrl) {
-      return { success: false, addedCount: 0, duplicateCount: 0, totalRows: 0, error: 'No Google Sheet link configured' };
+      return { success: false, addedCount: 0, updatedCount: 0, duplicateCount: 0, totalRows: 0, error: 'No Google Sheet link configured' };
     }
 
     setIsSheetSyncing(true);
@@ -2658,6 +2731,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const errorMsg = data.error || 'Failed to fetch Google Sheet data.';
         setLastSheetSyncStats({
           addedCount: 0,
+          updatedCount: 0,
           duplicateCount: 0,
           totalRows: 0,
           timestamp: new Date(),
@@ -2667,6 +2741,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return {
           success: false,
           addedCount: 0,
+          updatedCount: 0,
           duplicateCount: 0,
           totalRows: 0,
           error: errorMsg,
@@ -2677,7 +2752,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const csvText = data.csvText || '';
       if (!csvText.trim()) {
         const msg = 'Google Sheet returned empty data.';
-        return { success: false, addedCount: 0, duplicateCount: 0, totalRows: 0, error: msg };
+        return { success: false, addedCount: 0, updatedCount: 0, duplicateCount: 0, totalRows: 0, error: msg };
       }
 
       localStorage.setItem('last_synced_sheet_csv', csvText);
@@ -2685,22 +2760,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       if (parsed.length === 0) {
         const msg = 'Could not detect lead rows in sheet. Ensure sheet has headers like Customer Name, Mobile, Email, Address.';
-        return { success: false, addedCount: 0, duplicateCount: 0, totalRows: 0, error: msg };
+        return { success: false, addedCount: 0, updatedCount: 0, duplicateCount: 0, totalRows: 0, error: msg };
       }
 
-      const added = syncGoogleSheetLeads(parsed);
+      const syncResult: any = syncGoogleSheetLeads(parsed);
+      const added = typeof syncResult === 'number' ? syncResult : (syncResult.addedCount || 0);
+      const updated = syncResult.updatedCount || 0;
       const duplicateCount = parsed.length - added;
       const now = new Date();
 
       setLastSheetSyncTime(now);
       localStorage.setItem('google_sheet_last_sync_time', now.toISOString());
 
-      const successMsg = added > 0
-        ? `Ingested ${added} new lead(s) from Google Sheet (${duplicateCount} existing leads skipped).`
-        : `All ${parsed.length} sheet rows are already in CRM. 0 duplicates added.`;
+      let successMsg = '';
+      if (added > 0 && updated > 0) {
+        successMsg = `Ingested ${added} new lead(s) and updated details on ${updated} existing lead(s) from Google Sheet.`;
+      } else if (added > 0) {
+        successMsg = `Ingested ${added} new lead(s) from Google Sheet (${duplicateCount} existing leads skipped).`;
+      } else if (updated > 0) {
+        successMsg = `Updated details on ${updated} existing lead(s) from Google Sheet (0 duplicates added).`;
+      } else {
+        successMsg = `All ${parsed.length} sheet rows are already in sync with CRM. 0 duplicates added.`;
+      }
 
       setLastSheetSyncStats({
         addedCount: added,
+        updatedCount: updated,
         duplicateCount,
         totalRows: parsed.length,
         timestamp: now,
@@ -2708,17 +2793,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         message: successMsg
       });
 
-      if (!silent && added > 0) {
+      if (!silent && (added > 0 || updated > 0)) {
         addNotification({
           type: 'lead',
-          title: 'Google Sheet Ingestion',
-          message: `Ingested ${added} new lead(s) from linked Google Sheet.`
+          title: 'Google Sheet Auto-Sync',
+          message: added > 0 && updated > 0
+            ? `Ingested ${added} new lead(s) and updated ${updated} existing lead(s) from Google Sheet.`
+            : added > 0
+              ? `Ingested ${added} new lead(s) from linked Google Sheet.`
+              : `Updated ${updated} existing lead(s) with changed details from Google Sheet.`
         });
       }
 
       return {
         success: true,
         addedCount: added,
+        updatedCount: updated,
         duplicateCount,
         totalRows: parsed.length
       };
@@ -2726,13 +2816,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const errorMsg = 'Sync error: ' + (err.message || 'Network error');
       setLastSheetSyncStats({
         addedCount: 0,
+        updatedCount: 0,
         duplicateCount: 0,
         totalRows: 0,
         timestamp: new Date(),
         status: 'error',
         message: errorMsg
       });
-      return { success: false, addedCount: 0, duplicateCount: 0, totalRows: 0, error: errorMsg };
+      return { success: false, addedCount: 0, updatedCount: 0, duplicateCount: 0, totalRows: 0, error: errorMsg };
     } finally {
       setIsSheetSyncing(false);
     }
@@ -2757,23 +2848,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       .catch(() => {});
   }, []);
 
+  const performGoogleSheetSyncRef = useRef(performGoogleSheetSync);
+  useEffect(() => {
+    performGoogleSheetSyncRef.current = performGoogleSheetSync;
+  }, [performGoogleSheetSync]);
+
   useEffect(() => {
     if (!isSheetAutoSyncEnabled || !googleSheetUrl.trim()) return;
 
     // Initial sync after link configured or page loaded
     const initialTimeout = setTimeout(() => {
-      performGoogleSheetSync(undefined, true);
+      performGoogleSheetSyncRef.current(undefined, true);
     }, 2500);
 
     // Periodic interval
     const intervalMs = Math.max(10, sheetAutoSyncInterval) * 1000;
     const intervalId = setInterval(() => {
-      performGoogleSheetSync(undefined, true);
+      performGoogleSheetSyncRef.current(undefined, true);
     }, intervalMs);
 
     // Sync when user returns to this browser tab
     const handleFocus = () => {
-      performGoogleSheetSync(undefined, true);
+      performGoogleSheetSyncRef.current(undefined, true);
     };
     window.addEventListener('focus', handleFocus);
 
@@ -2787,6 +2883,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const deleteLead = (leadId: string) => {
     setLeads(prev => {
       const next = prev.filter(l => l.id !== leadId);
+      leadsRef.current = next;
       try {
         localStorage.setItem('solar_leads', JSON.stringify(next));
       } catch (e) {
@@ -2794,12 +2891,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
       return next;
     });
+
+    // Permanently delete lead from server database and Supabase
+    fetch(`/api/leads/${encodeURIComponent(leadId)}`, {
+      method: 'DELETE'
+    }).catch(err => console.error('[AppContext] Failed to delete lead from database:', err));
   };
 
   const deleteLeads = (leadIds: string[]) => {
     const idSet = new Set(leadIds);
     setLeads(prev => {
       const next = prev.filter(l => !idSet.has(l.id));
+      leadsRef.current = next;
       try {
         localStorage.setItem('solar_leads', JSON.stringify(next));
       } catch (e) {
@@ -2807,16 +2910,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
       return next;
     });
+
+    // Permanently delete multiple leads from server database and Supabase
+    fetch('/api/leads/delete-batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: leadIds })
+    }).catch(err => console.error('[AppContext] Failed to delete batch from database:', err));
   };
 
   const deleteDummyLeads = (): number => {
+    // Only remove artificial placeholder test data, never genuine customer leads
     const dummyNames = [
       'callum fletcher',
       'ashleigh miller',
       'declan macarthur',
-      'andrew gerber',
-      'tarek assad',
-      'rojin piya',
       'sheet lead'
     ];
 
@@ -2830,32 +2938,45 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return (
         dummyNames.includes(full) ||
         dummyNames.includes(cName) ||
-        id.includes('lead-andrew-') ||
-        id.includes('lead-tarek-') ||
-        id.includes('lead-rojin-') ||
-        id.includes('lead-sheet-') ||
         id.includes('dummy')
       );
     };
 
     const remaining = leads.filter(l => !isDummyLead(l));
-    const count = leads.length - remaining.length;
+    const deleted = leads.filter(l => isDummyLead(l));
+    const count = deleted.length;
     setLeads(remaining);
+    leadsRef.current = remaining;
     try {
       localStorage.setItem('solar_leads', JSON.stringify(remaining));
     } catch (e) {
       console.error('Failed to save solar_leads', e);
     }
+
+    if (deleted.length > 0) {
+      fetch('/api/leads/delete-batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: deleted.map(d => d.id) })
+      }).catch(() => {});
+    }
+
     return count;
   };
 
   const clearAllLeads = () => {
     setLeads([]);
+    leadsRef.current = [];
     try {
       localStorage.setItem('solar_leads', JSON.stringify([]));
     } catch (e) {
       console.error('Failed to clear solar_leads', e);
     }
+
+    // Permanently clear all leads from server database and Supabase
+    fetch('/api/leads/clear-all', {
+      method: 'POST'
+    }).catch(err => console.error('[AppContext] Failed to clear all leads from database:', err));
   };
 
   const importSheetCsv = (csvText: string): { count: number; leads: Lead[] } => {

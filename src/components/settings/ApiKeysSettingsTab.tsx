@@ -907,7 +907,7 @@ export const ApiKeysSettingsTab: React.FC = () => {
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             placeholder="Search key or service..."
-            className="w-full bg-[#181818] border border-[#2a2a2a] rounded-xl pl-10.5 pr-3 py-1.5 text-xs text-white placeholder-gray-500 focus:border-[#bef264] outline-none"
+            className="w-full bg-[#181818] border border-[#2a2a2a] rounded-xl pl-11 pr-3 py-1.5 text-xs text-white placeholder-gray-500 focus:border-[#bef264] outline-none"
           />
         </div>
       </div>

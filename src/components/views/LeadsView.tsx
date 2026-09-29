@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useApp } from '../../context/AppContext';
 import {
   Search,
@@ -33,7 +33,7 @@ import { LeadEditModal } from '../leads/LeadEditModal';
 import { Lead, ViewMode } from '../../types';
 import { ViewModeSwitcher } from '../common/ViewModeSwitcher';
 import { formatAudAccounts } from '../../utils/australianPostcodes';
-import { downloadGoogleSheetLeadFormat } from '../../utils/googleSheetsTemplate';
+import { downloadGoogleSheetLeadFormat, sortLeadsByDateDesc } from '../../utils/googleSheetsTemplate';
 
 export const LeadsView: React.FC<{ onNavigateToProjects: () => void }> = ({ onNavigateToProjects }) => {
   const {
@@ -80,37 +80,42 @@ export const LeadsView: React.FC<{ onNavigateToProjects: () => void }> = ({ onNa
     count?: number;
   } | null>(null);
 
-  const filteredLeads = leads.filter(l => {
-    const q = searchTerm.toLowerCase();
-    const matchesSearch =
-      !searchTerm ||
-      l.customerName.toLowerCase().includes(q) ||
-      (l.firstName && l.firstName.toLowerCase().includes(q)) ||
-      (l.lastName && l.lastName.toLowerCase().includes(q)) ||
-      (l.address && l.address.toLowerCase().includes(q)) ||
-      l.suburb.toLowerCase().includes(q) ||
-      (l.nearestBigCity && l.nearestBigCity.toLowerCase().includes(q)) ||
-      (l.postcode && l.postcode.includes(searchTerm)) ||
-      l.phone.includes(searchTerm) ||
-      (l.primaryMobile && l.primaryMobile.includes(searchTerm)) ||
-      (l.email && l.email.toLowerCase().includes(q)) ||
-      (l.platform && l.platform.toLowerCase().includes(q)) ||
-      (l.salesPersonName && l.salesPersonName.toLowerCase().includes(q)) ||
-      (l.salesTeamNotes && l.salesTeamNotes.toLowerCase().includes(q)) ||
-      (l.panelManufacturer && l.panelManufacturer.toLowerCase().includes(q)) ||
-      (l.inverterManufacturer && l.inverterManufacturer.toLowerCase().includes(q)) ||
-      (l.batteryManufacturer && l.batteryManufacturer.toLowerCase().includes(q)) ||
-      (l.phase && l.phase.toLowerCase().includes(q)) ||
-      (l.existingSystemDetails && l.existingSystemDetails.toLowerCase().includes(q));
+  const filteredLeads = useMemo(() => {
+    const list = leads.filter(l => {
+      const q = searchTerm.toLowerCase();
+      const matchesSearch =
+        !searchTerm ||
+        l.customerName.toLowerCase().includes(q) ||
+        (l.firstName && l.firstName.toLowerCase().includes(q)) ||
+        (l.lastName && l.lastName.toLowerCase().includes(q)) ||
+        (l.address && l.address.toLowerCase().includes(q)) ||
+        l.suburb.toLowerCase().includes(q) ||
+        (l.nearestBigCity && l.nearestBigCity.toLowerCase().includes(q)) ||
+        (l.postcode && l.postcode.includes(searchTerm)) ||
+        l.phone.includes(searchTerm) ||
+        (l.primaryMobile && l.primaryMobile.includes(searchTerm)) ||
+        (l.email && l.email.toLowerCase().includes(q)) ||
+        (l.platform && l.platform.toLowerCase().includes(q)) ||
+        (l.salesPersonName && l.salesPersonName.toLowerCase().includes(q)) ||
+        (l.salesTeamNotes && l.salesTeamNotes.toLowerCase().includes(q)) ||
+        (l.panelManufacturer && l.panelManufacturer.toLowerCase().includes(q)) ||
+        (l.inverterManufacturer && l.inverterManufacturer.toLowerCase().includes(q)) ||
+        (l.batteryManufacturer && l.batteryManufacturer.toLowerCase().includes(q)) ||
+        (l.phase && l.phase.toLowerCase().includes(q)) ||
+        (l.existingSystemDetails && l.existingSystemDetails.toLowerCase().includes(q));
 
-    const matchesState = stateFilter === 'all' || l.state === stateFilter;
-    const matchesStatus = statusFilter === 'all' || l?.status === statusFilter;
-    const matchesPlatform = platformFilter === 'all' || l.platform === platformFilter || l.source === platformFilter;
-    const matchesArea = areaFilter === 'all' || (l.area || 'Metro') === areaFilter;
-    const matchesSalesPerson = salesPersonFilter === 'all' || (l.salesPersonName || l.assignedTo) === salesPersonFilter;
+      const matchesState = stateFilter === 'all' || l.state === stateFilter;
+      const matchesStatus = statusFilter === 'all' || l?.status === statusFilter;
+      const matchesPlatform = platformFilter === 'all' || l.platform === platformFilter || l.source === platformFilter;
+      const matchesArea = areaFilter === 'all' || (l.area || 'Metro') === areaFilter;
+      const matchesSalesPerson = salesPersonFilter === 'all' || (l.salesPersonName || l.assignedTo) === salesPersonFilter;
 
-    return matchesSearch && matchesState && matchesStatus && matchesPlatform && matchesArea && matchesSalesPerson;
-  });
+      return matchesSearch && matchesState && matchesStatus && matchesPlatform && matchesArea && matchesSalesPerson;
+    });
+
+    // Always sort leads on the basis of the Lead date, latest first
+    return sortLeadsByDateDesc(list);
+  }, [leads, searchTerm, stateFilter, statusFilter, platformFilter, areaFilter, salesPersonFilter]);
 
   const handleOpenAddModal = () => {
     setEditingLead(null);
@@ -246,8 +251,12 @@ export const LeadsView: React.FC<{ onNavigateToProjects: () => void }> = ({ onNa
       setFeedback('Syncing latest leads from Google Sheet...');
       const res = await performGoogleSheetSync();
       if (res.success) {
-        if (res.addedCount > 0) {
+        if (res.addedCount > 0 && res.updatedCount > 0) {
+          setFeedback(`⚡ Google Sheet Synced: ${res.addedCount} new lead(s) ingested, ${res.updatedCount} existing lead(s) updated with changes.`);
+        } else if (res.addedCount > 0) {
           setFeedback(`⚡ Google Sheet Synced: ${res.addedCount} new lead(s) ingested (${res.duplicateCount} existing leads safely skipped).`);
+        } else if (res.updatedCount > 0) {
+          setFeedback(`⚡ Google Sheet Synced: ${res.updatedCount} existing lead(s) updated with changes from Google Sheet.`);
         } else {
           setFeedback(`⚡ Google Sheet Synced: All ${res.totalRows} leads in your sheet already exist in the system. 0 duplicate leads added.`);
         }
@@ -379,9 +388,10 @@ export const LeadsView: React.FC<{ onNavigateToProjects: () => void }> = ({ onNa
           {leads.length > 0 && (
             <button
               onClick={handleClearAllLeads}
-              className="px-3 py-1.5 rounded-lg bg-[#1a1414] hover:bg-rose-950/60 text-gray-400 hover:text-rose-300 border border-[#332222] hover:border-rose-900/60 text-xs font-medium transition-colors flex items-center gap-1.5"
+              className="px-3.5 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white border border-red-500 text-xs font-semibold shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
               title="Permanently wipe all leads in the system"
             >
+              <Trash2 className="w-3.5 h-3.5 text-white" />
               <span>Clear All Leads</span>
             </button>
           )}
@@ -545,45 +555,60 @@ export const LeadsView: React.FC<{ onNavigateToProjects: () => void }> = ({ onNa
                                 <span>{lead.suburb} ({lead.state} {lead.postcode})</span>
                               </p>
                             </div>
-                            <span className="text-[10px] font-mono text-emerald-400 font-bold bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
-                              {lead.systemSizeKw || 10.4} kW
-                            </span>
+                            {lead.systemSizeKw && (
+                              <span className="text-[10px] font-mono text-emerald-400 font-bold bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
+                                {lead.systemSizeKw} kW
+                              </span>
+                            )}
                           </div>
 
                           {/* Classification badges */}
                           <div className="flex flex-wrap gap-1 text-[10px]">
-                            <span className="px-1.5 py-0.2 rounded bg-[#141414] text-gray-300 border border-[#2a2a2a]">
-                              {lead.area || 'Metro'}
-                            </span>
+                            {lead.area && (
+                              <span className="px-1.5 py-0.2 rounded bg-[#141414] text-gray-300 border border-[#2a2a2a]">
+                                {lead.area}
+                              </span>
+                            )}
                             {lead.nearestBigCity && (
                               <span className="px-1.5 py-0.2 rounded bg-[#141414] text-[#bef264] border border-[#2a2a2a]">
                                 {lead.nearestBigCity}
                               </span>
                             )}
-                            {lead.addressVerified ? (
-                              <span className="px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-0.5">
-                                <ShieldCheck className="w-2.5 h-2.5" /> Verified
+                            {lead.platform && (
+                              <span className="px-1.5 py-0.2 rounded bg-[#141414] text-gray-400 border border-[#2a2a2a]">
+                                {lead.platform}
                               </span>
-                            ) : (
-                              <span className="px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                                Unverified
-                              </span>
+                            )}
+                            {lead.address && lead.postcode && (
+                              lead.addressVerified ? (
+                                <span className="px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-0.5">
+                                  <ShieldCheck className="w-2.5 h-2.5" /> Verified
+                                </span>
+                              ) : (
+                                <span className="px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                                  Unverified
+                                </span>
+                              )
                             )}
                           </div>
 
                           {/* Pricing info */}
-                          <div className="text-[11px] text-gray-300 bg-[#141414] p-2 rounded border border-[#262626] space-y-1">
-                            <div className="flex justify-between">
-                              <span className="text-gray-400">Selling Price:</span>
-                              <span className="font-bold font-mono text-[#bef264]">
-                                {lead.sellingPrice ? formatAudAccounts(lead.sellingPrice) : '$10,500.00'}
-                              </span>
+                          {(lead.sellingPrice || lead.salesPersonName || lead.assignedTo || lead.leadDate) && (
+                            <div className="text-[11px] text-gray-300 bg-[#141414] p-2 rounded border border-[#262626] space-y-1">
+                              {lead.sellingPrice ? (
+                                <div className="flex justify-between">
+                                  <span className="text-gray-400">Selling Price:</span>
+                                  <span className="font-bold font-mono text-[#bef264]">
+                                    {formatAudAccounts(lead.sellingPrice)}
+                                  </span>
+                                </div>
+                              ) : null}
+                              <div className="flex justify-between text-[10px] text-gray-400">
+                                <span>{lead.salesPersonName || lead.assignedTo ? `Rep: ${lead.salesPersonName || lead.assignedTo}` : ''}</span>
+                                <span>{lead.leadDate || ''}</span>
+                              </div>
                             </div>
-                            <div className="flex justify-between text-[10px] text-gray-400">
-                              <span>Rep: {lead.salesPersonName || lead.assignedTo || 'Unassigned'}</span>
-                              <span>{lead.leadDate || '2026-03-01'}</span>
-                            </div>
-                          </div>
+                          )}
 
                           {/* Action Buttons */}
                           <div className="flex items-center justify-between gap-1 pt-1" onClick={e => e.stopPropagation()}>
@@ -681,60 +706,68 @@ export const LeadsView: React.FC<{ onNavigateToProjects: () => void }> = ({ onNa
                       </p>
                     </div>
 
-                    <span
-                      className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${
-                        isConverted
-                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                          : lead.status === 'New'
-                          ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30 animate-pulse'
-                          : lead.status === 'Contract Signed'
-                          ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
-                          : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                      }`}
-                    >
-                      {lead.status}
-                    </span>
+                    {lead.status && (
+                      <span
+                        className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${
+                          isConverted
+                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                            : lead.status === 'New'
+                            ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30 animate-pulse'
+                            : lead.status === 'Contract Signed'
+                            ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
+                            : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                        }`}
+                      >
+                        {lead.status}
+                      </span>
+                    )}
                   </div>
 
                   {/* 23-Field Key Classifications */}
-                  <div className="flex flex-wrap items-center gap-1.5 my-2">
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-[#202020] text-gray-300 border border-[#2d2d2d]">
-                      Area: {lead.area || 'Metro'}
-                    </span>
-                    {lead.nearestBigCity && (
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-[#202020] text-[#bef264] border border-[#2d2d2d]">
-                        Nearest City: {lead.nearestBigCity}
-                      </span>
-                    )}
-                    <span className="text-[10px] px-2 py-0.5 rounded bg-[#202020] text-gray-400 border border-[#2d2d2d]">
-                      {lead.platform || lead.source || 'Meta Lead Ads'}
-                    </span>
-                  </div>
+                  {(lead.area || lead.nearestBigCity || lead.platform) && (
+                    <div className="flex flex-wrap items-center gap-1.5 my-2">
+                      {lead.area && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-[#202020] text-gray-300 border border-[#2d2d2d]">
+                          Area: {lead.area}
+                        </span>
+                      )}
+                      {lead.nearestBigCity && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-[#202020] text-[#bef264] border border-[#2d2d2d]">
+                          Nearest City: {lead.nearestBigCity}
+                        </span>
+                      )}
+                      {lead.platform && (
+                        <span className="text-[10px] px-2 py-0.5 rounded bg-[#202020] text-gray-400 border border-[#2d2d2d]">
+                          {lead.platform}
+                        </span>
+                      )}
+                    </div>
+                  )}
 
                   {/* Pricing and Technical Matrix */}
                   <div className="grid grid-cols-2 gap-2 p-3 bg-[#131313] rounded-lg border border-[#222] text-xs my-2">
                     <div>
                       <span className="text-[10px] text-gray-400 uppercase font-bold block">System Price:</span>
                       <span className="font-mono font-bold text-white">
-                        {lead.systemPrice ? formatAudAccounts(lead.systemPrice) : '$14,200.00'}
+                        {lead.systemPrice ? formatAudAccounts(lead.systemPrice) : '-'}
                       </span>
                     </div>
                     <div>
                       <span className="text-[10px] text-gray-400 uppercase font-bold block">Selling Price:</span>
                       <span className="font-mono font-bold text-[#bef264]">
-                        {lead.sellingPrice ? formatAudAccounts(lead.sellingPrice) : '$10,500.00'}
+                        {lead.sellingPrice ? formatAudAccounts(lead.sellingPrice) : '-'}
                       </span>
                     </div>
                     <div>
                       <span className="text-[10px] text-gray-400 uppercase font-bold block">Deposit:</span>
                       <span className="font-mono text-gray-300">
-                        {lead.deposit ? formatAudAccounts(lead.deposit) : '$0.00'}
+                        {lead.deposit ? formatAudAccounts(lead.deposit) : '-'}
                       </span>
                     </div>
                     <div>
                       <span className="text-[10px] text-gray-400 uppercase font-bold block">Sale / Deposit Date:</span>
                       <span className="font-mono text-[10px] text-gray-300">
-                        {lead.saleDate || lead.depositReceivedDate || 'Pending'}
+                        {lead.saleDate || lead.depositReceivedDate || '-'}
                       </span>
                     </div>
                   </div>
@@ -743,7 +776,7 @@ export const LeadsView: React.FC<{ onNavigateToProjects: () => void }> = ({ onNa
                   <div className="space-y-1 text-xs text-gray-300">
                     <div className="flex items-center gap-2">
                       <Phone className="w-3 h-3 text-gray-400 shrink-0" />
-                      <span className="font-mono">{lead.primaryMobile || lead.phone}</span>
+                      <span className="font-mono">{lead.primaryMobile || lead.phone || '-'}</span>
                       {lead.secondaryMobile && (
                         <span className="font-mono text-gray-500 text-[10px]">/ {lead.secondaryMobile}</span>
                       )}
@@ -751,10 +784,10 @@ export const LeadsView: React.FC<{ onNavigateToProjects: () => void }> = ({ onNa
                     <div className="flex items-center gap-2">
                       <Tag className="w-3 h-3 text-gray-400 shrink-0" />
                       <span className="text-[11px] text-gray-400 truncate">
-                        Rep: <strong className="text-gray-200">{lead.salesPersonName || lead.assignedTo || 'Mitchell Barnes'}</strong>
+                        Rep: <strong className="text-gray-200">{lead.salesPersonName || lead.assignedTo || '-'}</strong>
                       </span>
                       <span className="text-[10px] text-gray-500 ml-auto">
-                        Lead: {lead.leadDate || lead.createdAt || '2026-03-01'}
+                        Lead: {lead.leadDate || lead.createdAt || '-'}
                       </span>
                     </div>
                     {lead.salesTeamNotes && (
@@ -918,9 +951,13 @@ export const LeadsView: React.FC<{ onNavigateToProjects: () => void }> = ({ onNa
                             )}
                           </div>
                           <div className="text-[11px] text-gray-400 flex items-center gap-1 mt-0.5">
-                            <span className="font-mono">{lead.primaryMobile || lead.phone}</span>
-                            <span>&bull;</span>
-                            <span className="text-[10px] text-gray-500">{lead.leadDate || lead.createdAt || '2026-03-01'}</span>
+                            <span className="font-mono">{lead.primaryMobile || lead.phone || '-'}</span>
+                            {lead.leadDate && (
+                              <>
+                                <span>&bull;</span>
+                                <span className="text-[10px] text-gray-500">{lead.leadDate}</span>
+                              </>
+                            )}
                           </div>
                           {lead.email && (
                             <div className="text-[10px] text-gray-500 truncate max-w-[200px]">
@@ -930,19 +967,21 @@ export const LeadsView: React.FC<{ onNavigateToProjects: () => void }> = ({ onNa
                         </td>
 
                         <td className="px-4 py-3">
-                          <div className="text-gray-200 font-semibold">{lead.platform || lead.source || 'Meta Lead Ads'}</div>
+                          <div className="text-gray-200 font-semibold">{lead.platform || lead.source || '-'}</div>
                           <div className="text-[11px] text-[#bef264]">
-                            Rep: {lead.salesPersonName || lead.assignedTo || 'Mitchell Barnes'}
+                            Rep: {lead.salesPersonName || lead.assignedTo || '-'}
                           </div>
                         </td>
 
                         <td className="px-4 py-3">
                           <div className="text-gray-200">
-                            {lead.address || 'Address on file'}
+                            {lead.address || '-'}
                           </div>
-                          <div className="text-[11px] text-gray-400">
-                            {lead.suburb}, {lead.state} {lead.postcode}
-                          </div>
+                          {(lead.suburb || lead.state || lead.postcode) && (
+                            <div className="text-[11px] text-gray-400">
+                              {[lead.suburb, [lead.state, lead.postcode].filter(Boolean).join(' ')].filter(Boolean).join(', ')}
+                            </div>
+                          )}
                           {(lead.panelManufacturer || lead.inverterManufacturer) && (
                             <div className="flex items-center gap-1 mt-1 text-[10px] text-gray-400">
                               <Sun className="w-2.5 h-2.5 text-amber-400 shrink-0" />
@@ -958,43 +997,53 @@ export const LeadsView: React.FC<{ onNavigateToProjects: () => void }> = ({ onNa
                         </td>
 
                         <td className="px-4 py-3">
-                          <span
-                            className={`text-[10px] font-bold px-2 py-0.5 rounded-full inline-block ${
-                              (lead.area || 'Metro') === 'Metro'
-                                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                                : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                            }`}
-                          >
-                            {lead.area || 'Metro'}
-                          </span>
-                          <div className="text-[11px] text-gray-400 mt-1">
-                            City: <strong className="text-gray-200">{lead.nearestBigCity || 'Sydney'}</strong>
-                          </div>
+                          {lead.area ? (
+                            <span
+                              className={`text-[10px] font-bold px-2 py-0.5 rounded-full inline-block ${
+                                lead.area === 'Metro'
+                                  ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                                  : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                              }`}
+                            >
+                              {lead.area}
+                            </span>
+                          ) : (
+                            <span className="text-gray-500 text-xs">-</span>
+                          )}
+                          {lead.nearestBigCity && (
+                            <div className="text-[11px] text-gray-400 mt-1">
+                              City: <strong className="text-gray-200">{lead.nearestBigCity}</strong>
+                            </div>
+                          )}
                         </td>
 
                         <td className="px-4 py-3">
                           <div className="font-mono font-bold text-[#bef264]">
-                            {lead.sellingPrice ? formatAudAccounts(lead.sellingPrice) : '$10,500.00'}
+                            {lead.sellingPrice ? formatAudAccounts(lead.sellingPrice) : '-'}
                           </div>
                           <div className="text-[10px] text-gray-400">
-                            Sys: {lead.systemPrice ? formatAudAccounts(lead.systemPrice) : '$14,200.00'} &bull; Dep: {lead.deposit ? formatAudAccounts(lead.deposit) : '$0.00'}
+                            Sys: {lead.systemPrice ? formatAudAccounts(lead.systemPrice) : '-'} &bull; Dep: {lead.deposit ? formatAudAccounts(lead.deposit) : '-'}
                           </div>
                         </td>
 
                         <td className="px-4 py-3">
-                          <span
-                            className={`text-[10px] font-bold px-2 py-0.5 rounded-full inline-block ${
-                              isConverted
-                                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                                : lead.status === 'New'
-                                ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
-                                : lead.status === 'Contract Signed'
-                                ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
-                                : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                            }`}
-                          >
-                            {lead.status}
-                          </span>
+                          {lead.status ? (
+                            <span
+                              className={`text-[10px] font-bold px-2 py-0.5 rounded-full inline-block ${
+                                isConverted
+                                  ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                  : lead.status === 'New'
+                                  ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                                  : lead.status === 'Contract Signed'
+                                  ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
+                                  : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                              }`}
+                            >
+                              {lead.status}
+                            </span>
+                          ) : (
+                            <span className="text-gray-500 text-xs">-</span>
+                          )}
                           {(lead.saleDate || lead.depositReceivedDate) && (
                             <div className="text-[10px] text-gray-400 font-mono mt-0.5">
                               {lead.saleDate && `Sale: ${lead.saleDate}`}

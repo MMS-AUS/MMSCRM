@@ -174,7 +174,7 @@ export const FeaturesSettingsTab: React.FC = () => {
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             placeholder="Search features..."
-            className="w-full bg-[#141414] border border-[#262626] rounded-lg pl-9.5 pr-3 py-1.5 text-xs text-white placeholder-gray-500 focus:border-[#bef264] outline-none"
+            className="w-full bg-[#141414] border border-[#262626] rounded-lg pl-10 pr-3 py-1.5 text-xs text-white placeholder-gray-500 focus:border-[#bef264] outline-none"
           />
         </div>
       </div>

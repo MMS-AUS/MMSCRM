@@ -456,7 +456,7 @@ export const OperationalRulesTab: React.FC = () => {
                 onChange={e =>
                   setFormData({ ...formData, referralBonusDefaultAud: parseFloat(e.target.value) || 0 })
                 }
-                className="w-full bg-[#181818] border border-[#2d2d2d] rounded-lg pl-9 pr-3 py-2 text-xs text-white focus:border-[#bef264] outline-none font-mono"
+                className="w-full bg-[#181818] border border-[#2d2d2d] rounded-lg pl-10 pr-3 py-2 text-xs text-white focus:border-[#bef264] outline-none font-mono"
               />
             </div>
             <p className="text-[10px] text-gray-500 mt-1">

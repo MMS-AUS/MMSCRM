@@ -940,7 +940,7 @@ export const MailchimpSettingsModal: React.FC<MailchimpSettingsModalProps> = ({
                       placeholder="Search emails..."
                       value={searchQuery}
                       onChange={e => setSearchQuery(e.target.value)}
-                      className="w-full text-xs pl-9.5 pr-3 py-1.5 bg-[#121212] border border-[#2d2d2d] rounded-lg text-white focus:outline-none focus:border-yellow-400"
+                      className="w-full text-xs pl-10 pr-3 py-1.5 bg-[#121212] border border-[#2d2d2d] rounded-lg text-white focus:outline-none focus:border-yellow-400"
                     />
                   </div>
                   <button

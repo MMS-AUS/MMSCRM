@@ -128,17 +128,31 @@ export const MetaAdsSyncModal: React.FC<MetaAdsSyncModalProps> = ({ isOpen, onCl
         return;
       }
 
-      if (res.addedCount > 0) {
+      if (res.addedCount > 0 && res.updatedCount > 0) {
+        setSyncResult({
+          type: 'success',
+          message: `Successfully ingested ${res.addedCount} new lead(s) and synced changes for ${res.updatedCount} existing lead(s) from your Google Sheet!`,
+          rowsCount: res.addedCount,
+          duplicateCount: res.duplicateCount
+        });
+      } else if (res.addedCount > 0) {
         setSyncResult({
           type: 'success',
           message: `Successfully ingested ${res.addedCount} new lead(s) from your Google Sheet! (${res.duplicateCount} existing leads already in the system were skipped to prevent duplicates).`,
           rowsCount: res.addedCount,
           duplicateCount: res.duplicateCount
         });
+      } else if (res.updatedCount > 0) {
+        setSyncResult({
+          type: 'success',
+          message: `Successfully synchronized and updated details for ${res.updatedCount} existing lead(s) from your Google Sheet! 0 duplicates added.`,
+          rowsCount: 0,
+          duplicateCount: res.duplicateCount
+        });
       } else {
         setSyncResult({
           type: 'success',
-          message: `All ${res.totalRows} lead(s) in your Google Sheet already exist in the system. 0 duplicate leads were added.`,
+          message: `All ${res.totalRows} lead(s) in your Google Sheet already exist and are in sync with the system. 0 duplicate leads were added.`,
           rowsCount: 0,
           duplicateCount: res.duplicateCount
         });
@@ -441,14 +455,20 @@ export const MetaAdsSyncModal: React.FC<MetaAdsSyncModalProps> = ({ isOpen, onCl
                   </div>
                 </div>
 
-                {/* Intelligent Deduplication Guarantee */}
-                <div className="p-3 bg-[#111] rounded-lg border border-[#262626] text-[11px] space-y-1">
+                {/* Intelligent Deduplication & Change Synchronization Guarantee */}
+                <div className="p-3 bg-[#111] rounded-lg border border-[#262626] text-[11px] space-y-1.5">
                   <div className="flex items-center gap-1.5 text-emerald-400 font-semibold">
                     <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                    <span>Duplicate Prevention Active</span>
+                    <span>Real-time Change Synchronization &amp; Duplicate Prevention</span>
                   </div>
                   <p className="text-gray-400 leading-relaxed">
-                    Incoming sheet rows are cross-referenced against current CRM leads using normalized Phone (matching AU mobile formats like 0412 345 678, +614..., 4...), Email, and Customer Name + Address. Existing leads are safely skipped, ensuring only new records are added. If you delete a lead in the CRM, it can be re-synced from the sheet.
+                    • <strong>Automatic Change Sync</strong>: Any modification in the Google Sheet to an existing lead (such as Status, Notes, Address, Pricing, or System Specifications) is automatically synchronized and updated directly in the CRM record.
+                  </p>
+                  <p className="text-gray-400 leading-relaxed">
+                    • <strong>Strict Deduplication</strong>: Identifies existing leads using normalized Phone (matching all AU mobile formats e.g. 0412 345 678, +614..., 4...), Email, and Customer Name + Address to ensure zero duplicate rows.
+                  </p>
+                  <p className="text-gray-400 leading-relaxed">
+                    • <strong>Chronological Order</strong>: All leads are always automatically sorted on the basis of the <em>Lead Date</em>, latest first.
                   </p>
                 </div>
               </div>
