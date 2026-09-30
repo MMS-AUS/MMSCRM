@@ -344,13 +344,13 @@ export const ProjectCenterTabs: React.FC<ProjectCenterTabsProps> = ({
                   <div>
                     <span className="text-[10px] text-gray-500 block uppercase">Balance Due</span>
                     <span className="text-sm font-bold text-amber-400 font-mono">
-                      ${formatAudAccounts(balanceDue)}
+                      {formatAudAccounts(balanceDue)}
                     </span>
                   </div>
                   <div>
                     <span className="text-[10px] text-gray-500 block uppercase">Est. STC Rebate</span>
                     <span className="text-sm font-bold text-cyan-400 font-mono">
-                      ~${formatAudAccounts(estStcRebate)}
+                      ~{formatAudAccounts(estStcRebate)}
                     </span>
                   </div>
                 </div>

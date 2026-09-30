@@ -75,8 +75,8 @@ export const PortalAddressesTab: React.FC = () => {
     setDnsCheckLoading(portalType);
     setDnsCheckResult(null);
 
-    const fullUrl = getPortalProductionUrl(config);
-    const domainHost = fullUrl.replace(/^https?:\/\//, '').split('/')[0];
+    const fullUrl = getPortalProductionUrl(config) || '';
+    const domainHost = (fullUrl || '').replace(/^https?:\/\//, '').split('/')[0] || '';
 
     try {
       // Query Google Public DNS over HTTPS
@@ -296,16 +296,27 @@ export const PortalAddressesTab: React.FC = () => {
               </div>
 
               {/* Working Preview Link */}
-              <div className="pt-2 border-t border-[#252525] flex items-center justify-between text-[11px]">
+              <div className="pt-2 border-t border-[#252525] flex flex-wrap items-center justify-between gap-2 text-[11px]">
                 <span className="text-gray-400">Direct In-App Link:</span>
-                <button
-                  type="button"
-                  onClick={() => handleCopyText(getPortalPreviewUrl('customer'), 'cust-prev')}
-                  className="text-[#bef264] hover:underline font-mono text-[10px] flex items-center gap-1"
-                >
-                  <span>{copiedKey === 'cust-prev' ? 'Copied Link!' : '?portal=customer'}</span>
-                  <Copy className="w-2.5 h-2.5" />
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setActiveRole('customer')}
+                    className="px-2.5 py-1 bg-[#bef264]/15 hover:bg-[#bef264]/25 text-[#bef264] border border-[#bef264]/30 rounded text-[10px] font-bold flex items-center gap-1 transition-colors shadow-xs"
+                    title="Open live customer portal right now"
+                  >
+                    <span>Launch Portal View</span>
+                    <ArrowRight className="w-3 h-3" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleCopyText(getPortalPreviewUrl('customer'), 'cust-prev')}
+                    className="text-[#bef264] hover:underline font-mono text-[10px] flex items-center gap-1"
+                  >
+                    <span>{copiedKey === 'cust-prev' ? 'Copied Link!' : '?portal=customer'}</span>
+                    <Copy className="w-2.5 h-2.5" />
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -684,16 +695,27 @@ export const PortalAddressesTab: React.FC = () => {
               </div>
 
               {/* Working Preview Link */}
-              <div className="pt-2 border-t border-[#252525] flex items-center justify-between text-[11px]">
+              <div className="pt-2 border-t border-[#252525] flex flex-wrap items-center justify-between gap-2 text-[11px]">
                 <span className="text-gray-400">Direct In-App Link:</span>
-                <button
-                  type="button"
-                  onClick={() => handleCopyText(getPortalPreviewUrl('installer'), 'inst-prev')}
-                  className="text-emerald-400 hover:underline font-mono text-[10px] flex items-center gap-1"
-                >
-                  <span>{copiedKey === 'inst-prev' ? 'Copied Link!' : '?portal=installer'}</span>
-                  <Copy className="w-2.5 h-2.5" />
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setActiveRole('installer')}
+                    className="px-2.5 py-1 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 rounded text-[10px] font-bold flex items-center gap-1 transition-colors shadow-xs"
+                    title="Open live installer portal right now"
+                  >
+                    <span>Launch Portal View</span>
+                    <ArrowRight className="w-3 h-3" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleCopyText(getPortalPreviewUrl('installer'), 'inst-prev')}
+                    className="text-emerald-400 hover:underline font-mono text-[10px] flex items-center gap-1"
+                  >
+                    <span>{copiedKey === 'inst-prev' ? 'Copied Link!' : '?portal=installer'}</span>
+                    <Copy className="w-2.5 h-2.5" />
+                  </button>
+                </div>
               </div>
             </div>
 

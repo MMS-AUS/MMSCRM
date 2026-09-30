@@ -17,7 +17,8 @@ import {
   Zap,
   DollarSign,
   LogIn,
-  LogOut
+  LogOut,
+  LayoutDashboard
 } from 'lucide-react';
 import { ProjectStatus } from '../../types';
 import { CompanyLogo } from '../common/CompanyLogo';
@@ -33,7 +34,8 @@ export const InstallerPortal: React.FC = () => {
     updateProjectStatus,
     uploadProjectPhoto,
     submitInstallerQuote,
-    companyProfile
+    companyProfile,
+    setActiveRole
   } = useApp();
 
   const [showLoginPage, setShowLoginPage] = useState(false);
@@ -166,6 +168,16 @@ export const InstallerPortal: React.FC = () => {
 
         {/* Action Controls */}
         <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            type="button"
+            onClick={() => setActiveRole('admin')}
+            className="px-3 py-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 text-xs font-bold flex items-center gap-1.5 transition-colors shadow-xs"
+            title="Return to Internal Solar ERP CRM"
+          >
+            <LayoutDashboard className="w-3.5 h-3.5" />
+            <span>Return to Staff CRM</span>
+          </button>
+
           <button
             type="button"
             onClick={() => setShowLoginPage(true)}

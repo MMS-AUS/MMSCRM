@@ -3,6 +3,8 @@ import { useApp } from '../../context/AppContext';
 import { Lead, AustralianState, LeadActivity, LeadAttachment, CustomerPortalCredentials } from '../../types';
 import {
   formatAudAccounts,
+  formatAudNumber,
+  stripDollarSign,
   parseAudAccounts,
   formatAustralianMobile,
   classifyAustralianPostcode,
@@ -102,6 +104,7 @@ export const LeadEditModal: React.FC<LeadEditModalProps> = ({ isOpen, onClose, l
     noOfInverters: '1',
     inverterManufacturer: 'Sungrow (SG/SH Series)',
     inverterSizeKw: '10',
+    inverterSeries: 'SH Series Three Phase',
     inverterModel: 'SH10RT-20 (Three Phase High Voltage Hybrid)',
     noOfBatteries: '1',
     batteryManufacturer: 'Tesla Powerwall 3 (13.5kWh)',
@@ -114,9 +117,9 @@ export const LeadEditModal: React.FC<LeadEditModalProps> = ({ isOpen, onClose, l
     docsReceived: 'Yes',
     docsReceivedDate: '',
 
-    systemPrice: '$12,500.00',
-    sellingPrice: '$8,900.00',
-    deposit: '$1,000.00',
+    systemPrice: '12,500.00',
+    sellingPrice: '8,900.00',
+    deposit: '1,000.00',
 
     salesTeamNotes: ''
   });
@@ -177,12 +180,22 @@ export const LeadEditModal: React.FC<LeadEditModalProps> = ({ isOpen, onClose, l
     return Array.from(new Set(matching.map(i => String(i.sizeKw))));
   }, [inverterHierarchy, formData.inverterManufacturer]);
 
-  const inverterModels = useMemo(() => {
+  const inverterSeriesList = useMemo(() => {
     const matching = inverterHierarchy.filter(
       i => i.manufacturer === formData.inverterManufacturer && String(i.sizeKw) === String(formData.inverterSizeKw)
     );
-    return Array.from(new Set(matching.map(i => i.model)));
+    return Array.from(new Set(matching.map(i => i.series || '').filter(Boolean)));
   }, [inverterHierarchy, formData.inverterManufacturer, formData.inverterSizeKw]);
+
+  const inverterModels = useMemo(() => {
+    const matching = inverterHierarchy.filter(
+      i =>
+        i.manufacturer === formData.inverterManufacturer &&
+        String(i.sizeKw) === String(formData.inverterSizeKw) &&
+        (!formData.inverterSeries || !i.series || i.series === formData.inverterSeries)
+    );
+    return Array.from(new Set(matching.map(i => i.model)));
+  }, [inverterHierarchy, formData.inverterManufacturer, formData.inverterSizeKw, formData.inverterSeries]);
 
   const batteryHierarchy = dropdowns.batteryHierarchy || [];
   const batteryManufacturers = useMemo(() => {
@@ -290,6 +303,7 @@ export const LeadEditModal: React.FC<LeadEditModalProps> = ({ isOpen, onClose, l
       ...prev,
       inverterManufacturer: manuf,
       inverterSizeKw: matching.length > 0 ? String(matching[0].sizeKw) : prev.inverterSizeKw,
+      inverterSeries: matching.length > 0 ? (matching[0].series || '') : prev.inverterSeries,
       inverterModel: matching.length > 0 ? matching[0].model : prev.inverterModel
     }));
   };
@@ -301,6 +315,21 @@ export const LeadEditModal: React.FC<LeadEditModalProps> = ({ isOpen, onClose, l
     setFormData(prev => ({
       ...prev,
       inverterSizeKw: size,
+      inverterSeries: matching.length > 0 ? (matching[0].series || '') : prev.inverterSeries,
+      inverterModel: matching.length > 0 ? matching[0].model : prev.inverterModel
+    }));
+  };
+
+  const handleInverterSeriesChange = (series: string) => {
+    const matching = inverterHierarchy.filter(
+      i =>
+        i.manufacturer === formData.inverterManufacturer &&
+        String(i.sizeKw) === String(formData.inverterSizeKw) &&
+        (!series || i.series === series)
+    );
+    setFormData(prev => ({
+      ...prev,
+      inverterSeries: series,
       inverterModel: matching.length > 0 ? matching[0].model : prev.inverterModel
     }));
   };
@@ -380,6 +409,7 @@ export const LeadEditModal: React.FC<LeadEditModalProps> = ({ isOpen, onClose, l
         noOfInverters: lead.noOfInverters !== undefined ? String(lead.noOfInverters) : '',
         inverterManufacturer: lead.inverterManufacturer || '',
         inverterSizeKw: lead.inverterSizeKw !== undefined ? String(lead.inverterSizeKw) : '',
+        inverterSeries: lead.inverterSeries || '',
         inverterModel: lead.inverterModel || '',
         noOfBatteries: lead.noOfBatteries !== undefined ? String(lead.noOfBatteries) : '',
         batteryManufacturer: lead.batteryManufacturer || '',
@@ -392,9 +422,9 @@ export const LeadEditModal: React.FC<LeadEditModalProps> = ({ isOpen, onClose, l
         docsReceived: lead.docsReceived || '',
         docsReceivedDate: lead.docsReceivedDate || '',
 
-        systemPrice: lead.systemPrice !== undefined && lead.systemPrice !== '' ? formatAudAccounts(lead.systemPrice) : '',
-        sellingPrice: lead.sellingPrice !== undefined && lead.sellingPrice !== '' ? formatAudAccounts(lead.sellingPrice) : '',
-        deposit: lead.deposit !== undefined && lead.deposit !== '' ? formatAudAccounts(lead.deposit) : '',
+        systemPrice: lead.systemPrice !== undefined && lead.systemPrice !== '' ? formatAudNumber(lead.systemPrice) : '',
+        sellingPrice: lead.sellingPrice !== undefined && lead.sellingPrice !== '' ? formatAudNumber(lead.sellingPrice) : '',
+        deposit: lead.deposit !== undefined && lead.deposit !== '' ? formatAudNumber(lead.deposit) : '',
 
         salesTeamNotes: lead.salesTeamNotes || ''
       });
@@ -485,6 +515,7 @@ export const LeadEditModal: React.FC<LeadEditModalProps> = ({ isOpen, onClose, l
         noOfInverters: '1',
         inverterManufacturer: dropdowns.inverterBrands?.[0] || 'Sungrow (SG/SH Series)',
         inverterSizeKw: '10',
+        inverterSeries: 'SH Series Three Phase',
         inverterModel: 'SH10RT-20 (Three Phase High Voltage Hybrid)',
         noOfBatteries: '1',
         batteryManufacturer: dropdowns.batteryBrands?.[0] || 'Tesla Powerwall 3 (13.5kWh)',
@@ -497,9 +528,9 @@ export const LeadEditModal: React.FC<LeadEditModalProps> = ({ isOpen, onClose, l
         docsReceived: 'Yes',
         docsReceivedDate: '',
 
-        systemPrice: '$12,500.00',
-        sellingPrice: '$8,900.00',
-        deposit: '$1,000.00',
+        systemPrice: '12,500.00',
+        sellingPrice: '8,900.00',
+        deposit: '1,000.00',
 
         salesTeamNotes: ''
       });
@@ -709,9 +740,9 @@ export const LeadEditModal: React.FC<LeadEditModalProps> = ({ isOpen, onClose, l
       secondaryMobile: '0402 333 111',
       email: 'harrison.vance@gmail.com, eliza.vance@beachside.com.au',
       salesTeamNotes: 'Commercial customer requested 13.2kW Sungrow Hybrid with commercial invoice.',
-      systemPrice: formatAudAccounts(14200),
-      sellingPrice: formatAudAccounts(10500),
-      deposit: formatAudAccounts(1000),
+      systemPrice: formatAudNumber(14200),
+      sellingPrice: formatAudNumber(10500),
+      deposit: formatAudNumber(1000),
       depositReceivedDate: '09/08/2026',
       systemSizeKw: 13.2,
       hasCompany: true,
@@ -784,6 +815,7 @@ export const LeadEditModal: React.FC<LeadEditModalProps> = ({ isOpen, onClose, l
       noOfInverters: formData.noOfInverters ? Number(formData.noOfInverters) || formData.noOfInverters : 1,
       inverterManufacturer: formData.inverterManufacturer,
       inverterSizeKw: formData.inverterSizeKw ? Number(formData.inverterSizeKw) || formData.inverterSizeKw : 10,
+      inverterSeries: formData.inverterSeries,
       inverterModel: formData.inverterModel,
       noOfBatteries: formData.noOfBatteries ? Number(formData.noOfBatteries) || formData.noOfBatteries : 1,
       batteryManufacturer: formData.batteryManufacturer,
@@ -1066,6 +1098,7 @@ export const LeadEditModal: React.FC<LeadEditModalProps> = ({ isOpen, onClose, l
               panelModels={panelModels}
               inverterManufacturers={inverterManufacturers}
               inverterSizes={inverterSizes}
+              inverterSeriesList={inverterSeriesList}
               inverterModels={inverterModels}
               batteryManufacturers={batteryManufacturers}
               batteryCapacities={batteryCapacities}
@@ -1077,6 +1110,7 @@ export const LeadEditModal: React.FC<LeadEditModalProps> = ({ isOpen, onClose, l
               handleNoOfPanelsChange={handleNoOfPanelsChange}
               handleInverterManufacturerChange={handleInverterManufacturerChange}
               handleInverterSizeChange={handleInverterSizeChange}
+              handleInverterSeriesChange={handleInverterSeriesChange}
               handleBatteryManufacturerChange={handleBatteryManufacturerChange}
               handleBatteryCapacityChange={handleBatteryCapacityChange}
             />
@@ -1137,11 +1171,11 @@ export const LeadEditModal: React.FC<LeadEditModalProps> = ({ isOpen, onClose, l
             </div>
             <div className="flex items-center gap-1.5">
               <span className={`uppercase text-[10px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Selling:</span>
-              <span className={`font-bold font-mono ${isLight ? 'text-slate-900' : 'text-slate-100'}`}>${formData.sellingPrice || '0'}</span>
+              <span className={`font-bold font-mono ${isLight ? 'text-slate-900' : 'text-slate-100'}`}>{formatAudAccounts(formData.sellingPrice || 0)}</span>
             </div>
             <div className="flex items-center gap-1.5">
               <span className={`uppercase text-[10px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Deposit:</span>
-              <span className={`font-bold font-mono ${isLight ? 'text-cyan-700' : 'text-cyan-400'}`}>${formData.deposit || '0'}</span>
+              <span className={`font-bold font-mono ${isLight ? 'text-cyan-700' : 'text-cyan-400'}`}>{formatAudAccounts(formData.deposit || 0)}</span>
             </div>
             <div className="flex items-center gap-1.5">
               <span className={`uppercase text-[10px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Company:</span>

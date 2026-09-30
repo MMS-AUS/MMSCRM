@@ -31,7 +31,8 @@ import {
   Key,
   Database,
   Copy,
-  ExternalLink
+  ExternalLink,
+  Sun
 } from 'lucide-react';
 import { UserProfile, UserRole, RoleAccessConfig } from '../../types';
 import { FeaturesSettingsTab } from '../settings/FeaturesSettingsTab';
@@ -42,6 +43,7 @@ import { SystemEmailSettingsTab } from '../settings/SystemEmailSettingsTab';
 import { ApiKeysSettingsTab } from '../settings/ApiKeysSettingsTab';
 import { UserInviteModal } from '../modals/UserInviteModal';
 import { DropdownExcelSyncModal } from '../modals/DropdownExcelSyncModal';
+import { HardwareCatalogManager } from '../hardware/HardwareCatalogManager';
 import {
   exportDropdownsToExcel,
   exportDropdownTemplate
@@ -96,6 +98,7 @@ export const SettingsView: React.FC = () => {
   const [excelSyncInitialTab, setExcelSyncInitialTab] = useState<'import' | 'export' | 'guide'>('import');
   const [categorySearchQuery, setCategorySearchQuery] = useState('');
   const [editingOption, setEditingOption] = useState<{ original: string; current: string } | null>(null);
+  const [dropdownsSubTab, setDropdownsSubTab] = useState<'hardware' | 'dropdowns'>('hardware');
 
   // Domain Management State
   const [newDomainInput, setNewDomainInput] = useState('');
@@ -344,8 +347,9 @@ export const SettingsView: React.FC = () => {
                 <tbody className="divide-y divide-[#202020]">
                   {systemUsers.map(user => {
                     const isSelf = user.id === currentUser.id;
-                    const initials = user.name
+                    const initials = (user?.name || user?.email || 'User')
                       .split(' ')
+                      .filter(Boolean)
                       .map(n => n[0])
                       .join('')
                       .slice(0, 2)
@@ -455,8 +459,59 @@ export const SettingsView: React.FC = () => {
       {/* TAB 3: DROPDOWNS & HARDWARE */}
       {activeTab === 'dropdowns' && (
         <div className="space-y-6">
-          {/* Supabase SQL Migration Script Access Card */}
-          <div className="bg-gradient-to-r from-[#0e2119] via-[#122820] to-[#141414] border border-emerald-500/30 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm">
+          {/* Sub Navigation: Hardware Cascades vs General Dropdowns */}
+          <div className="flex items-center gap-2 p-1.5 bg-[#141414] border border-[#262626] rounded-xl text-xs overflow-x-auto">
+            <button
+              type="button"
+              onClick={() => setDropdownsSubTab('hardware')}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-lg font-bold transition-all whitespace-nowrap ${
+                dropdownsSubTab === 'hardware'
+                  ? 'bg-[#bef264] text-slate-950 shadow-xs'
+                  : 'text-gray-400 hover:text-white hover:bg-[#1f1f1f]'
+              }`}
+            >
+              <Sun className="w-4 h-4" />
+              <span>Equipment &amp; Hardware Catalog (Panels, Inverters, Batteries)</span>
+              <span
+                className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${
+                  dropdownsSubTab === 'hardware'
+                    ? 'bg-black/20 text-slate-950 font-bold'
+                    : 'bg-[#222] text-[#bef264]'
+                }`}
+              >
+                Watts &bull; Series &bull; Model
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setDropdownsSubTab('dropdowns')}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-lg font-bold transition-all whitespace-nowrap ${
+                dropdownsSubTab === 'dropdowns'
+                  ? 'bg-[#bef264] text-slate-950 shadow-xs'
+                  : 'text-gray-400 hover:text-white hover:bg-[#1f1f1f]'
+              }`}
+            >
+              <ListFilter className="w-4 h-4" />
+              <span>General System Dropdowns &amp; Presets</span>
+              <span
+                className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${
+                  dropdownsSubTab === 'dropdowns'
+                    ? 'bg-black/20 text-slate-950 font-bold'
+                    : 'bg-[#222] text-gray-300'
+                }`}
+              >
+                {safeConfigs.length} Categories
+              </span>
+            </button>
+          </div>
+
+          {dropdownsSubTab === 'hardware' ? (
+            <HardwareCatalogManager />
+          ) : (
+            <div className="space-y-6">
+              {/* Supabase SQL Migration Script Access Card */}
+              <div className="bg-gradient-to-r from-[#0e2119] via-[#122820] to-[#141414] border border-emerald-500/30 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm">
             <div className="flex items-center gap-3">
               <div className="p-2.5 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shrink-0">
                 <Database className="w-5 h-5" />
@@ -775,6 +830,8 @@ export const SettingsView: React.FC = () => {
               </div>
             </div>
           </div>
+        </div>
+          )}
         </div>
       )}
 

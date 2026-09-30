@@ -1,0 +1,330 @@
+{
+  "panelHierarchy": [
+    {
+      "id": "ph-1",
+      "manufacturer": "AIKO Solar",
+      "sizeW": 440,
+      "series": "Neostar 2P",
+      "model": "AIKO-A440-MAH54Mb (All-Black N-Type ABC)"
+    },
+    {
+      "id": "ph-2",
+      "manufacturer": "AIKO Solar",
+      "sizeW": 450,
+      "series": "Neostar 2S",
+      "model": "AIKO-A450-MAH54Mb (High Efficiency ABC)"
+    },
+    {
+      "id": "ph-3",
+      "manufacturer": "AIKO Solar",
+      "sizeW": 475,
+      "series": "Stellar Series",
+      "model": "AIKO-A475-MAH60Mb (Commercial & Large Roof)"
+    },
+    {
+      "id": "ph-4",
+      "manufacturer": "Jinko Solar (Tiger Neo)",
+      "sizeW": 440,
+      "series": "Tiger Neo N-Type 54HL4R",
+      "model": "JKM440N-54HL4R-B (Full Black)"
+    },
+    {
+      "id": "ph-5",
+      "manufacturer": "Jinko Solar (Tiger Neo)",
+      "sizeW": 475,
+      "series": "Tiger Neo N-Type 60HL4",
+      "model": "JKM475N-60HL4-V (Silver Frame)"
+    },
+    {
+      "id": "ph-6",
+      "manufacturer": "Trina Solar (Vertex S+)",
+      "sizeW": 440,
+      "series": "Vertex S+ Dual Glass",
+      "model": "TSM-440NEG9R.28 (Clear Black N-Type)"
+    },
+    {
+      "id": "ph-7",
+      "manufacturer": "Trina Solar (Vertex S+)",
+      "sizeW": 450,
+      "series": "Vertex S+ Dual Glass",
+      "model": "TSM-450NEG9R.28 (High Output)"
+    },
+    {
+      "id": "ph-8",
+      "manufacturer": "Trina Solar (Vertex S+)",
+      "sizeW": 500,
+      "series": "Vertex S+ Ultra",
+      "model": "TSM-500NEG18R.20 (Bifacial Commercial)"
+    },
+    {
+      "id": "ph-9",
+      "manufacturer": "Canadian Solar",
+      "sizeW": 415,
+      "series": "HiKu6 Mono PERC",
+      "model": "CS6R-415MS (Reliable All-Weather)"
+    },
+    {
+      "id": "ph-10",
+      "manufacturer": "Canadian Solar",
+      "sizeW": 440,
+      "series": "TOPHiKu6 N-Type",
+      "model": "CS6R-440T (N-Type TOPCon Dual-Glass)"
+    },
+    {
+      "id": "ph-11",
+      "manufacturer": "LONGi Solar",
+      "sizeW": 435,
+      "series": "Hi-MO X6 Explorer",
+      "model": "LR5-54HTB-435M (HPBC Black)"
+    },
+    {
+      "id": "ph-12",
+      "manufacturer": "LONGi Solar",
+      "sizeW": 450,
+      "series": "Hi-MO 7 Bifacial",
+      "model": "LR5-72HGD-450M (Commercial N-Type)"
+    },
+    {
+      "id": "ph-13",
+      "manufacturer": "REC Alpha Pure",
+      "sizeW": 430,
+      "series": "Alpha Pure-R Series",
+      "model": "REC430AA Pure-R (Heterojunction HJT Lead-Free)"
+    },
+    {
+      "id": "ph-14",
+      "manufacturer": "REC Alpha Pure",
+      "sizeW": 470,
+      "series": "Alpha Pure-RX Series",
+      "model": "REC470AA Pure-RX (Premium High Density)"
+    }
+  ],
+  "inverterHierarchy": [
+    {
+      "id": "ih-1",
+      "manufacturer": "Fronius (Primo/Symo Gen24)",
+      "sizeKw": 5,
+      "series": "Primo GEN24 Plus",
+      "model": "Primo GEN24 5.0 Plus (Single Phase Hybrid Ready)"
+    },
+    {
+      "id": "ih-2",
+      "manufacturer": "Fronius (Primo/Symo Gen24)",
+      "sizeKw": 6,
+      "series": "Primo GEN24 Plus",
+      "model": "Primo GEN24 6.0 Plus (Single Phase)"
+    },
+    {
+      "id": "ih-3",
+      "manufacturer": "Fronius (Primo/Symo Gen24)",
+      "sizeKw": 8.2,
+      "series": "Primo SnapINverter",
+      "model": "Primo 8.2-1 (High Yield Single Phase)"
+    },
+    {
+      "id": "ih-4",
+      "manufacturer": "Fronius (Primo/Symo Gen24)",
+      "sizeKw": 10,
+      "series": "Symo GEN24 Plus",
+      "model": "Symo GEN24 10.0 Plus (Three Phase Hybrid)"
+    },
+    {
+      "id": "ih-5",
+      "manufacturer": "Sungrow (SG/SH Series)",
+      "sizeKw": 5,
+      "series": "SG Series Single Phase",
+      "model": "SG5.0RS-ADA (Single Phase Dual MPPT String)"
+    },
+    {
+      "id": "ih-6",
+      "manufacturer": "Sungrow (SG/SH Series)",
+      "sizeKw": 5,
+      "series": "SH Series Hybrid",
+      "model": "SH5.0RS Hybrid (Single Phase Battery Ready)"
+    },
+    {
+      "id": "ih-7",
+      "manufacturer": "Sungrow (SG/SH Series)",
+      "sizeKw": 8,
+      "series": "SH Series Three Phase",
+      "model": "SH8.0RT-20 (Three Phase High Voltage Hybrid)"
+    },
+    {
+      "id": "ih-8",
+      "manufacturer": "Sungrow (SG/SH Series)",
+      "sizeKw": 10,
+      "series": "SH Series Three Phase",
+      "model": "SH10RT-20 (Three Phase High Voltage Hybrid)"
+    },
+    {
+      "id": "ih-9",
+      "manufacturer": "Enphase (IQ8 Microinverters)",
+      "sizeKw": 5,
+      "series": "IQ8 Microinverters",
+      "model": "IQ8AC Microinverter Array (5.0kW Peak Grid-Forming)"
+    },
+    {
+      "id": "ih-10",
+      "manufacturer": "Enphase (IQ8 Microinverters)",
+      "sizeKw": 10,
+      "series": "IQ8 Commercial Array",
+      "model": "IQ8HC Microinverter Commercial Array (10.0kW Peak)"
+    },
+    {
+      "id": "ih-11",
+      "manufacturer": "SolarEdge (Home Wave)",
+      "sizeKw": 5,
+      "series": "Home Wave Single Phase",
+      "model": "SE5000H Home Wave (HD-Wave with Optimizers)"
+    },
+    {
+      "id": "ih-12",
+      "manufacturer": "SolarEdge (Home Wave)",
+      "sizeKw": 10,
+      "series": "Home Hub Three Phase",
+      "model": "SE10000H Home Hub (Three Phase Backup Ready)"
+    },
+    {
+      "id": "ih-13",
+      "manufacturer": "Sigenergy (SigenStor)",
+      "sizeKw": 5,
+      "series": "SigenStor 5.0 TP",
+      "model": "SigenStor 5.0 TP (All-in-One 5kW Single Phase)"
+    },
+    {
+      "id": "ih-14",
+      "manufacturer": "Sigenergy (SigenStor)",
+      "sizeKw": 10,
+      "series": "SigenStor 10.0 TP",
+      "model": "SigenStor 10.0 TP (All-in-One 10kW Three Phase)"
+    },
+    {
+      "id": "ih-15",
+      "manufacturer": "GoodWe",
+      "sizeKw": 5,
+      "series": "DNS Series G3",
+      "model": "DNS Series G3 (GW5000D-NS Single Phase)"
+    },
+    {
+      "id": "ih-16",
+      "manufacturer": "GoodWe",
+      "sizeKw": 10,
+      "series": "ET Series Three Phase",
+      "model": "ET Series (GW10K-ET Three Phase Storage Hybrid)"
+    }
+  ],
+  "batteryHierarchy": [
+    {
+      "id": "bh-1",
+      "manufacturer": "Tesla Powerwall 3 (13.5kWh)",
+      "usableCapacityKwh": 13.5,
+      "series": "Powerwall 3",
+      "model": "Tesla Powerwall 3 Integrated Inverter",
+      "size": "13.5kWh Wall Mounted Slimline"
+    },
+    {
+      "id": "bh-2",
+      "manufacturer": "Tesla Powerwall 3 (13.5kWh)",
+      "usableCapacityKwh": 27,
+      "series": "Powerwall 3 Dual",
+      "model": "Dual Tesla Powerwall 3 Pack (2 x 13.5kWh)",
+      "size": "27.0kWh High Capacity Dual Stacking"
+    },
+    {
+      "id": "bh-3",
+      "manufacturer": "Sungrow SBR Battery (9.6kWh - 19.2kWh)",
+      "usableCapacityKwh": 9.6,
+      "series": "SBR High Voltage",
+      "model": "SBR096 High Voltage Modular",
+      "size": "3 Modules (9.6kWh Floor Mounted Tower)"
+    },
+    {
+      "id": "bh-4",
+      "manufacturer": "Sungrow SBR Battery (9.6kWh - 19.2kWh)",
+      "usableCapacityKwh": 12.8,
+      "series": "SBR High Voltage",
+      "model": "SBR128 High Voltage Modular",
+      "size": "4 Modules (12.8kWh Floor Mounted Tower)"
+    },
+    {
+      "id": "bh-5",
+      "manufacturer": "Sungrow SBR Battery (9.6kWh - 19.2kWh)",
+      "usableCapacityKwh": 16,
+      "series": "SBR High Voltage",
+      "model": "SBR160 High Voltage Modular",
+      "size": "5 Modules (16.0kWh Floor Mounted Tower)"
+    },
+    {
+      "id": "bh-6",
+      "manufacturer": "Sungrow SBR Battery (9.6kWh - 19.2kWh)",
+      "usableCapacityKwh": 19.2,
+      "series": "SBR High Voltage",
+      "model": "SBR192 High Voltage Modular",
+      "size": "6 Modules (19.2kWh Maximum Residential Tower)"
+    },
+    {
+      "id": "bh-7",
+      "manufacturer": "Sigenergy SigenStor (8kWh - 48kWh)",
+      "usableCapacityKwh": 8,
+      "series": "SigenStor Battery",
+      "model": "Sigen Battery 8.0kWh LFP",
+      "size": "Single 8kWh Modular Stack"
+    },
+    {
+      "id": "bh-8",
+      "manufacturer": "Sigenergy SigenStor (8kWh - 48kWh)",
+      "usableCapacityKwh": 16,
+      "series": "SigenStor Battery",
+      "model": "Sigen Battery Dual Stack 16.0kWh",
+      "size": "Dual 16kWh Modular Stack"
+    },
+    {
+      "id": "bh-9",
+      "manufacturer": "Sigenergy SigenStor (8kWh - 48kWh)",
+      "usableCapacityKwh": 24,
+      "series": "SigenStor Battery",
+      "model": "Sigen Battery Triple Stack 24.0kWh",
+      "size": "Triple 24kWh Heavy Duty Residential"
+    },
+    {
+      "id": "bh-10",
+      "manufacturer": "BYD Battery-Box Premium",
+      "usableCapacityKwh": 10.2,
+      "series": "Premium HVS",
+      "model": "Battery-Box Premium HVS 10.2",
+      "size": "4 x HVS 2.56kWh Modules Tower"
+    },
+    {
+      "id": "bh-11",
+      "manufacturer": "BYD Battery-Box Premium",
+      "usableCapacityKwh": 13.8,
+      "series": "Premium HVM",
+      "model": "Battery-Box Premium HVM 13.8",
+      "size": "5 x HVM 2.76kWh Modules Tower"
+    },
+    {
+      "id": "bh-12",
+      "manufacturer": "Enphase IQ Battery 5P",
+      "usableCapacityKwh": 5,
+      "series": "IQ Battery 5P",
+      "model": "IQ Battery 5P Modular",
+      "size": "5.0kWh Compact Wall Mount"
+    },
+    {
+      "id": "bh-13",
+      "manufacturer": "Enphase IQ Battery 5P",
+      "usableCapacityKwh": 10,
+      "series": "IQ Battery 5P",
+      "model": "Dual IQ Battery 5P System (2 x 5P)",
+      "size": "10.0kWh Dual Wall Array"
+    },
+    {
+      "id": "bh-14",
+      "manufacturer": "Enphase IQ Battery 5P",
+      "usableCapacityKwh": 15,
+      "series": "IQ Battery 5P",
+      "model": "Triple IQ Battery 5P System (3 x 5P)",
+      "size": "15.0kWh Whole Home Backup"
+    }
+  ]
+}

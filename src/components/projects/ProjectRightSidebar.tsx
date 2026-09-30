@@ -382,13 +382,13 @@ export const ProjectRightSidebar: React.FC<ProjectRightSidebarProps> = ({
           <div className="flex justify-between items-center">
             <span className="text-gray-400">Invoice Total (AUD):</span>
             <span className="font-mono text-amber-400 font-bold text-sm">
-              {xeroInvoiceTotal ? formatAudAccounts(xeroInvoiceTotal) : formData.amount || formData.sellingPrice || '$10,500.00'}
+              {formatAudAccounts(xeroInvoiceTotal || formData.amount || formData.sellingPrice || 10500)}
             </span>
           </div>
           <div className="flex justify-between items-center">
             <span className="text-gray-400">Deposit Received:</span>
             <span className="font-mono text-emerald-400 font-semibold">
-              {xeroReceiptNumber ? `REC: ${xeroReceiptNumber} (${formatAudAccounts(xeroReceiptAmount || 1000)})` : formData.deposit || '$1,000.00'}
+              {xeroReceiptNumber ? `REC: ${xeroReceiptNumber} (${formatAudAccounts(xeroReceiptAmount || 1000)})` : formatAudAccounts(formData.deposit || 1000)}
             </span>
           </div>
         </div>

@@ -3,6 +3,8 @@ import { useApp } from '../../context/AppContext';
 import { Project, AustralianState, LeadActivity, LeadAttachment, CustomerPortalCredentials, ProjectStatus } from '../../types';
 import {
   formatAudAccounts,
+  formatAudNumber,
+  stripDollarSign,
   parseAudAccounts,
   formatAustralianMobile,
   classifyAustralianPostcode,
@@ -79,7 +81,7 @@ export const ProjectEditModal: React.FC<ProjectEditModalProps> = ({
   const [formData, setFormData] = useState<ProjectFormData>({
     // Top bar fields
     projectNumber: '',
-    amount: '$0.00',
+    amount: '0.00',
     projectCreatedDate: '',
     projectClosedDate: '',
     projectStage: 'Site Survey',
@@ -101,9 +103,9 @@ export const ProjectEditModal: React.FC<ProjectEditModalProps> = ({
     secondaryMobile: '',
     email: '',
     salesTeamNotes: '',
-    systemPrice: '$14,500.00',
-    sellingPrice: '$10,500.00',
-    deposit: '$1,000.00',
+    systemPrice: '14,500.00',
+    sellingPrice: '10,500.00',
+    deposit: '1,000.00',
     depositReceivedDate: '',
 
     // Section 2: Technical Specs & Hardware
@@ -225,27 +227,27 @@ export const ProjectEditModal: React.FC<ProjectEditModalProps> = ({
       const matchingLead = leads.find(l => l.id === project.leadId || l.projectNumber === project.projectNumber);
 
       const resolvedSellingPrice = project.sellingPrice !== undefined
-        ? (typeof project.sellingPrice === 'number' ? formatAudAccounts(project.sellingPrice) : String(project.sellingPrice))
+        ? (typeof project.sellingPrice === 'number' ? formatAudNumber(project.sellingPrice) : stripDollarSign(String(project.sellingPrice)))
         : project.contractValueAud !== undefined
-        ? formatAudAccounts(project.contractValueAud)
+        ? formatAudNumber(project.contractValueAud)
         : matchingLead?.sellingPrice
-        ? formatAudAccounts(matchingLead.sellingPrice)
-        : '$10,500.00';
+        ? formatAudNumber(matchingLead.sellingPrice)
+        : '10,500.00';
 
       const resolvedSystemPrice = project.systemPrice !== undefined
-        ? (typeof project.systemPrice === 'number' ? formatAudAccounts(project.systemPrice) : String(project.systemPrice))
+        ? (typeof project.systemPrice === 'number' ? formatAudNumber(project.systemPrice) : stripDollarSign(String(project.systemPrice)))
         : matchingLead?.systemPrice
-        ? formatAudAccounts(matchingLead.systemPrice)
-        : '$14,500.00';
+        ? formatAudNumber(matchingLead.systemPrice)
+        : '14,500.00';
 
       const resolvedDeposit = project.deposit !== undefined
-        ? (typeof project.deposit === 'number' ? formatAudAccounts(project.deposit) : String(project.deposit))
+        ? (typeof project.deposit === 'number' ? formatAudNumber(project.deposit) : stripDollarSign(String(project.deposit)))
         : matchingLead?.deposit
-        ? formatAudAccounts(matchingLead.deposit)
-        : '$1,000.00';
+        ? formatAudNumber(matchingLead.deposit)
+        : '1,000.00';
 
       const calcBal = Math.max(0, parseAudAccounts(resolvedSellingPrice) - parseAudAccounts(resolvedDeposit));
-      const resolvedBalancePayable = project.balancePayable || formatAudAccounts(calcBal);
+      const resolvedBalancePayable = project.balancePayable ? stripDollarSign(project.balancePayable) : formatAudNumber(calcBal);
 
       setFormData({
         // Top section
@@ -446,7 +448,7 @@ export const ProjectEditModal: React.FC<ProjectEditModalProps> = ({
       setFormData(prev => ({
         ...prev,
         projectNumber: `PRJ-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`,
-        amount: '$10,500.00',
+        amount: '10,500.00',
         projectCreatedDate: todayDate,
         projectClosedDate: '',
         projectStage: 'Site Survey'
@@ -1036,7 +1038,6 @@ export const ProjectEditModal: React.FC<ProjectEditModalProps> = ({
               {/* Field 2: Amount (Locked for editing, auto-populated from Selling Price AUD) */}
               <div className="flex flex-col">
                 <div className="flex items-center gap-1 mb-1">
-                  <DollarSign className={`w-3.5 h-3.5 ${isLight ? 'text-amber-600' : 'text-amber-400'}`} />
                   <label className={`text-[11px] font-bold uppercase tracking-wider ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
                     Amount (AUD)
                   </label>
@@ -1048,12 +1049,15 @@ export const ProjectEditModal: React.FC<ProjectEditModalProps> = ({
                   </span>
                 </div>
                 <div className="relative">
+                  <span className={`absolute left-3 top-1/2 -translate-y-1/2 text-xs font-mono font-bold pointer-events-none ${
+                    isLight ? 'text-slate-500' : 'text-amber-500'
+                  }`}>$</span>
                   <input
                     type="text"
                     readOnly
-                    value={formData.amount || formData.sellingPrice}
+                    value={stripDollarSign(formData.amount || formData.sellingPrice)}
                     title="Amount is auto-populated from Selling Price (AUD) and locked for editing."
-                    className={`w-36 sm:w-40 px-3 py-1.5 rounded-lg text-xs font-mono font-bold cursor-not-allowed select-none shadow-xs ${
+                    className={`w-36 sm:w-40 pl-7 pr-3 py-1.5 rounded-lg text-xs font-mono font-bold cursor-not-allowed select-none shadow-xs ${
                       isLight
                         ? 'bg-slate-200/60 border border-slate-300 text-slate-900'
                         : 'bg-slate-900/60 border border-slate-700/80 text-amber-400'

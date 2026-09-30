@@ -315,19 +315,28 @@ export function saveAppCredentials(updates: Record<string, string>): {
       const key = rawKey.trim();
       const val = typeof rawVal === 'string' ? rawVal.trim() : '';
 
-      if (val === '') {
+      if (val === '__DELETE__') {
         delete existing[key];
         delete process.env[key];
         updatedKeys.push(key);
-      } else {
+      } else if (val !== '') {
         existing[key] = val;
         process.env[key] = val;
         updatedKeys.push(key);
       }
+      // If val is empty string (''), we DO NOT delete existing key.
     }
 
     // Write to .app_config.json
     fs.writeFileSync(CONFIG_FILE, JSON.stringify(existing, null, 2), 'utf-8');
+
+    // Also persist to .env.local so environment variables survive restarts & rebuilds
+    try {
+      const envLines = Object.entries(existing).map(([k, v]) => `${k}="${v.replace(/"/g, '\\"')}"`);
+      fs.writeFileSync(path.join(process.cwd(), '.env.local'), envLines.join('\n'), 'utf-8');
+    } catch (envErr) {
+      console.warn('[AppConfig] Could not write .env.local:', envErr);
+    }
 
     // Also sync mirrored values
     if (existing.SUPABASE_URL && !existing.NEXT_PUBLIC_SUPABASE_URL) {
@@ -380,8 +389,9 @@ export async function testIntegrationConnection(
   const start = Date.now();
 
   if (provider === 'supabase') {
-    const url = overrideData?.SUPABASE_URL || process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const key = overrideData?.SUPABASE_SERVICE_ROLE_KEY || overrideData?.SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
+    const stored = readConfigFile();
+    const url = overrideData?.SUPABASE_URL || process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || stored.SUPABASE_URL || stored.NEXT_PUBLIC_SUPABASE_URL;
+    const key = overrideData?.SUPABASE_SERVICE_ROLE_KEY || overrideData?.SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || stored.SUPABASE_SERVICE_ROLE_KEY || stored.SUPABASE_ANON_KEY;
 
     if (!url || !key) {
       return {
@@ -392,16 +402,26 @@ export async function testIntegrationConnection(
 
     try {
       const cleanUrl = url.replace(/\/$/, '');
-      const resp = await fetch(`${cleanUrl}/rest/v1/`, {
+      // Test table access or PostgREST root
+      let resp = await fetch(`${cleanUrl}/rest/v1/leads?select=id&limit=1`, {
         method: 'GET',
         headers: {
           apikey: key,
           Authorization: `Bearer ${key}`
         }
       });
+      if (!resp.ok && resp.status !== 200) {
+        resp = await fetch(`${cleanUrl}/rest/v1/`, {
+          method: 'GET',
+          headers: {
+            apikey: key,
+            Authorization: `Bearer ${key}`
+          }
+        });
+      }
       const latencyMs = Date.now() - start;
 
-      if (resp.ok || resp.status === 200 || resp.status === 404 || resp.status === 400) {
+      if (resp.ok || resp.status === 200 || resp.status === 206 || resp.status === 404 || resp.status === 400) {
         // Any response from PostgREST means endpoint is reachable & responsive
         return {
           success: true,
@@ -413,7 +433,7 @@ export async function testIntegrationConnection(
       const text = await resp.text();
       return {
         success: false,
-        message: `Supabase responded with status ${resp.status}: ${text}`,
+        message: `Supabase responded with status ${resp.status}: ${text.slice(0, 120)}`,
         latencyMs
       };
     } catch (err: any) {

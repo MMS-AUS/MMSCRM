@@ -373,15 +373,32 @@ export const ApiKeysSettingsTab: React.FC = () => {
       const data = await res.json();
       if (data.success && Array.isArray(data.credentials) && data.credentials.length > 0) {
         setFields(data.credentials);
-        setFormValues(prev => {
-          const map = { ...prev };
-          data.credentials.forEach((f: ConfigField) => {
-            if (f.value !== undefined && f.value !== '') {
-              map[f.key] = f.value;
-            }
-          });
-          return map;
+        const serverValues: Record<string, string> = {};
+        data.credentials.forEach((f: ConfigField) => {
+          if (f.value !== undefined && f.value !== '') {
+            serverValues[f.key] = f.value;
+          }
         });
+
+        // Check for local backup to safeguard against ephemeral container resets
+        let backupValues: Record<string, string> = {};
+        try {
+          const raw = localStorage.getItem('solar_app_config_backup');
+          if (raw) backupValues = JSON.parse(raw);
+        } catch {}
+
+        const merged = { ...backupValues, ...serverValues };
+        setFormValues(merged);
+
+        // If server was reset and is missing keys that exist in client backup, auto-restore
+        const hasMissing = Object.keys(backupValues).some(k => backupValues[k] && !serverValues[k]);
+        if (hasMissing) {
+          fetch('/api/system/credentials', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ updates: backupValues })
+          }).catch(() => {});
+        }
       }
     } catch (err: any) {
       console.warn('[Credentials] Failed to load server credentials:', err);
@@ -463,11 +480,15 @@ export const ApiKeysSettingsTab: React.FC = () => {
       const result = await res.json();
 
       if (result.success) {
+        try {
+          localStorage.setItem('solar_app_config_backup', JSON.stringify(formValues));
+        } catch {}
         setFeedback({
           type: 'success',
-          message: `Saved and applied ${result.updatedKeys.length} key(s) directly in the app. Changes are effective immediately!`
+          message: `Saved and applied ${result.updatedKeys.length} key(s) directly in the app. Supabase sync completed!`
         });
         await loadCredentials();
+        window.dispatchEvent(new Event('solar:reload_leads'));
       } else {
         setFeedback({ type: 'error', message: result.error || 'Failed to save credentials' });
       }

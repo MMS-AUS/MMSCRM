@@ -237,25 +237,25 @@ export const LeadCenterTabs: React.FC<LeadCenterTabsProps> = ({
                   <div>
                     <span className="text-[10px] text-gray-500 block uppercase">Selling Price</span>
                     <span className="text-sm font-bold text-white font-mono">
-                      ${formData.sellingPrice || '0'}
+                      {formatAudAccounts(formData.sellingPrice || 0)}
                     </span>
                   </div>
                   <div>
                     <span className="text-[10px] text-gray-500 block uppercase">Deposit Paid</span>
                     <span className="text-sm font-bold text-emerald-400 font-mono">
-                      ${formData.deposit || '0'}
+                      {formatAudAccounts(formData.deposit || 0)}
                     </span>
                   </div>
                   <div>
                     <span className="text-[10px] text-gray-500 block uppercase">Balance Due</span>
                     <span className="text-sm font-bold text-amber-400 font-mono">
-                      ${formatAudAccounts(balanceDue)}
+                      {formatAudAccounts(balanceDue)}
                     </span>
                   </div>
                   <div>
                     <span className="text-[10px] text-gray-500 block uppercase">Est. STC Rebate</span>
                     <span className="text-sm font-bold text-cyan-400 font-mono">
-                      ~${formatAudAccounts(estStcRebate)}
+                      ~{formatAudAccounts(estStcRebate)}
                     </span>
                   </div>
                 </div>

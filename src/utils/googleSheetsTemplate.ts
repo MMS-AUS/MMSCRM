@@ -606,9 +606,88 @@ export function normalizeAddressForComparison(address?: string): string {
     .replace(/\b(place|pl)\b/g, 'pl')
     .replace(/\b(parade|pde)\b/g, 'pde')
     .replace(/\b(highway|hwy)\b/g, 'hwy')
+    .replace(/\b(circuit|cct)\b/g, 'cct')
+    .replace(/\b(crescent|cres|cr)\b/g, 'cres')
+    .replace(/\b(close|cl)\b/g, 'cl')
+    .replace(/\b(terrace|tce)\b/g, 'tce')
     .replace(/\b(boulevard|bvd|blvd)\b/g, 'blvd')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+/**
+ * Checks whether two records (or addresses) represent distinct physical properties.
+ * If both have street addresses that differ, or suburbs that differ, or postcodes that differ,
+ * they are distinct properties.
+ */
+export function areDistinctProperties(
+  a?: { address?: string; suburb?: string; postcode?: string; state?: string },
+  b?: { address?: string; suburb?: string; postcode?: string; state?: string }
+): boolean {
+  if (!a || !b) return false;
+
+  const addrA = normalizeAddressForComparison(a.address);
+  const addrB = normalizeAddressForComparison(b.address);
+  const subA = normalizeNameForComparison(a.suburb);
+  const subB = normalizeNameForComparison(b.suburb);
+  const pcA = (a.postcode || '').trim();
+  const pcB = (b.postcode || '').trim();
+  const stA = (a.state || '').trim().toUpperCase();
+  const stB = (b.state || '').trim().toUpperCase();
+
+  // 1. If both have street addresses and they differ, they are distinct properties
+  if (addrA && addrB && addrA !== addrB) {
+    return true;
+  }
+
+  // 2. If both have suburbs and they differ, they are distinct properties
+  if (subA && subB && subA !== subB) {
+    return true;
+  }
+
+  // 3. If both have postcodes and they differ, they are distinct properties
+  if (pcA && pcB && pcA !== pcB) {
+    return true;
+  }
+
+  // 4. If both have states and they differ, they are distinct properties
+  if (stA && stB && stA !== stB) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Checks whether two records represent the exact same physical property address.
+ */
+export function areSameProperty(
+  a?: { address?: string; suburb?: string; postcode?: string; state?: string },
+  b?: { address?: string; suburb?: string; postcode?: string; state?: string }
+): boolean {
+  if (!a || !b) return false;
+
+  const addrA = normalizeAddressForComparison(a.address);
+  const addrB = normalizeAddressForComparison(b.address);
+  const subA = normalizeNameForComparison(a.suburb);
+  const subB = normalizeNameForComparison(b.suburb);
+  const pcA = (a.postcode || '').trim();
+  const pcB = (b.postcode || '').trim();
+
+  if (addrA && addrB) {
+    return addrA === addrB;
+  }
+
+  if (!addrA && !addrB) {
+    if (subA && subB && subA === subB && pcA && pcB && pcA === pcB) {
+      return true;
+    }
+    if (!subA && !subB && !pcA && !pcB) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 /**
@@ -670,6 +749,10 @@ export function isLeadAlreadyInSystem(
     if (candEmail && candEmail.length > 3) {
       const existingEmail = normalizeEmailForComparison(existing.email);
       if (existingEmail && existingEmail === candEmail) {
+        // IMPORTANT: If they represent DIFFERENT properties for the same customer, they are 2 DIFFERENT LEADS!
+        if (areDistinctProperties(candidate, existing)) {
+          continue; // Skip this existing lead, check if another existing lead matches this specific property
+        }
         return { isDuplicate: true, matchedLead: existing, reason: `Matching Email (${candidate.email})` };
       }
     }
@@ -688,11 +771,17 @@ export function isLeadAlreadyInSystem(
 
     if (candPrimaryPhone) {
       if (checkPhoneMatch(candPrimaryPhone, existPrimaryPhone) || checkPhoneMatch(candPrimaryPhone, existSecondaryPhone)) {
+        if (areDistinctProperties(candidate, existing)) {
+          continue; // Same customer inquiring for a different property -> separate lead!
+        }
         return { isDuplicate: true, matchedLead: existing, reason: `Matching Phone (${candidate.primaryMobile || candidate.phone})` };
       }
     }
     if (candSecondaryPhone) {
       if (checkPhoneMatch(candSecondaryPhone, existPrimaryPhone) || checkPhoneMatch(candSecondaryPhone, existSecondaryPhone)) {
+        if (areDistinctProperties(candidate, existing)) {
+          continue; // Same customer inquiring for a different property -> separate lead!
+        }
         return { isDuplicate: true, matchedLead: existing, reason: `Matching Secondary Phone (${candidate.secondaryMobile})` };
       }
     }
@@ -706,6 +795,9 @@ export function isLeadAlreadyInSystem(
     const existPostcode = (existing.postcode || '').trim();
 
     if (candFullName && candFullName.length > 2 && existFullName && existFullName === candFullName) {
+      if (areDistinctProperties(candidate, existing)) {
+        continue; // Same customer name, but different property address -> separate lead!
+      }
       // If address matches
       if (candAddress && existAddress && candAddress === existAddress) {
         return { isDuplicate: true, matchedLead: existing, reason: `Matching Name & Street Address (${existing.customerName}, ${existing.address})` };

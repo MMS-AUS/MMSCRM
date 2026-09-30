@@ -166,8 +166,9 @@ export const JoinERPSetPasswordScreen: React.FC<JoinERPSetPasswordScreenProps> =
 
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-full bg-slate-900 text-white font-bold flex items-center justify-center text-sm">
-                {matchedUser.name
+                {(matchedUser.name || matchedUser.email || 'User')
                   .split(' ')
+                  .filter(Boolean)
                   .map(n => n[0])
                   .join('')
                   .slice(0, 2)

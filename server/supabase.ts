@@ -14,13 +14,29 @@ export interface StoredXeroCredentials {
 
 const FALLBACK_CACHE_DIR = path.join(process.cwd(), '.xero_cache');
 const FALLBACK_CACHE_FILE = path.join(FALLBACK_CACHE_DIR, 'credentials.json');
+const APP_CONFIG_FILE = path.join(process.cwd(), '.app_config.json');
+
+function getStoredAppConfig(): Record<string, string> {
+  try {
+    if (fs.existsSync(APP_CONFIG_FILE)) {
+      return JSON.parse(fs.readFileSync(APP_CONFIG_FILE, 'utf8'));
+    }
+  } catch {}
+  return {};
+}
 
 function getSupabaseUrl(): string | undefined {
-  return process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+  if (process.env.SUPABASE_URL) return process.env.SUPABASE_URL;
+  if (process.env.NEXT_PUBLIC_SUPABASE_URL) return process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const cfg = getStoredAppConfig();
+  return cfg.SUPABASE_URL || cfg.NEXT_PUBLIC_SUPABASE_URL;
 }
 
 function getSupabaseKey(): string | undefined {
-  return process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
+  if (process.env.SUPABASE_SERVICE_ROLE_KEY) return process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (process.env.SUPABASE_ANON_KEY) return process.env.SUPABASE_ANON_KEY;
+  const cfg = getStoredAppConfig();
+  return cfg.SUPABASE_SERVICE_ROLE_KEY || cfg.SUPABASE_ANON_KEY;
 }
 
 export function isSupabaseConfigured(): boolean {

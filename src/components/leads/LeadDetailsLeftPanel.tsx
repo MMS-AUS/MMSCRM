@@ -6,6 +6,8 @@ import {
   formatAustralianMobile,
   validateMultipleEmails,
   formatAudAccounts,
+  formatAudNumber,
+  stripDollarSign,
   parseAudAccounts,
   AUSTRALIAN_ADDRESS_DATABASE,
   AustralianAddressPreset
@@ -91,6 +93,7 @@ export interface LeadDetailsFormData {
   noOfInverters: string;
   inverterManufacturer: string;
   inverterSizeKw: string;
+  inverterSeries?: string;
   inverterModel: string;
   noOfBatteries: string;
   batteryManufacturer: string;
@@ -122,6 +125,7 @@ interface LeadDetailsLeftPanelProps {
   panelModels: string[];
   inverterManufacturers: string[];
   inverterSizes: string[];
+  inverterSeriesList?: string[];
   inverterModels: string[];
   batteryManufacturers: string[];
   batteryCapacities: string[];
@@ -133,6 +137,7 @@ interface LeadDetailsLeftPanelProps {
   handleNoOfPanelsChange: (count: string) => void;
   handleInverterManufacturerChange: (manuf: string) => void;
   handleInverterSizeChange: (size: string) => void;
+  handleInverterSeriesChange?: (series: string) => void;
   handleBatteryManufacturerChange: (manuf: string) => void;
   handleBatteryCapacityChange: (cap: string) => void;
   onSave?: () => void;
@@ -148,6 +153,7 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
   panelModels,
   inverterManufacturers,
   inverterSizes,
+  inverterSeriesList = [],
   inverterModels,
   batteryManufacturers,
   batteryCapacities,
@@ -159,6 +165,7 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
   handleNoOfPanelsChange,
   handleInverterManufacturerChange,
   handleInverterSizeChange,
+  handleInverterSeriesChange,
   handleBatteryManufacturerChange,
   handleBatteryCapacityChange
 }) => {
@@ -1182,7 +1189,7 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
             <span className="text-[11px] text-gray-400">CEC Approved</span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
             <div>
               <label className="block text-[11px] font-medium text-gray-400 mb-1">
                 Number of Inverters
@@ -1225,6 +1232,24 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
                 {inverterSizes.map(s => (
                   <option key={s} value={s}>
                     {s} kW
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-medium text-gray-400 mb-1">
+                Inverter Series
+              </label>
+              <select
+                value={formData.inverterSeries || ''}
+                onChange={e => handleInverterSeriesChange?.(e.target.value)}
+                className="w-full px-3 py-1.5 bg-[#1a1a1a] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none"
+              >
+                <option value="">All Series</option>
+                {inverterSeriesList.map(s => (
+                  <option key={s} value={s}>
+                    {s}
                   </option>
                 ))}
               </select>
@@ -1449,13 +1474,13 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
               <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-mono font-bold pointer-events-none">$</span>
               <input
                 type="text"
-                placeholder="15,400"
-                value={formData.systemPrice}
-                onChange={e => setFormData(prev => ({ ...prev, systemPrice: e.target.value }))}
+                placeholder="15,400.00"
+                value={stripDollarSign(formData.systemPrice)}
+                onChange={e => setFormData(prev => ({ ...prev, systemPrice: e.target.value.replace(/^\$/, '').trim() }))}
                 onBlur={e => {
                   const parsed = parseAudAccounts(e.target.value);
                   if (parsed > 0) {
-                    setFormData(prev => ({ ...prev, systemPrice: formatAudAccounts(parsed) }));
+                    setFormData(prev => ({ ...prev, systemPrice: formatAudNumber(parsed) }));
                   }
                 }}
                 className="w-full pl-10 pr-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs font-mono text-white focus:border-[#bef264] focus:outline-none transition-colors"
@@ -1471,13 +1496,13 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
               <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-mono font-bold pointer-events-none">$</span>
               <input
                 type="text"
-                placeholder="11,900"
-                value={formData.sellingPrice}
-                onChange={e => setFormData(prev => ({ ...prev, sellingPrice: e.target.value }))}
+                placeholder="11,900.00"
+                value={stripDollarSign(formData.sellingPrice)}
+                onChange={e => setFormData(prev => ({ ...prev, sellingPrice: e.target.value.replace(/^\$/, '').trim() }))}
                 onBlur={e => {
                   const parsed = parseAudAccounts(e.target.value);
                   if (parsed > 0) {
-                    setFormData(prev => ({ ...prev, sellingPrice: formatAudAccounts(parsed) }));
+                    setFormData(prev => ({ ...prev, sellingPrice: formatAudNumber(parsed) }));
                   }
                 }}
                 className="w-full pl-10 pr-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs font-mono text-white focus:border-[#bef264] focus:outline-none transition-colors"
@@ -1493,13 +1518,13 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
               <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-mono font-bold pointer-events-none">$</span>
               <input
                 type="text"
-                placeholder="1,000"
-                value={formData.deposit}
-                onChange={e => setFormData(prev => ({ ...prev, deposit: e.target.value }))}
+                placeholder="1,000.00"
+                value={stripDollarSign(formData.deposit)}
+                onChange={e => setFormData(prev => ({ ...prev, deposit: e.target.value.replace(/^\$/, '').trim() }))}
                 onBlur={e => {
                   const parsed = parseAudAccounts(e.target.value);
                   if (parsed >= 0) {
-                    setFormData(prev => ({ ...prev, deposit: formatAudAccounts(parsed) }));
+                    setFormData(prev => ({ ...prev, deposit: formatAudNumber(parsed) }));
                   }
                 }}
                 className="w-full pl-10 pr-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs font-mono text-white focus:border-[#bef264] focus:outline-none transition-colors"

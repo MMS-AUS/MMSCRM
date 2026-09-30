@@ -35,7 +35,8 @@ export const CustomerPortal: React.FC = () => {
     setSelectedCustomerId,
     setSelectedPreviewProposalUrl,
     companyProfile,
-    systemRules
+    systemRules,
+    setActiveRole
   } = useApp();
 
   const [showLoginPage, setShowLoginPage] = useState(false);
@@ -62,9 +63,13 @@ export const CustomerPortal: React.FC = () => {
     projectCode: 'SOL-2026-NSW-1048',
     status: 'Installation in Progress',
     systemSizeKw: 13.2,
-    batteryBrand: 'Tesla Powerwall 3 (13.5 kWh)',
+    panelCount: 30,
+    panelBrand: 'Trina Solar',
     panelModel: 'Trina Vertex S+ 440W Dual-Glass N-Type (30 Panels)',
+    inverterBrand: 'Fronius',
     inverterModel: 'Fronius Primo GEN24 10.0 Plus Solar Inverter',
+    batteryBrand: 'Tesla Powerwall 3 (13.5 kWh)',
+    dnsp: 'Ausgrid',
     address: '44 Ocean Avenue, Bondi Beach NSW 2026',
     suburb: 'Bondi Beach',
     state: 'NSW',
@@ -240,6 +245,16 @@ export const CustomerPortal: React.FC = () => {
         <div className="flex flex-wrap items-center gap-2.5">
           <button
             type="button"
+            onClick={() => setActiveRole('admin')}
+            className="px-3 py-1.5 rounded-lg bg-[#bef264]/15 hover:bg-[#bef264]/25 text-[#bef264] border border-[#bef264]/30 text-xs font-bold flex items-center gap-1.5 transition-colors shadow-xs"
+            title="Return to Internal Solar ERP CRM"
+          >
+            <LayoutDashboard className="w-3.5 h-3.5" />
+            <span>Return to Staff CRM</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => setShowLoginPage(true)}
             className="px-3 py-1.5 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 hover:text-rose-200 border border-rose-500/30 text-xs font-medium flex items-center gap-1.5 transition-colors"
             title="Log out of customer self-service portal"
@@ -341,22 +356,22 @@ export const CustomerPortal: React.FC = () => {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
           <div className="p-3 bg-[#161616] rounded-xl border border-[#262626]">
             <p className="text-[10px] font-bold text-gray-400 uppercase">System Capacity</p>
-            <p className="text-sm font-bold text-white mt-0.5">{activeProject.systemSizeKw} kW</p>
-            <p className="text-[11px] text-gray-400">{activeProject.panelCount} × {activeProject.panelBrand}</p>
+            <p className="text-sm font-bold text-white mt-0.5">{activeProject.systemSizeKw || 6.6} kW</p>
+            <p className="text-[11px] text-gray-400">{activeProject.panelCount || 16} × {activeProject.panelBrand || activeProject.panelModel || 'Tier 1 Panels'}</p>
           </div>
           <div className="p-3 bg-[#161616] rounded-xl border border-[#262626]">
             <p className="text-[10px] font-bold text-gray-400 uppercase">Inverter</p>
-            <p className="text-sm font-bold text-white mt-0.5">{activeProject.inverterBrand.split(' ')[0]}</p>
-            <p className="text-[11px] text-gray-400 truncate">{activeProject.inverterModel}</p>
+            <p className="text-sm font-bold text-white mt-0.5">{(activeProject.inverterBrand || activeProject.inverterModel || 'Solar Inverter').split(' ')[0]}</p>
+            <p className="text-[11px] text-gray-400 truncate">{activeProject.inverterModel || 'Grid-Connect Inverter'}</p>
           </div>
           <div className="p-3 bg-[#161616] rounded-xl border border-[#262626]">
             <p className="text-[10px] font-bold text-gray-400 uppercase">Point-of-Sale STC Rebate</p>
-            <p className="text-sm font-bold text-[#bef264] mt-0.5">-${effectiveCustomerStcValue.toLocaleString()} AUD</p>
-            <p className="text-[11px] text-gray-400">{activeProject.stcCount} STCs @ ${effectiveCustomerRate.toFixed(2)} AUD</p>
+            <p className="text-sm font-bold text-[#bef264] mt-0.5">-${(effectiveCustomerStcValue || 0).toLocaleString()} AUD</p>
+            <p className="text-[11px] text-gray-400">{activeProject.stcCount || 0} STCs @ ${(effectiveCustomerRate || 39.5).toFixed(2)} AUD</p>
           </div>
           <div className="p-3 bg-[#161616] rounded-xl border border-[#262626]">
             <p className="text-[10px] font-bold text-gray-400 uppercase">DNSP Metering</p>
-            <p className="text-sm font-bold text-white mt-0.5">{activeProject.dnsp}</p>
+            <p className="text-sm font-bold text-white mt-0.5">{activeProject.dnsp || 'Approved Grid Connection'}</p>
             <p className="text-[11px] text-emerald-400 font-medium">Approved</p>
           </div>
         </div>

@@ -288,7 +288,8 @@ export interface Lead {
   noOfInverters?: number | string; // No. of Inverter - Text field
   inverterManufacturer?: string; // Inverter Manuf. - Dropdown list managed from settings
   inverterSizeKw?: number | string; // Inverter Size - Dependent Dropdown list managed from settings (based on Inverter Manuf.)
-  inverterModel?: string; // Inverter Model - Dependent Dropdown list managed from settings (based on Inverter Size)
+  inverterSeries?: string; // Inverter Series - Dependent Dropdown list managed from settings (based on Inverter Size)
+  inverterModel?: string; // Inverter Model - Dependent Dropdown list managed from settings (based on Inverter Size/Series)
 
   noOfBatteries?: number | string; // No. of Batteries - Text field
   batteryManufacturer?: string; // Battery Manuf. - Dropdown list managed from settings
@@ -829,7 +830,8 @@ export interface PanelHierarchyItem {
 export interface InverterHierarchyItem {
   id: string;
   manufacturer: string;
-  sizeKw: number | string; // e.g. 5.0, 8.2, 10.0
+  sizeKw: number | string; // e.g. 5.0, 8.2, 10.0 or Watts e.g. 5000
+  series?: string; // e.g. "Primo GEN24 Plus", "SG Series", "IQ8", "SnapINverter"
   model: string; // e.g. "SG5.0RS-ADA", "Primo GEN24 5.0 Plus", "SigenStor 5.0TP"
 }
 
@@ -837,6 +839,7 @@ export interface BatteryHierarchyItem {
   id: string;
   manufacturer: string;
   usableCapacityKwh: number | string; // e.g. 9.6, 13.5, 16.0
+  series?: string; // e.g. "Powerwall 3", "SBR High Voltage", "Battery-Box HVS"
   model: string; // e.g. "SBR096 High Voltage", "Powerwall 3", "BATTERY-BOX PREMIUM HVS 10.2"
   size: string; // e.g. "Compact Wall Mount", "Modular Tower (3 Modules)", "Integrated All-in-One"
 }

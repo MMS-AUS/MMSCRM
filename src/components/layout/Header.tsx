@@ -90,8 +90,9 @@ export const Header: React.FC<HeaderProps> = ({
     setIsRoleMenuOpen(false);
   };
 
-  const userInitials = (currentUser?.name || 'Akash Mohite')
+  const userInitials = (currentUser?.name || currentUser?.email || 'Akash Mohite')
     .split(' ')
+    .filter(Boolean)
     .map(n => n[0])
     .join('')
     .slice(0, 2)

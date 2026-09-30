@@ -294,6 +294,30 @@ export function formatAudAccounts(val: number | string | undefined | null): stri
 }
 
 /**
+ * Formats a numeric value or string as Accounts style AUD number without the currency symbol ($)
+ * Ideal for fields that already display a '$' icon prefix to avoid duplicate symbols.
+ * e.g. 10500 -> "10,500.00"
+ */
+export function formatAudNumber(val: number | string | undefined | null): string {
+  if (val === undefined || val === null || val === '') return '';
+  const num = typeof val === 'string' ? parseFloat(val.replace(/[^0-9.-]/g, '')) : val;
+  if (isNaN(num)) return '';
+  return new Intl.NumberFormat('en-AU', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(num);
+}
+
+/**
+ * Strips any leading '$' signs, spaces, and commas, returning clean display number string
+ * e.g. "$10,500.00" -> "10,500.00"
+ */
+export function stripDollarSign(val: string | number | undefined | null): string {
+  if (val === undefined || val === null) return '';
+  return String(val).replace(/^\s*\$\s*/, '').trim();
+}
+
+/**
  * Parses an AUD accounts string back into a float number
  */
 export function parseAudAccounts(val: string): number {

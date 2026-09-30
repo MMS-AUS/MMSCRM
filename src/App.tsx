@@ -111,7 +111,7 @@ const MainLayout: React.FC = () => {
   useEffect(() => {
     const syncPortalFromUrl = () => {
       if (!portalAddresses?.enableAutoRouting) return;
-      const detected = detectPortalFromCurrentLocation();
+      const detected = detectPortalFromCurrentLocation(portalAddresses);
       if (detected && detected !== activeRole) {
         setActiveRole(detected);
       }
@@ -124,7 +124,7 @@ const MainLayout: React.FC = () => {
       window.removeEventListener('popstate', syncPortalFromUrl);
       window.removeEventListener('hashchange', syncPortalFromUrl);
     };
-  }, [portalAddresses?.enableAutoRouting, activeRole, setActiveRole]);
+  }, [portalAddresses, activeRole, setActiveRole]);
 
   const newLeadsCount = (leads || []).filter(l => l?.status === 'New').length;
   const activeProjectsCount = (projects || []).filter(p => p?.status !== 'Completed').length;
@@ -147,6 +147,28 @@ const MainLayout: React.FC = () => {
     setCopiedBannerUrl(true);
     setTimeout(() => setCopiedBannerUrl(false), 2000);
   };
+
+  // If user arrives via dedicated Customer Portal custom domain or path, render Customer Portal
+  if (activeRole === 'customer') {
+    return (
+      <div className={`flex flex-col h-screen w-screen overflow-hidden font-sans transition-colors duration-200 ${
+        isLight ? 'bg-slate-100/70 text-slate-900' : 'bg-[#090d16] text-slate-100'
+      }`}>
+        <CustomerPortal />
+      </div>
+    );
+  }
+
+  // If user arrives via dedicated Installer Portal custom domain or path, render Installer Portal
+  if (activeRole === 'installer') {
+    return (
+      <div className={`flex flex-col h-screen w-screen overflow-hidden font-sans transition-colors duration-200 ${
+        isLight ? 'bg-slate-100/70 text-slate-900' : 'bg-[#090d16] text-slate-100'
+      }`}>
+        <InstallerPortal />
+      </div>
+    );
+  }
 
   if (isSettingPasswordFromInvite) {
     return (

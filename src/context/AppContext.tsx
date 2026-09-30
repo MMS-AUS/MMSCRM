@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import {
   UserProfile,
   UserRole,
@@ -86,13 +86,18 @@ import {
   getNearestBigCity,
   formatAustralianMobile,
   formatAudAccounts,
+  formatAudNumber,
+  stripDollarSign,
   parseAudAccounts
 } from '../utils/australianPostcodes';
 import {
   parseGoogleSheetCsv,
   isLeadAlreadyInSystem,
   sortLeadsByDateDesc,
-  applySheetUpdatesToLead
+  applySheetUpdatesToLead,
+  normalizeAddressForComparison,
+  normalizePhoneForComparison,
+  areDistinctProperties
 } from '../utils/googleSheetsTemplate';
 import { dispatchSystemAlert, getPersonalEmailConfig } from '../services/systemAlertsEmailService';
 import { triggerCapiStageEvent } from '../services/metaAdsService';
@@ -188,6 +193,7 @@ interface AppContextType {
   deleteCompany: (id: string) => void;
 
   leads: Lead[];
+  refreshLeads: () => Promise<Lead[]>;
   addLead: (lead: Partial<Lead>) => Lead;
   updateLead: (id: string, lead: Partial<Lead>) => void;
   deleteLead: (id: string) => void;
@@ -279,6 +285,31 @@ interface AppContextType {
     summary: DropdownImportSummary,
     mode?: 'merge' | 'replace'
   ) => { addedCount: number; updatedCount: number; deletedCount: number; categoriesModified: number };
+
+  // Hardware Cascades (Panels, Inverters, Batteries)
+  saveHardwareHierarchy: (data: {
+    panelHierarchy?: PanelHierarchyItem[];
+    inverterHierarchy?: InverterHierarchyItem[];
+    batteryHierarchy?: BatteryHierarchyItem[];
+  }) => Promise<boolean>;
+  addPanelItem: (item: Omit<PanelHierarchyItem, 'id'>) => Promise<void>;
+  updatePanelItem: (id: string, item: Partial<PanelHierarchyItem>) => Promise<void>;
+  deletePanelItem: (id: string) => Promise<void>;
+  addInverterItem: (item: Omit<InverterHierarchyItem, 'id'>) => Promise<void>;
+  updateInverterItem: (id: string, item: Partial<InverterHierarchyItem>) => Promise<void>;
+  deleteInverterItem: (id: string) => Promise<void>;
+  addBatteryItem: (item: Omit<BatteryHierarchyItem, 'id'>) => Promise<void>;
+  updateBatteryItem: (id: string, item: Partial<BatteryHierarchyItem>) => Promise<void>;
+  deleteBatteryItem: (id: string) => Promise<void>;
+  batchImportHardware: (
+    data: {
+      panels: PanelHierarchyItem[];
+      inverters: InverterHierarchyItem[];
+      batteries: BatteryHierarchyItem[];
+    },
+    mode?: 'merge' | 'replace'
+  ) => Promise<{ panelsCount: number; invertersCount: number; batteriesCount: number }>;
+  resetHardwareToDefaults: () => Promise<void>;
 
   connectedDomains: string[];
   connectedDomain: string;
@@ -515,6 +546,44 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return saved ? JSON.parse(saved) : INITIAL_CONTACTS;
   });
 
+  const contactsRef = useRef<Contact[]>(contacts);
+  useEffect(() => {
+    contactsRef.current = contacts;
+  }, [contacts]);
+
+  // Sync contacts with persistent server database on mount
+  useEffect(() => {
+    fetch('/api/contacts')
+      .then(r => r.json())
+      .then(d => {
+        if (d.success && Array.isArray(d.contacts) && d.contacts.length > 0) {
+          setContacts(d.contacts);
+          contactsRef.current = d.contacts;
+          try {
+            localStorage.setItem('solar_contacts', JSON.stringify(d.contacts));
+          } catch (e) {
+            console.warn('Failed to save solar_contacts to localStorage', e);
+          }
+        } else {
+          // If server database is empty but client has local contacts, seed the server database
+          const local = localStorage.getItem('solar_contacts');
+          if (local) {
+            try {
+              const parsed = JSON.parse(local);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                fetch('/api/contacts/seed-if-empty', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ contacts: parsed })
+                }).catch(() => {});
+              }
+            } catch {}
+          }
+        }
+      })
+      .catch(err => console.warn('Could not fetch server contacts:', err));
+  }, []);
+
   const [companies, setCompanies] = useState<Company[]>(() => {
     const saved = localStorage.getItem('solar_companies');
     return saved ? JSON.parse(saved) : INITIAL_COMPANIES;
@@ -541,39 +610,180 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     leadsRef.current = leads;
   }, [leads]);
 
-  // Sync leads with persistent server database on mount
-  useEffect(() => {
-    fetch('/api/leads')
-      .then(r => r.json())
-      .then(d => {
-        if (d.success && Array.isArray(d.leads) && d.leads.length > 0) {
-          const sorted = sortLeadsByDateDesc(d.leads);
-          setLeads(sorted);
-          leadsRef.current = sorted;
-          try {
-            localStorage.setItem('solar_leads', JSON.stringify(sorted));
-          } catch (e) {
-            console.warn('Failed to save solar_leads to localStorage', e);
-          }
-        } else {
-          // If server database is empty but client has local leads, seed the server database
-          const local = localStorage.getItem('solar_leads');
-          if (local) {
-            try {
-              const parsed = JSON.parse(local);
-              if (Array.isArray(parsed) && parsed.length > 0) {
-                fetch('/api/leads/seed-if-empty', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ leads: parsed })
-                }).catch(() => {});
-              }
-            } catch {}
-          }
+  // Sync leads with persistent server database (and Supabase)
+  const refreshLeads = useCallback(async (): Promise<Lead[]> => {
+    try {
+      const r = await fetch('/api/leads');
+      const d = await r.json();
+      if (d.success && Array.isArray(d.leads) && d.leads.length > 0) {
+        const sorted = sortLeadsByDateDesc(d.leads);
+        setLeads(sorted);
+        leadsRef.current = sorted;
+        try {
+          localStorage.setItem('solar_leads', JSON.stringify(sorted));
+        } catch (e) {
+          console.warn('Failed to save solar_leads to localStorage', e);
         }
-      })
-      .catch(err => console.warn('Could not fetch server leads:', err));
+
+        // Ensure all existing leads have corresponding contacts created
+        setContacts(prev => {
+          const currentList = [...prev];
+          const newContacts: Contact[] = [];
+          for (const lead of sorted) {
+            const cleanEmail = (lead.email || '').trim().toLowerCase();
+            const cleanPhone = (lead.primaryMobile || lead.phone || '').trim();
+            const cleanDigits = cleanPhone.replace(/[^0-9]/g, '');
+            const cleanName = (lead.customerName || `${lead.firstName || ''} ${lead.lastName || ''}`.trim() || '').trim();
+            if (!cleanName && !cleanEmail && !cleanPhone) continue;
+
+            const matchedContact = currentList.find(c =>
+              (lead.contactId && c.id === lead.contactId) ||
+              (cleanEmail && c.email && c.email.trim().toLowerCase() === cleanEmail) ||
+              (cleanDigits && cleanDigits.length >= 6 && c.phone && c.phone.replace(/[^0-9]/g, '') === cleanDigits) ||
+              (cleanName && cleanName.length > 2 && c.name && c.name.trim().toLowerCase() === cleanName.toLowerCase())
+            );
+
+            const leadStreet = (lead.address || '').trim();
+            const leadSub = (lead.suburb || '').trim();
+            const leadSt = lead.state || 'NSW';
+            const leadPc = lead.postcode || '';
+            const fullAddr = leadStreet ? `${leadStreet}, ${leadSub} ${leadSt} ${leadPc}`.trim() : `${leadSub} ${leadSt}`.trim();
+
+            if (!matchedContact && !newContacts.some(c =>
+              (cleanEmail && c.email && c.email.trim().toLowerCase() === cleanEmail) ||
+              (cleanName && c.name.trim().toLowerCase() === cleanName.toLowerCase())
+            )) {
+              const fName = lead.firstName || (cleanName ? cleanName.split(' ')[0] : '');
+              const lName = lead.lastName || (cleanName ? cleanName.split(' ').slice(1).join(' ') : '');
+              const cid = lead.contactId || `cnt-${lead.id || Date.now()}`;
+              const firstProp: ContactAddress = {
+                id: `prop-${cid}-1`,
+                street: leadStreet,
+                suburb: leadSub,
+                state: leadSt as any,
+                postcode: leadPc,
+                city: lead.nearestBigCity || leadSub || '',
+                address: fullAddr,
+                propertyType: lead.propertyType || 'Primary Residence',
+                systemSizeKw: lead.systemSizeKw ? Number(lead.systemSizeKw) : undefined,
+                isPrimary: true
+              };
+
+              newContacts.push({
+                id: cid,
+                name: cleanName || `${fName} ${lName}`.trim() || 'Contact',
+                firstName: fName,
+                lastName: lName,
+                email: cleanEmail,
+                phone: cleanPhone,
+                address: fullAddr,
+                streetAddress: leadStreet,
+                suburb: leadSub,
+                state: leadSt,
+                postcode: leadPc,
+                city: lead.nearestBigCity || leadSub || '',
+                area: lead.area || '',
+                addresses: [firstProp],
+                type: lead.hasCompany ? 'Commercial' : 'Residential',
+                contactType: lead.hasCompany ? 'Commercial' : 'Residential',
+                source: lead.platform || 'Lead Inbound',
+                contactOwner: lead.salesPersonName || '',
+                contactOwnerName: lead.salesPersonName || '',
+                companyId: lead.companyId,
+                companyName: lead.companyName,
+                createdAt: lead.leadDate || lead.createdAt || new Date().toISOString().split('T')[0]
+              });
+            } else if (matchedContact && (leadStreet || leadSub)) {
+              // If contact exists, check if lead brings a second property address
+              if (!matchedContact.addresses || matchedContact.addresses.length === 0) {
+                matchedContact.addresses = [
+                  {
+                    id: `prop-${matchedContact.id}-primary`,
+                    street: matchedContact.streetAddress || matchedContact.address || '',
+                    suburb: matchedContact.suburb || matchedContact.city || '',
+                    state: (matchedContact.state as any) || 'NSW',
+                    postcode: matchedContact.postcode || '',
+                    city: matchedContact.city || matchedContact.suburb || '',
+                    address: matchedContact.address || `${matchedContact.streetAddress || ''}, ${matchedContact.suburb || ''} ${matchedContact.state || ''}`.trim(),
+                    propertyType: 'Primary Residence',
+                    isPrimary: true
+                  }
+                ];
+              }
+              const alreadyPresent = matchedContact.addresses.some(a => {
+                const normA = normalizeAddressForComparison(a.street || a.address);
+                const normLead = normalizeAddressForComparison(leadStreet);
+                if (normA && normLead && normA === normLead) return true;
+                const normAFull = normalizeAddressForComparison(a.address || a.street);
+                const normLeadFull = normalizeAddressForComparison(fullAddr);
+                if (normAFull && normLeadFull && normAFull === normLeadFull) return true;
+                return false;
+              });
+              if (!alreadyPresent) {
+                matchedContact.addresses.push({
+                  id: `prop-${matchedContact.id}-${matchedContact.addresses.length + 1}`,
+                  street: leadStreet,
+                  suburb: leadSub,
+                  state: (leadSt as any) || matchedContact.state || 'NSW',
+                  postcode: leadPc || matchedContact.postcode || '',
+                  city: lead.nearestBigCity || leadSub || matchedContact.city || '',
+                  address: fullAddr,
+                  propertyType: lead.propertyType || 'Investment Property',
+                  systemSizeKw: lead.systemSizeKw ? Number(lead.systemSizeKw) : undefined,
+                  isPrimary: false
+                });
+              }
+            }
+          }
+
+          if (newContacts.length > 0) {
+            const combined = [...newContacts, ...currentList];
+            contactsRef.current = combined;
+            try {
+              localStorage.setItem('solar_contacts', JSON.stringify(combined));
+            } catch (e) {}
+            fetch('/api/contacts/batch-sync', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ contacts: newContacts })
+            }).catch(() => {});
+            return combined;
+          }
+          return currentList;
+        });
+        return sorted;
+      } else {
+        // If server database is empty but client has local leads, seed the server database
+        const local = localStorage.getItem('solar_leads');
+        if (local) {
+          try {
+            const parsed = JSON.parse(local);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              fetch('/api/leads/seed-if-empty', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ leads: parsed })
+              }).catch(() => {});
+            }
+          } catch {}
+        }
+      }
+    } catch (err) {
+      console.warn('Could not fetch server leads:', err);
+    }
+    return [];
   }, []);
+
+  useEffect(() => {
+    refreshLeads();
+    const handleSync = () => {
+      refreshLeads();
+    };
+    window.addEventListener('solar:reload_leads', handleSync);
+    return () => {
+      window.removeEventListener('solar:reload_leads', handleSync);
+    };
+  }, [refreshLeads]);
 
   // Google Sheets Auto-Sync state
   const [googleSheetUrl, setGoogleSheetUrl] = useState<string>(() => {
@@ -760,6 +970,49 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     return INITIAL_DROPDOWNS;
   });
+
+  // Sync hardware hierarchy with server database on mount
+  useEffect(() => {
+    fetch('/api/hardware-hierarchy')
+      .then(async r => {
+        if (!r.ok) {
+          throw new Error(`Server returned HTTP ${r.status}`);
+        }
+        const contentType = r.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+          throw new Error('Server returned non-JSON response');
+        }
+        return r.json();
+      })
+      .then(d => {
+        if (d && d.success) {
+          setDropdowns(prev => {
+            const hasPanels = Array.isArray(d.panelHierarchy) && d.panelHierarchy.length > 0;
+            const hasInverters = Array.isArray(d.inverterHierarchy) && d.inverterHierarchy.length > 0;
+            const hasBatteries = Array.isArray(d.batteryHierarchy) && d.batteryHierarchy.length > 0;
+
+            const nextPanels = hasPanels ? d.panelHierarchy : prev.panelHierarchy || INITIAL_DROPDOWNS.panelHierarchy;
+            const nextInverters = hasInverters ? d.inverterHierarchy : prev.inverterHierarchy || INITIAL_DROPDOWNS.inverterHierarchy;
+            const nextBatteries = hasBatteries ? d.batteryHierarchy : prev.batteryHierarchy || INITIAL_DROPDOWNS.batteryHierarchy;
+
+            const nextPBrands = Array.from(new Set([...(prev.panelBrands || []), ...nextPanels.map((p: any) => p.manufacturer)]));
+            const nextIBrands = Array.from(new Set([...(prev.inverterBrands || []), ...nextInverters.map((i: any) => i.manufacturer)]));
+            const nextBBrands = Array.from(new Set([...(prev.batteryBrands || []), ...nextBatteries.map((b: any) => b.manufacturer)]));
+
+            return {
+              ...prev,
+              panelHierarchy: nextPanels,
+              inverterHierarchy: nextInverters,
+              batteryHierarchy: nextBatteries,
+              panelBrands: nextPBrands,
+              inverterBrands: nextIBrands,
+              batteryBrands: nextBBrands
+            };
+          });
+        }
+      })
+      .catch(err => console.warn('Could not fetch server hardware hierarchy:', err));
+  }, []);
 
   const [connectedDomains, setConnectedDomains] = useState<string[]>(() => {
     const saved = localStorage.getItem('solar_domains');
@@ -1668,49 +1921,128 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // 2. Automatic Contact Creation and Attachment
     let targetContactId = lead.contactId;
-    const existingContact = contacts.find(c =>
+    const existingContact = contactsRef.current.find(c =>
       (targetContactId && c.id === targetContactId) ||
-      (cleanEmail && c.email.toLowerCase() === cleanEmail.toLowerCase()) ||
-      (cleanPrimaryMobile && c.phone === cleanPrimaryMobile)
+      (cleanEmail && c.email && c.email.toLowerCase() === cleanEmail.toLowerCase()) ||
+      (cleanPrimaryMobile && c.phone && normalizePhoneForComparison(c.phone) === normalizePhoneForComparison(cleanPrimaryMobile)) ||
+      (fullName && fullName.length > 2 && c.name && c.name.toLowerCase() === fullName.toLowerCase())
     );
+
+    let contactRecord: Contact;
+    const leadStreet = (lead.address || '').trim();
+    const leadSub = (lead.suburb || '').trim();
+    const fullLeadAddr = leadStreet
+      ? `${leadStreet}, ${leadSub} ${st} ${pc}`.trim()
+      : `${leadSub} ${st}`.trim();
 
     if (existingContact) {
       targetContactId = existingContact.id;
-      setContacts(prev => prev.map(c => c.id === existingContact.id ? {
-        ...c,
-        name: fullName,
-        firstName: fName || c.firstName,
-        lastName: lName || c.lastName,
-        phone: cleanPrimaryMobile || c.phone,
-        email: cleanEmail || c.email,
-        address: lead.address || c.address,
-        suburb: lead.suburb || c.suburb,
-        state: st || c.state,
-        postcode: pc || c.postcode,
-        city: calculatedCity || c.city,
-        contactOwner: lead.salesPersonName || c.contactOwner,
-        contactOwnerName: lead.salesPersonName || c.contactOwnerName,
-        type: lead.hasCompany ? 'Commercial' : (c.type || 'Residential'),
-        companyId: lead.hasCompany ? targetCompanyId : undefined,
-        companyName: lead.hasCompany ? targetCompanyName : undefined
-      } : c));
+      const currentAddrs: ContactAddress[] = existingContact.addresses && existingContact.addresses.length > 0
+        ? [...existingContact.addresses]
+        : existingContact.address || existingContact.streetAddress
+          ? [{
+              id: `prop-${existingContact.id}-primary`,
+              street: existingContact.streetAddress || existingContact.address || '',
+              suburb: existingContact.suburb || existingContact.city || '',
+              state: (existingContact.state as any) || 'NSW',
+              postcode: existingContact.postcode || '',
+              city: existingContact.city || existingContact.suburb || '',
+              address: existingContact.address || `${existingContact.streetAddress || ''}, ${existingContact.suburb || ''} ${existingContact.state || ''}`.trim(),
+              propertyType: 'Primary Residence',
+              isPrimary: true
+            }]
+          : [];
+
+      // If lead brings a distinct property, add it to Manage Properties
+      if (leadStreet || leadSub) {
+        const alreadyPresent = currentAddrs.some(a => {
+          const normA = normalizeAddressForComparison(a.street || a.address);
+          const normLead = normalizeAddressForComparison(leadStreet);
+          if (normA && normLead && normA === normLead) return true;
+          const normAFull = normalizeAddressForComparison(a.address || a.street);
+          const normLeadFull = normalizeAddressForComparison(fullLeadAddr);
+          if (normAFull && normLeadFull && normAFull === normLeadFull) return true;
+          return false;
+        });
+
+        if (!alreadyPresent) {
+          const newProperty: ContactAddress = {
+            id: `prop-${existingContact.id}-${currentAddrs.length + 1}`,
+            street: leadStreet,
+            suburb: leadSub,
+            state: (st as any) || existingContact.state || 'NSW',
+            postcode: pc || existingContact.postcode || '',
+            city: calculatedCity || leadSub || existingContact.city || '',
+            address: fullLeadAddr,
+            propertyType: lead.propertyType || 'Investment Property',
+            systemSizeKw: lead.systemSizeKw ? Number(lead.systemSizeKw) : undefined,
+            isPrimary: currentAddrs.length === 0
+          };
+          currentAddrs.push(newProperty);
+        }
+      }
+
+      contactRecord = {
+        ...existingContact,
+        name: fullName || existingContact.name,
+        firstName: fName || existingContact.firstName,
+        lastName: lName || existingContact.lastName,
+        phone: cleanPrimaryMobile || existingContact.phone,
+        email: cleanEmail || existingContact.email,
+        addresses: currentAddrs,
+        address: existingContact.address || fullLeadAddr,
+        streetAddress: existingContact.streetAddress || leadStreet,
+        suburb: existingContact.suburb || leadSub,
+        state: existingContact.state || st,
+        postcode: existingContact.postcode || pc,
+        city: existingContact.city || calculatedCity,
+        area: calculatedArea || existingContact.area,
+        contactOwner: lead.salesPersonName || existingContact.contactOwner,
+        contactOwnerName: lead.salesPersonName || existingContact.contactOwnerName,
+        type: lead.hasCompany ? 'Commercial' : (existingContact.type || 'Residential'),
+        contactType: lead.hasCompany ? 'Commercial' : (existingContact.contactType || existingContact.type || 'Residential'),
+        companyId: lead.hasCompany ? targetCompanyId : existingContact.companyId,
+        companyName: lead.hasCompany ? targetCompanyName : existingContact.companyName
+      };
+
+      setContacts(prev => {
+        const next = prev.map(c => c.id === existingContact.id ? contactRecord : c);
+        contactsRef.current = next;
+        try { localStorage.setItem('solar_contacts', JSON.stringify(next)); } catch (e) {}
+        return next;
+      });
     } else {
       targetContactId = `cnt-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-      const newContact: Contact = {
+      const firstAddress: ContactAddress = {
+        id: `prop-${targetContactId}-1`,
+        street: leadStreet,
+        suburb: leadSub,
+        state: st as any,
+        postcode: pc,
+        city: calculatedCity || leadSub || '',
+        address: fullLeadAddr,
+        propertyType: lead.propertyType || 'Primary Residence',
+        systemSizeKw: lead.systemSizeKw ? Number(lead.systemSizeKw) : undefined,
+        isPrimary: true
+      };
+
+      contactRecord = {
         id: targetContactId,
-        name: fullName,
-        firstName: fName,
-        lastName: lName,
-        email: cleanEmail || 'customer@gmail.com',
-        phone: cleanPrimaryMobile || '0400 000 000',
-        address: lead.address ? `${lead.address}, ${lead.suburb || ''} ${st} ${pc}`.trim() : `${lead.suburb || ''} ${st}`.trim(),
-        streetAddress: lead.address || '',
-        suburb: lead.suburb || '',
+        name: fullName || 'New Contact',
+        firstName: fName || '',
+        lastName: lName || '',
+        email: cleanEmail || '',
+        phone: cleanPrimaryMobile || '',
+        address: fullLeadAddr,
+        streetAddress: leadStreet,
+        suburb: leadSub,
         state: st,
         postcode: pc,
-        city: calculatedCity,
+        city: calculatedCity || leadSub || '',
         area: calculatedArea,
+        addresses: [firstAddress],
         type: lead.hasCompany ? 'Commercial' : 'Residential',
+        contactType: lead.hasCompany ? 'Commercial' : 'Residential',
         source: lead.platform || 'Lead Inbound',
         contactOwner: lead.salesPersonName || 'Mitchell Barnes',
         contactOwnerName: lead.salesPersonName || 'Mitchell Barnes',
@@ -1718,8 +2050,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         companyName: lead.hasCompany ? targetCompanyName : undefined,
         createdAt: todayDate
       };
-      setContacts(prev => [newContact, ...prev]);
+
+      setContacts(prev => {
+        const next = [contactRecord, ...prev];
+        contactsRef.current = next;
+        try { localStorage.setItem('solar_contacts', JSON.stringify(next)); } catch (e) {}
+        return next;
+      });
     }
+
+    // Persist contact to persistent database and Supabase
+    fetch('/api/contacts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(contactRecord)
+    }).catch(err => console.warn('[AppContext] Failed to persist new contact:', err));
 
     // 3. Initial Activities
     const initialActivities: LeadActivity[] = lead.activities && lead.activities.length > 0 ? lead.activities : [
@@ -1814,7 +2159,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       assignedTo: lead.salesPersonName || lead.assignedTo || (dropdowns.salesPersons?.[0] || 'Mitchell Barnes')
     };
 
-    setLeads(prev => sortLeadsByDateDesc([newLead, ...prev]));
+    setLeads(prev => {
+      const next = sortLeadsByDateDesc([newLead, ...prev]);
+      leadsRef.current = next;
+      try {
+        localStorage.setItem('solar_leads', JSON.stringify(next));
+      } catch (e) {
+        console.warn('Failed to save solar_leads', e);
+      }
+      return next;
+    });
+
+    // Save lead to persistent server database
+    fetch('/api/leads', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newLead)
+    }).catch(err => console.warn('[AppContext] Failed to save lead to server DB:', err));
 
     // Dispatch automated email alert for new incoming lead
     const customerPrimaryEmail = newLead.email ? newLead.email.split(',')[0].trim() : '';
@@ -2340,21 +2701,50 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!lead) throw new Error('Lead not found');
 
     // Create or find matching contact
-    let contact = contacts.find(c => c.email.toLowerCase() === lead.email.toLowerCase());
+    const cleanLeadEmail = (lead.email || '').trim().toLowerCase();
+    const cleanLeadPhone = normalizePhoneForComparison(lead.primaryMobile || lead.phone);
+    const leadFullName = (lead.customerName || `${lead.firstName || ''} ${lead.lastName || ''}`.trim()) || 'Contact';
+
+    let contact = contactsRef.current.find(c =>
+      (lead.contactId && c.id === lead.contactId) ||
+      (cleanLeadEmail && c.email && c.email.toLowerCase() === cleanLeadEmail) ||
+      (cleanLeadPhone && c.phone && normalizePhoneForComparison(c.phone) === cleanLeadPhone) ||
+      (leadFullName && leadFullName.length > 2 && c.name && c.name.toLowerCase() === leadFullName.toLowerCase())
+    );
+
     if (!contact) {
       contact = {
         id: `cnt-${Date.now()}`,
-        name: lead.customerName,
-        email: lead.email,
-        phone: lead.phone,
-        state: lead.state,
-        city: lead.suburb,
-        address: `${lead.suburb}, ${lead.state}`,
-        type: 'Residential',
-        source: lead.platform || 'Meta Ads',
+        name: leadFullName,
+        firstName: lead.firstName || '',
+        lastName: lead.lastName || '',
+        email: lead.email || '',
+        phone: lead.primaryMobile || lead.phone || '',
+        state: lead.state || 'NSW',
+        suburb: lead.suburb || '',
+        postcode: lead.postcode || '',
+        city: lead.nearestBigCity || lead.suburb || '',
+        area: lead.area || '',
+        address: lead.address || `${lead.suburb || ''}, ${lead.state || ''}`.trim(),
+        streetAddress: lead.address || '',
+        type: lead.hasCompany ? 'Commercial' : 'Residential',
+        contactType: lead.hasCompany ? 'Commercial' : 'Residential',
+        source: lead.platform || 'Lead Conversion',
+        contactOwner: lead.salesPersonName || '',
+        contactOwnerName: lead.salesPersonName || '',
         createdAt: new Date().toISOString().split('T')[0]
       };
-      setContacts(prev => [contact!, ...prev]);
+      setContacts(prev => {
+        const next = [contact!, ...prev];
+        contactsRef.current = next;
+        try { localStorage.setItem('solar_contacts', JSON.stringify(next)); } catch (e) {}
+        return next;
+      });
+      fetch('/api/contacts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(contact)
+      }).catch(err => console.warn('[AppContext] Failed to persist converted contact:', err));
     }
 
     const statePrefix = lead.state === 'QLD' ? 'QLD' : 'NSW';
@@ -2373,9 +2763,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // Resolve selling price & amount
     let initialSellingPriceAud = '';
     if (lead.sellingPrice) {
-      initialSellingPriceAud = typeof lead.sellingPrice === 'number' ? formatAudAccounts(lead.sellingPrice) : String(lead.sellingPrice);
+      initialSellingPriceAud = typeof lead.sellingPrice === 'number' ? formatAudNumber(lead.sellingPrice) : stripDollarSign(String(lead.sellingPrice));
     } else {
-      initialSellingPriceAud = formatAudAccounts(baseValue);
+      initialSellingPriceAud = formatAudNumber(baseValue);
     }
 
     const newProject: Project = {
@@ -2432,9 +2822,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       secondaryMobile: lead.secondaryMobile || '',
       email: lead.email || '',
       salesTeamNotes: lead.salesTeamNotes || '',
-      systemPrice: lead.systemPrice ? (typeof lead.systemPrice === 'number' ? formatAudAccounts(lead.systemPrice) : String(lead.systemPrice)) : formatAudAccounts(baseValue + customerStcValue),
+      systemPrice: lead.systemPrice ? (typeof lead.systemPrice === 'number' ? formatAudNumber(lead.systemPrice) : stripDollarSign(String(lead.systemPrice))) : formatAudNumber(baseValue + customerStcValue),
       sellingPrice: initialSellingPriceAud,
-      deposit: lead.deposit ? (typeof lead.deposit === 'number' ? formatAudAccounts(lead.deposit) : String(lead.deposit)) : formatAudAccounts(1000),
+      deposit: lead.deposit ? (typeof lead.deposit === 'number' ? formatAudNumber(lead.deposit) : stripDollarSign(String(lead.deposit))) : formatAudNumber(1000),
       depositReceivedDate: lead.depositReceivedDate || (lead.status === 'Deposit Received' ? todayDate : ''),
 
       // Section 2: Technical Specifications & Hardware
@@ -2503,9 +2893,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       warehouseInvoicePaidDate: '',
 
       // Section 7: Financials, Payment & Finance Brokerage
-      balancePayable: formatAudAccounts(Math.max(0, (parseAudAccounts(initialSellingPriceAud) || baseValue) - (lead.deposit ? parseAudAccounts(String(lead.deposit)) : 1000))),
+      balancePayable: formatAudNumber(Math.max(0, (parseAudAccounts(initialSellingPriceAud) || baseValue) - (lead.deposit ? parseAudAccounts(String(lead.deposit)) : 1000))),
       balancePayableDate: '',
-      remainingPayment: formatAudAccounts(Math.max(0, (parseAudAccounts(initialSellingPriceAud) || baseValue) - (lead.deposit ? parseAudAccounts(String(lead.deposit)) : 1000))),
+      remainingPayment: formatAudNumber(Math.max(0, (parseAudAccounts(initialSellingPriceAud) || baseValue) - (lead.deposit ? parseAudAccounts(String(lead.deposit)) : 1000))),
       isOnFinance: 'No (Cash / Direct Payment)',
       financeCompanyName: '',
       financeAppliedDate: '',
@@ -2517,7 +2907,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       stcTradedPortal: 'BridgeSelect',
       stcJobNo: `STC-${randNum}`,
       solarStcs: approxStcs ? String(approxStcs) : '',
-      solarStcsAmount: formatAudAccounts(customerStcValue),
+      solarStcsAmount: formatAudNumber(customerStcValue),
       solarStcReceivedDate: '',
       batteryStcs: '',
       batteryStcsAmount: '',
@@ -2585,8 +2975,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const depositReceivedDate = raw.depositReceivedDate || '';
       const leadDate = raw.leadDate || '';
 
+      const sheetRowId = raw.sheetSyncRowId || `GSHEET_ROW_${idx + 1}`;
+      const stableId = raw.id || `lead-sheet-${sheetRowId}`;
+
       return {
-        id: raw.id || `lead-sheet-${Date.now()}-${idx}-${Math.floor(Math.random() * 1000)}`,
+        id: stableId,
         projectNumber: raw.projectNumber || '',
         leadDate: leadDate,
         platform: raw.platform || '',
@@ -2608,23 +3001,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         secondaryMobile: cleanSecondary,
         email: raw.email || '',
         salesTeamNotes: raw.salesTeamNotes || '',
-        systemPrice: raw.systemPrice !== undefined ? raw.systemPrice : '',
-        sellingPrice: raw.sellingPrice !== undefined ? raw.sellingPrice : '',
-        deposit: raw.deposit !== undefined ? raw.deposit : '',
+        systemPrice: raw.systemPrice !== undefined && raw.systemPrice !== '' ? raw.systemPrice : '',
+        sellingPrice: raw.sellingPrice !== undefined && raw.sellingPrice !== '' ? raw.sellingPrice : '',
+        deposit: raw.deposit !== undefined && raw.deposit !== '' ? raw.deposit : '',
         depositReceivedDate: depositReceivedDate,
 
         // Legacy & Solar project technical fields - only populated if provided in Google Sheet, otherwise blank
         customerName: fullName,
         phone: cleanPrimary,
-        systemSizeKw: raw.systemSizeKw !== undefined ? raw.systemSizeKw : (undefined as any),
-        batteryRequired: raw.batteryRequired !== undefined ? raw.batteryRequired : (undefined as any),
+        systemSizeKw: raw.systemSizeKw !== undefined && !isNaN(raw.systemSizeKw) ? raw.systemSizeKw : ('' as any),
+        batteryRequired: raw.batteryRequired !== undefined ? raw.batteryRequired : ('' as any),
         propertyType: raw.propertyType || '',
         roofType: raw.roofType || '',
         phaseType: raw.phaseType || '',
-        quarterlyBillAud: raw.quarterlyBillAud !== undefined ? raw.quarterlyBillAud : (undefined as any),
+        quarterlyBillAud: raw.quarterlyBillAud !== undefined ? raw.quarterlyBillAud : ('' as any),
         source: raw.platform || '',
-        sheetSyncRowId: raw.sheetSyncRowId || `GSHEET_ROW_${idx + 1}`,
-        createdAt: leadDate,
+        sheetSyncRowId: sheetRowId,
+        createdAt: leadDate || todayDate,
         assignedTo: raw.salesPersonName || ''
       };
     });
@@ -2639,7 +3032,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const updatedLeadsMap = new Map<string, Lead>();
 
     for (const candidate of mappedLeads) {
-      const matchResult = isLeadAlreadyInSystem(candidate, [...currentLeadsSnapshot, ...newOnly]);
+      const effectiveCurrentLeads = currentLeadsSnapshot.map(l => updatedLeadsMap.get(l.id) || l);
+      const matchResult = isLeadAlreadyInSystem(candidate, [...effectiveCurrentLeads, ...newOnly]);
       if (matchResult.isDuplicate && matchResult.matchedLead) {
         // Matched an existing lead! Check for changes in details
         const baseLead = updatedLeadsMap.get(matchResult.matchedLead.id) || matchResult.matchedLead;
@@ -2653,11 +3047,158 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     if (newOnly.length > 0 || updatedLeadsMap.size > 0) {
+      const withUpdates = currentLeadsSnapshot.map(l => updatedLeadsMap.get(l.id) || l);
+      // Filter strictly new leads against state to prevent any duplicate entry
+      const strictlyNew = newOnly.filter(c => !isLeadAlreadyInSystem(c, withUpdates).isDuplicate);
+
+      // Automatically create contacts for all newly synced leads, and capture multiple properties under existing contacts
+      const newContactsToCreate: Contact[] = [];
+      const updatedExistingContacts: Contact[] = [];
+
+      for (const lead of strictlyNew) {
+        const cleanEmail = (lead.email || '').trim();
+        const cleanMobile = lead.primaryMobile || lead.phone || '';
+        const leadFullName = (lead.customerName || `${lead.firstName || ''} ${lead.lastName || ''}`.trim()) || 'Contact';
+
+        const existingContact = contactsRef.current.find(c =>
+          (lead.contactId && c.id === lead.contactId) ||
+          (cleanEmail && c.email && c.email.toLowerCase() === cleanEmail.toLowerCase()) ||
+          (cleanMobile && c.phone && normalizePhoneForComparison(c.phone) === normalizePhoneForComparison(cleanMobile)) ||
+          (leadFullName && leadFullName.length > 2 && c.name && c.name.toLowerCase() === leadFullName.toLowerCase())
+        );
+
+        const leadStreet = (lead.address || '').trim();
+        const leadSub = (lead.suburb || '').trim();
+        const leadSt = lead.state || 'NSW';
+        const leadPc = lead.postcode || '';
+        const fullAddr = leadStreet
+          ? `${leadStreet}, ${leadSub} ${leadSt} ${leadPc}`.trim()
+          : `${leadSub} ${leadSt}`.trim();
+
+        if (!existingContact && !newContactsToCreate.some(c =>
+          (cleanEmail && c.email && c.email.toLowerCase() === cleanEmail.toLowerCase()) ||
+          (cleanMobile && c.phone && normalizePhoneForComparison(c.phone) === normalizePhoneForComparison(cleanMobile)) ||
+          (leadFullName && c.name.toLowerCase() === leadFullName.toLowerCase())
+        )) {
+          const contactId = lead.contactId || `cnt-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+          lead.contactId = contactId;
+
+          const firstProp: ContactAddress = {
+            id: `prop-${contactId}-1`,
+            street: leadStreet,
+            suburb: leadSub,
+            state: leadSt as any,
+            postcode: leadPc,
+            city: lead.nearestBigCity || leadSub || '',
+            address: fullAddr,
+            propertyType: lead.propertyType || 'Primary Residence',
+            systemSizeKw: lead.systemSizeKw ? Number(lead.systemSizeKw) : undefined,
+            isPrimary: true
+          };
+
+          newContactsToCreate.push({
+            id: contactId,
+            name: leadFullName,
+            firstName: lead.firstName || '',
+            lastName: lead.lastName || '',
+            email: cleanEmail,
+            phone: cleanMobile,
+            address: fullAddr,
+            streetAddress: leadStreet,
+            suburb: leadSub,
+            state: leadSt,
+            postcode: leadPc,
+            city: lead.nearestBigCity || leadSub || '',
+            area: lead.area || '',
+            addresses: [firstProp],
+            type: lead.hasCompany ? 'Commercial' : 'Residential',
+            contactType: lead.hasCompany ? 'Commercial' : 'Residential',
+            source: lead.platform || 'Google Sheet Sync',
+            contactOwner: lead.salesPersonName || '',
+            contactOwnerName: lead.salesPersonName || '',
+            companyId: lead.companyId,
+            companyName: lead.companyName,
+            createdAt: lead.leadDate || todayDate
+          });
+        } else if (existingContact) {
+          lead.contactId = existingContact.id;
+
+          // Ensure existingContact.addresses has the primary address
+          if (!existingContact.addresses || existingContact.addresses.length === 0) {
+            existingContact.addresses = [
+              {
+                id: `prop-${existingContact.id}-primary`,
+                street: existingContact.streetAddress || existingContact.address || '',
+                suburb: existingContact.suburb || existingContact.city || '',
+                state: (existingContact.state as any) || 'NSW',
+                postcode: existingContact.postcode || '',
+                city: existingContact.city || existingContact.suburb || '',
+                address: existingContact.address || `${existingContact.streetAddress || ''}, ${existingContact.suburb || ''} ${existingContact.state || ''}`.trim(),
+                propertyType: 'Primary Residence',
+                isPrimary: true
+              }
+            ];
+            if (!updatedExistingContacts.some(c => c.id === existingContact.id)) {
+              updatedExistingContacts.push(existingContact);
+            }
+          }
+
+          // Check if this lead brings a distinct 2nd (or multiple) property address
+          if (leadStreet || leadSub) {
+            const alreadyPresent = (existingContact.addresses || []).some(a => {
+              const normA = normalizeAddressForComparison(a.street || a.address);
+              const normLead = normalizeAddressForComparison(leadStreet);
+              if (normA && normLead && normA === normLead) return true;
+              const normAFull = normalizeAddressForComparison(a.address || a.street);
+              const normLeadFull = normalizeAddressForComparison(fullAddr);
+              if (normAFull && normLeadFull && normAFull === normLeadFull) return true;
+              return false;
+            });
+
+            if (!alreadyPresent) {
+              const newAddress: ContactAddress = {
+                id: `prop-${existingContact.id}-${(existingContact.addresses?.length || 0) + 1}`,
+                street: leadStreet,
+                suburb: leadSub,
+                state: (leadSt as any) || existingContact.state || 'NSW',
+                postcode: leadPc || existingContact.postcode || '',
+                city: lead.nearestBigCity || leadSub || existingContact.city || '',
+                address: fullAddr,
+                propertyType: lead.propertyType || 'Investment Property',
+                systemSizeKw: lead.systemSizeKw ? Number(lead.systemSizeKw) : undefined,
+                isPrimary: false
+              };
+              existingContact.addresses = [...(existingContact.addresses || []), newAddress];
+              if (!updatedExistingContacts.some(c => c.id === existingContact.id)) {
+                updatedExistingContacts.push(existingContact);
+              }
+            }
+          }
+        }
+      }
+
+      if (newContactsToCreate.length > 0 || updatedExistingContacts.length > 0) {
+        setContacts(prev => {
+          const base = prev.map(c => {
+            const found = updatedExistingContacts.find(u => u.id === c.id);
+            return found ? { ...found } : c;
+          });
+          const next = [...newContactsToCreate, ...base];
+          contactsRef.current = next;
+          try { localStorage.setItem('solar_contacts', JSON.stringify(next)); } catch (e) {}
+          return next;
+        });
+        const syncPayload = [...newContactsToCreate, ...updatedExistingContacts];
+        fetch('/api/contacts/batch-sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contacts: syncPayload })
+        }).catch(err => console.warn('[AppContext] Failed to sync new contacts from sheet leads:', err));
+      }
+
       setLeads(prev => {
         // Apply changes to existing leads
         const withUpdates = prev.map(l => updatedLeadsMap.get(l.id) || l);
-        // Filter strictly new leads against state to prevent any duplicate entry
-        const strictlyNew = newOnly.filter(c => !isLeadAlreadyInSystem(c, withUpdates).isDuplicate);
         // Always sort on the basis of the Lead date, latest first
         const next = sortLeadsByDateDesc([...strictlyNew, ...withUpdates]);
         leadsRef.current = next;
@@ -2881,6 +3422,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [isSheetAutoSyncEnabled, googleSheetUrl, sheetAutoSyncInterval]);
 
   const deleteLead = (leadId: string) => {
+    const targetLead = leadsRef.current.find(l => l.id === leadId);
+
     setLeads(prev => {
       const next = prev.filter(l => l.id !== leadId);
       leadsRef.current = next;
@@ -2894,12 +3437,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // Permanently delete lead from server database and Supabase
     fetch(`/api/leads/${encodeURIComponent(leadId)}`, {
-      method: 'DELETE'
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: targetLead?.email,
+        phone: targetLead?.primaryMobile || targetLead?.phone,
+        name: targetLead?.customerName || `${targetLead?.firstName || ''} ${targetLead?.lastName || ''}`.trim(),
+        sheetSyncRowId: targetLead?.sheetSyncRowId
+      })
     }).catch(err => console.error('[AppContext] Failed to delete lead from database:', err));
   };
 
   const deleteLeads = (leadIds: string[]) => {
     const idSet = new Set(leadIds);
+    const targetItems = leadsRef.current.filter(l => idSet.has(l.id)).map(l => ({
+      id: l.id,
+      email: l.email,
+      phone: l.primaryMobile || l.phone,
+      name: l.customerName || `${l.firstName || ''} ${l.lastName || ''}`.trim(),
+      sheetSyncRowId: l.sheetSyncRowId
+    }));
+
     setLeads(prev => {
       const next = prev.filter(l => !idSet.has(l.id));
       leadsRef.current = next;
@@ -2915,7 +3473,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     fetch('/api/leads/delete-batch', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ids: leadIds })
+      body: JSON.stringify({ ids: leadIds, items: targetItems })
     }).catch(err => console.error('[AppContext] Failed to delete batch from database:', err));
   };
 
@@ -3026,8 +3584,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         // 3. Amount is auto-populated from Selling Price (AUD) and locked
         if (updated.sellingPrice !== undefined) {
           const formattedSellingPrice = typeof updated.sellingPrice === 'number'
-            ? formatAudAccounts(updated.sellingPrice)
-            : String(updated.sellingPrice);
+            ? formatAudNumber(updated.sellingPrice)
+            : stripDollarSign(String(updated.sellingPrice));
           merged.amount = formattedSellingPrice;
           const parsedVal = parseAudAccounts(formattedSellingPrice);
           if (parsedVal > 0) {
@@ -3537,6 +4095,282 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
+  // Hardware Cascades Management (Panels, Inverters, Batteries)
+  const saveHardwareHierarchy = async (data: {
+    panelHierarchy?: PanelHierarchyItem[];
+    inverterHierarchy?: InverterHierarchyItem[];
+    batteryHierarchy?: BatteryHierarchyItem[];
+  }): Promise<boolean> => {
+    try {
+      const res = await fetch('/api/hardware-hierarchy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+      const rawText = await res.text();
+      let result: any = null;
+      try {
+        result = JSON.parse(rawText);
+      } catch {
+        // Not a JSON response (e.g. HTML error page)
+      }
+
+      if (!res.ok) {
+        let errMsg = `HTTP ${res.status}`;
+        if (result && (result.error || result.message)) {
+          errMsg = result.error || result.message;
+        } else if (rawText) {
+          errMsg = rawText.slice(0, 150);
+        }
+        console.warn('Failed to save hardware hierarchy to server:', errMsg);
+        return false;
+      }
+      return !!result?.success;
+    } catch (err: any) {
+      console.warn('Failed to save hardware hierarchy to server:', err?.message || err);
+      return false;
+    }
+  };
+
+  const addPanelItem = async (item: Omit<PanelHierarchyItem, 'id'>) => {
+    const newItem: PanelHierarchyItem = {
+      ...item,
+      id: `ph-${Date.now()}-${Math.floor(Math.random() * 1000)}`
+    };
+    setDropdowns(prev => {
+      const current = prev.panelHierarchy || [];
+      const nextPanels = [...current, newItem];
+      const nextBrands = prev.panelBrands?.includes(item.manufacturer)
+        ? prev.panelBrands
+        : [...(prev.panelBrands || []), item.manufacturer];
+      saveHardwareHierarchy({ panelHierarchy: nextPanels });
+      return {
+        ...prev,
+        panelHierarchy: nextPanels,
+        panelBrands: nextBrands
+      };
+    });
+  };
+
+  const updatePanelItem = async (id: string, updated: Partial<PanelHierarchyItem>) => {
+    setDropdowns(prev => {
+      const current = prev.panelHierarchy || [];
+      const nextPanels = current.map(p => (p.id === id ? { ...p, ...updated } : p));
+      saveHardwareHierarchy({ panelHierarchy: nextPanels });
+      return {
+        ...prev,
+        panelHierarchy: nextPanels
+      };
+    });
+  };
+
+  const deletePanelItem = async (id: string) => {
+    setDropdowns(prev => {
+      const current = prev.panelHierarchy || [];
+      const nextPanels = current.filter(p => p.id !== id);
+      saveHardwareHierarchy({ panelHierarchy: nextPanels });
+      return {
+        ...prev,
+        panelHierarchy: nextPanels
+      };
+    });
+  };
+
+  const addInverterItem = async (item: Omit<InverterHierarchyItem, 'id'>) => {
+    const newItem: InverterHierarchyItem = {
+      ...item,
+      id: `ih-${Date.now()}-${Math.floor(Math.random() * 1000)}`
+    };
+    setDropdowns(prev => {
+      const current = prev.inverterHierarchy || [];
+      const nextInverters = [...current, newItem];
+      const nextBrands = prev.inverterBrands?.includes(item.manufacturer)
+        ? prev.inverterBrands
+        : [...(prev.inverterBrands || []), item.manufacturer];
+      saveHardwareHierarchy({ inverterHierarchy: nextInverters });
+      return {
+        ...prev,
+        inverterHierarchy: nextInverters,
+        inverterBrands: nextBrands
+      };
+    });
+  };
+
+  const updateInverterItem = async (id: string, updated: Partial<InverterHierarchyItem>) => {
+    setDropdowns(prev => {
+      const current = prev.inverterHierarchy || [];
+      const nextInverters = current.map(i => (i.id === id ? { ...i, ...updated } : i));
+      saveHardwareHierarchy({ inverterHierarchy: nextInverters });
+      return {
+        ...prev,
+        inverterHierarchy: nextInverters
+      };
+    });
+  };
+
+  const deleteInverterItem = async (id: string) => {
+    setDropdowns(prev => {
+      const current = prev.inverterHierarchy || [];
+      const nextInverters = current.filter(i => i.id !== id);
+      saveHardwareHierarchy({ inverterHierarchy: nextInverters });
+      return {
+        ...prev,
+        inverterHierarchy: nextInverters
+      };
+    });
+  };
+
+  const addBatteryItem = async (item: Omit<BatteryHierarchyItem, 'id'>) => {
+    const newItem: BatteryHierarchyItem = {
+      ...item,
+      id: `bh-${Date.now()}-${Math.floor(Math.random() * 1000)}`
+    };
+    setDropdowns(prev => {
+      const current = prev.batteryHierarchy || [];
+      const nextBatteries = [...current, newItem];
+      const nextBrands = prev.batteryBrands?.includes(item.manufacturer)
+        ? prev.batteryBrands
+        : [...(prev.batteryBrands || []), item.manufacturer];
+      saveHardwareHierarchy({ batteryHierarchy: nextBatteries });
+      return {
+        ...prev,
+        batteryHierarchy: nextBatteries,
+        batteryBrands: nextBrands
+      };
+    });
+  };
+
+  const updateBatteryItem = async (id: string, updated: Partial<BatteryHierarchyItem>) => {
+    setDropdowns(prev => {
+      const current = prev.batteryHierarchy || [];
+      const nextBatteries = current.map(b => (b.id === id ? { ...b, ...updated } : b));
+      saveHardwareHierarchy({ batteryHierarchy: nextBatteries });
+      return {
+        ...prev,
+        batteryHierarchy: nextBatteries
+      };
+    });
+  };
+
+  const deleteBatteryItem = async (id: string) => {
+    setDropdowns(prev => {
+      const current = prev.batteryHierarchy || [];
+      const nextBatteries = current.filter(b => b.id !== id);
+      saveHardwareHierarchy({ batteryHierarchy: nextBatteries });
+      return {
+        ...prev,
+        batteryHierarchy: nextBatteries
+      };
+    });
+  };
+
+  const batchImportHardware = async (
+    data: {
+      panels: PanelHierarchyItem[];
+      inverters: InverterHierarchyItem[];
+      batteries: BatteryHierarchyItem[];
+    },
+    mode: 'merge' | 'replace' = 'merge'
+  ): Promise<{ panelsCount: number; invertersCount: number; batteriesCount: number }> => {
+    let nextPanels: PanelHierarchyItem[] = [];
+    let nextInverters: InverterHierarchyItem[] = [];
+    let nextBatteries: BatteryHierarchyItem[] = [];
+
+    if (mode === 'replace') {
+      nextPanels = data.panels;
+      nextInverters = data.inverters;
+      nextBatteries = data.batteries;
+    } else {
+      // Merge: match by model name or id, otherwise append
+      const curPanels = dropdowns.panelHierarchy || [];
+      const mergedPanels = [...curPanels];
+      for (const p of data.panels) {
+        const idx = mergedPanels.findIndex(
+          existing => existing.model.toLowerCase() === p.model.toLowerCase() || existing.id === p.id
+        );
+        if (idx >= 0) {
+          mergedPanels[idx] = { ...mergedPanels[idx], ...p };
+        } else {
+          mergedPanels.push(p);
+        }
+      }
+      nextPanels = mergedPanels;
+
+      const curInverters = dropdowns.inverterHierarchy || [];
+      const mergedInverters = [...curInverters];
+      for (const i of data.inverters) {
+        const idx = mergedInverters.findIndex(
+          existing => existing.model.toLowerCase() === i.model.toLowerCase() || existing.id === i.id
+        );
+        if (idx >= 0) {
+          mergedInverters[idx] = { ...mergedInverters[idx], ...i };
+        } else {
+          mergedInverters.push(i);
+        }
+      }
+      nextInverters = mergedInverters;
+
+      const curBatteries = dropdowns.batteryHierarchy || [];
+      const mergedBatteries = [...curBatteries];
+      for (const b of data.batteries) {
+        const idx = mergedBatteries.findIndex(
+          existing => existing.model.toLowerCase() === b.model.toLowerCase() || existing.id === b.id
+        );
+        if (idx >= 0) {
+          mergedBatteries[idx] = { ...mergedBatteries[idx], ...b };
+        } else {
+          mergedBatteries.push(b);
+        }
+      }
+      nextBatteries = mergedBatteries;
+    }
+
+    const nextPBrands = Array.from(new Set([...(dropdowns.panelBrands || []), ...nextPanels.map(p => p.manufacturer)]));
+    const nextIBrands = Array.from(new Set([...(dropdowns.inverterBrands || []), ...nextInverters.map(i => i.manufacturer)]));
+    const nextBBrands = Array.from(new Set([...(dropdowns.batteryBrands || []), ...nextBatteries.map(b => b.manufacturer)]));
+
+    setDropdowns(prev => ({
+      ...prev,
+      panelHierarchy: nextPanels,
+      inverterHierarchy: nextInverters,
+      batteryHierarchy: nextBatteries,
+      panelBrands: nextPBrands,
+      inverterBrands: nextIBrands,
+      batteryBrands: nextBBrands
+    }));
+
+    await saveHardwareHierarchy({
+      panelHierarchy: nextPanels,
+      inverterHierarchy: nextInverters,
+      batteryHierarchy: nextBatteries
+    });
+
+    return {
+      panelsCount: nextPanels.length,
+      invertersCount: nextInverters.length,
+      batteriesCount: nextBatteries.length
+    };
+  };
+
+  const resetHardwareToDefaults = async () => {
+    const defaultPanels = INITIAL_DROPDOWNS.panelHierarchy || [];
+    const defaultInverters = INITIAL_DROPDOWNS.inverterHierarchy || [];
+    const defaultBatteries = INITIAL_DROPDOWNS.batteryHierarchy || [];
+
+    setDropdowns(prev => ({
+      ...prev,
+      panelHierarchy: defaultPanels,
+      inverterHierarchy: defaultInverters,
+      batteryHierarchy: defaultBatteries
+    }));
+
+    await saveHardwareHierarchy({
+      panelHierarchy: defaultPanels,
+      inverterHierarchy: defaultInverters,
+      batteryHierarchy: defaultBatteries
+    });
+  };
+
   // Connected Domains (Employees authentication whitelist)
   const addConnectedDomain = (domain: string): boolean => {
     const cleaned = domain.trim().toLowerCase().replace(/^@/, '');
@@ -3896,6 +4730,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         deleteCompany,
 
         leads,
+        refreshLeads,
         addLead,
         updateLead,
         deleteLead,
@@ -3968,6 +4803,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addDropdownOption,
         removeDropdownOption,
         batchImportDropdowns,
+
+        // Hardware Cascades (Panels, Inverters, Batteries)
+        saveHardwareHierarchy,
+        addPanelItem,
+        updatePanelItem,
+        deletePanelItem,
+        addInverterItem,
+        updateInverterItem,
+        deleteInverterItem,
+        addBatteryItem,
+        updateBatteryItem,
+        deleteBatteryItem,
+        batchImportHardware,
+        resetHardwareToDefaults,
 
         connectedDomains,
         connectedDomain,

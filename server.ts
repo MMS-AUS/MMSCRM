@@ -82,6 +82,17 @@ import {
   syncSheetLeadsWithDb
 } from './server/leadsDb';
 import {
+  getDbContacts,
+  saveDbContacts,
+  deleteDbContact,
+  clearAllDbContacts,
+  ensureContactsForLeads
+} from './server/contactsDb';
+import {
+  getDbHardwareHierarchy,
+  saveDbHardwareHierarchy
+} from './server/hardwareDb';
+import {
   mapJobToBridgeSelectPayload,
   validateBridgeSelectPayload
 } from './src/utils/bridgeselectMapper';
@@ -202,8 +213,27 @@ async function startServer() {
     ? parseInt(process.env.DEFAULT_APP_PORT || '3000', 10)
     : parseInt(process.env.PORT || process.env.DEFAULT_APP_PORT || '3000', 10);
 
-  app.use(express.json());
+  // Support large payloads (hardware catalog, lead databases, backups, attachments) up to 100MB
+  app.use(express.json({ limit: '100mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '100mb' }));
   app.use(cookieParser());
+
+  // Graceful body-parser error handler to prevent HTML 413/400 errors from breaking client JSON parsing
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (err && (err.type === 'entity.too.large' || err.status === 413 || err.name === 'PayloadTooLargeError')) {
+      return res.status(413).json({
+        success: false,
+        error: 'Payload too large. The request payload exceeds the allowed 100MB limit.'
+      });
+    }
+    if (err instanceof SyntaxError && 'body' in err) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid JSON payload format.'
+      });
+    }
+    next(err);
+  });
 
   // Health check endpoint
   app.get('/api/health', (req, res) => {
@@ -226,13 +256,26 @@ async function startServer() {
     }
   });
 
-  app.post('/api/system/credentials', (req, res) => {
+  app.post('/api/system/credentials', async (req, res) => {
     try {
       const { updates } = req.body;
       if (!updates || typeof updates !== 'object') {
         return res.status(400).json({ success: false, error: 'Expected updates object' });
       }
       const result = saveAppCredentials(updates);
+
+      // If Supabase credentials were updated or saved, trigger immediate sync
+      if (updates.SUPABASE_URL || updates.SUPABASE_ANON_KEY || updates.SUPABASE_SERVICE_ROLE_KEY) {
+        try {
+          const currentLeads = await getDbLeads();
+          if (currentLeads.length > 0) {
+            await saveDbLeads(currentLeads);
+          }
+        } catch (syncErr: any) {
+          console.warn('[Credentials] Warning syncing leads on credential save:', syncErr.message);
+        }
+      }
+
       return res.json(result);
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err.message });
@@ -472,6 +515,7 @@ async function startServer() {
         return res.status(400).json({ success: false, error: 'Array of incoming leads is required' });
       }
       const result = await syncSheetLeadsWithDb(incomingLeads);
+      await ensureContactsForLeads(result.leads);
       return res.json({ success: true, ...result });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: 'Failed to sync leads: ' + err.message });
@@ -486,7 +530,8 @@ async function startServer() {
   app.delete('/api/leads/:id', async (req, res) => {
     try {
       const { id } = req.params;
-      await deleteDbLead(id);
+      const extra = req.body || {};
+      await deleteDbLead(id, extra);
       return res.json({ success: true, deletedId: id, message: `Lead ${id} permanently removed from database` });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: 'Failed to delete lead: ' + err.message });
@@ -498,11 +543,11 @@ async function startServer() {
    */
   app.post('/api/leads/delete-batch', async (req, res) => {
     try {
-      const { ids } = req.body;
+      const { ids, items } = req.body;
       if (!Array.isArray(ids) || ids.length === 0) {
         return res.status(400).json({ success: false, error: 'Array of lead IDs is required' });
       }
-      await deleteDbLeads(ids);
+      await deleteDbLeads(ids, items);
       return res.json({ success: true, deletedCount: ids.length, message: `${ids.length} lead(s) permanently removed from database` });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: 'Failed to delete leads: ' + err.message });
@@ -535,6 +580,136 @@ async function startServer() {
       return res.json({ success: true, count: current.length });
     } catch (err: any) {
       return res.status(500).json({ success: false, error: 'Failed to seed leads: ' + err.message });
+    }
+  });
+
+  // ============================================================================
+  // CONTACTS DATABASE CRUD ROUTES
+  // ============================================================================
+
+  /**
+   * GET /api/contacts - Returns all contacts from persistent database
+   */
+  app.get('/api/contacts', async (req, res) => {
+    try {
+      const leads = await getDbLeads();
+      const contacts = await ensureContactsForLeads(leads);
+      return res.json({ success: true, contacts });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: 'Failed to get contacts: ' + err.message });
+    }
+  });
+
+  /**
+   * POST /api/contacts - Create or update a single contact in database
+   */
+  app.post('/api/contacts', async (req, res) => {
+    try {
+      const contact = req.body;
+      if (!contact || !contact.id) {
+        return res.status(400).json({ success: false, error: 'Contact with id is required' });
+      }
+      const current = await getDbContacts();
+      const existingIdx = current.findIndex(c => c.id === contact.id);
+      let next;
+      if (existingIdx >= 0) {
+        next = [...current];
+        next[existingIdx] = { ...next[existingIdx], ...contact };
+      } else {
+        next = [contact, ...current];
+      }
+      await saveDbContacts(next);
+      return res.json({ success: true, contact });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: 'Failed to save contact: ' + err.message });
+    }
+  });
+
+  /**
+   * POST /api/contacts/batch-sync - Batch sync/upsert contacts into database
+   */
+  app.post('/api/contacts/batch-sync', async (req, res) => {
+    try {
+      const { contacts: incomingContacts } = req.body;
+      if (!Array.isArray(incomingContacts)) {
+        return res.status(400).json({ success: false, error: 'Array of contacts is required' });
+      }
+      const current = await getDbContacts();
+      const contactMap = new Map<string, any>();
+      for (const c of current) contactMap.set(c.id, c);
+      for (const inc of incomingContacts) {
+        const existing = contactMap.get(inc.id);
+        if (existing) {
+          contactMap.set(inc.id, { ...existing, ...inc });
+        } else {
+          contactMap.set(inc.id, inc);
+        }
+      }
+      const next = Array.from(contactMap.values());
+      await saveDbContacts(next);
+      return res.json({ success: true, count: next.length });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: 'Failed to batch sync contacts: ' + err.message });
+    }
+  });
+
+  /**
+   * DELETE /api/contacts/:id - Delete a contact
+   */
+  app.delete('/api/contacts/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      await deleteDbContact(id);
+      return res.json({ success: true, deletedId: id });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: 'Failed to delete contact: ' + err.message });
+    }
+  });
+
+  /**
+   * POST /api/contacts/seed-if-empty - Seed contacts if DB empty
+   */
+  app.post('/api/contacts/seed-if-empty', async (req, res) => {
+    try {
+      const { contacts: clientContacts } = req.body;
+      const current = await getDbContacts();
+      if (current.length === 0 && Array.isArray(clientContacts) && clientContacts.length > 0) {
+        await saveDbContacts(clientContacts);
+        return res.json({ success: true, seeded: clientContacts.length });
+      }
+      return res.json({ success: true, count: current.length });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: 'Failed to seed contacts: ' + err.message });
+    }
+  });
+
+  // ============================================================================
+  // HARDWARE EQUIPMENT & DEPENDENT DROPDOWNS API ROUTES
+  // (Panels: Watts/Series/Model, Inverters: kW/Model, Batteries: Capacity/Model/Size)
+  // ============================================================================
+
+  /**
+   * GET /api/hardware-hierarchy - Returns configured panels, inverters, and battery models
+   */
+  app.get('/api/hardware-hierarchy', (req, res) => {
+    try {
+      const data = getDbHardwareHierarchy();
+      return res.json({ success: true, ...data });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: 'Failed to get hardware hierarchy: ' + err.message });
+    }
+  });
+
+  /**
+   * POST /api/hardware-hierarchy - Updates configured panels, inverters, and battery models
+   */
+  app.post('/api/hardware-hierarchy', (req, res) => {
+    try {
+      const saved = saveDbHardwareHierarchy(req.body);
+      const data = getDbHardwareHierarchy();
+      return res.json({ success: saved, ...data });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: 'Failed to save hardware hierarchy: ' + err.message });
     }
   });
 
@@ -3603,6 +3778,11 @@ async function startServer() {
     return res.type('text/plain').send(SUPABASE_TEAMS_MIGRATION_SQL);
   });
 
+
+  // Ensure any unmatched /api/* route returns a JSON 404 response, never falling through to HTML SPA
+  app.all('/api/*', (req, res) => {
+    return res.status(404).json({ success: false, error: `API route not found: ${req.method} ${req.path}` });
+  });
 
   // ============================================================================
   // VITE DEV SERVER OR STATIC PRODUCTION SERVING

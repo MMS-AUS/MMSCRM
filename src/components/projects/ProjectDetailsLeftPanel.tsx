@@ -5,6 +5,8 @@ import {
   formatAustralianMobile,
   validateMultipleEmails,
   formatAudAccounts,
+  formatAudNumber,
+  stripDollarSign,
   parseAudAccounts,
   AUSTRALIAN_ADDRESS_DATABASE,
   AustralianAddressPreset
@@ -82,6 +84,7 @@ export interface ProjectFormData {
   noOfInverters: string;
   inverterManufacturer: string;
   inverterSizeKw: string;
+  inverterSeries?: string;
   inverterModel: string;
   noOfBatteries: string;
   batteryManufacturer: string;
@@ -257,8 +260,8 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
         const depNum = parseAudAccounts(prev.deposit);
         if (sellingNum > 0) {
           const bal = Math.max(0, sellingNum - depNum);
-          next.balancePayable = formatAudAccounts(bal);
-          next.remainingPayment = formatAudAccounts(bal);
+          next.balancePayable = formatAudNumber(bal);
+          next.remainingPayment = formatAudNumber(bal);
         }
       }
 
@@ -268,8 +271,8 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
         const sellingNum = parseAudAccounts(prev.sellingPrice);
         if (sellingNum > 0) {
           const bal = Math.max(0, sellingNum - depNum);
-          next.balancePayable = formatAudAccounts(bal);
-          next.remainingPayment = formatAudAccounts(bal);
+          next.balancePayable = formatAudNumber(bal);
+          next.remainingPayment = formatAudNumber(bal);
         }
       }
 
@@ -374,13 +377,26 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
     )
   );
 
+  const inverterSeriesList: string[] = Array.from(
+    new Set(
+      inverterHierarchy
+        .filter((i: any) => {
+          const matchManuf = !formData.inverterManufacturer || i.manufacturer === formData.inverterManufacturer;
+          const matchSize = !formData.inverterSizeKw || String(i.sizeKw) === String(formData.inverterSizeKw);
+          return matchManuf && matchSize && Boolean(i.series);
+        })
+        .map((i: any) => i.series)
+    )
+  );
+
   const inverterModels: string[] = Array.from(
     new Set(
       inverterHierarchy
         .filter((i: any) => {
           const matchManuf = !formData.inverterManufacturer || i.manufacturer === formData.inverterManufacturer;
           const matchSize = !formData.inverterSizeKw || String(i.sizeKw) === String(formData.inverterSizeKw);
-          return matchManuf && matchSize;
+          const matchSeries = !formData.inverterSeries || !i.series || i.series === formData.inverterSeries;
+          return matchManuf && matchSize && matchSeries;
         })
         .map((i: any) => i.model)
     )
@@ -788,48 +804,57 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
         {/* Pricing Summary */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 pt-1">
           <div>
-            <label className="block text-xs font-medium text-gray-400 mb-1">System Price ($ AUD)</label>
-            <input
-              type="text"
-              value={formData.systemPrice}
-              onChange={e => handleChange('systemPrice', e.target.value)}
-              onBlur={() => {
-                const parsed = parseAudAccounts(formData.systemPrice);
-                if (parsed > 0) handleChange('systemPrice', formatAudAccounts(parsed));
-              }}
-              placeholder="$14,500.00"
-              className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs font-mono font-semibold text-[#bef264] placeholder-gray-600 focus:border-[#bef264] focus:outline-none transition-colors"
-            />
+            <label className="block text-xs font-medium text-gray-400 mb-1">System Price (AUD)</label>
+            <div className="relative">
+              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-mono font-bold pointer-events-none">$</span>
+              <input
+                type="text"
+                value={stripDollarSign(formData.systemPrice)}
+                onChange={e => handleChange('systemPrice', e.target.value.replace(/^\$/, '').trim())}
+                onBlur={() => {
+                  const parsed = parseAudAccounts(formData.systemPrice);
+                  if (parsed > 0) handleChange('systemPrice', formatAudNumber(parsed));
+                }}
+                placeholder="14,500.00"
+                className="w-full pl-10 pr-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs font-mono font-semibold text-[#bef264] placeholder-gray-600 focus:border-[#bef264] focus:outline-none transition-colors"
+              />
+            </div>
           </div>
 
           <div>
             <label className="block text-xs font-medium text-gray-400 mb-1">Selling Price (After Rebates)</label>
-            <input
-              type="text"
-              value={formData.sellingPrice}
-              onChange={e => handleChange('sellingPrice', e.target.value)}
-              onBlur={() => {
-                const parsed = parseAudAccounts(formData.sellingPrice);
-                if (parsed > 0) handleChange('sellingPrice', formatAudAccounts(parsed));
-              }}
-              placeholder="$10,500.00"
-              className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs font-mono font-semibold text-[#bef264] placeholder-gray-600 focus:border-[#bef264] focus:outline-none transition-colors"
-            />
+            <div className="relative">
+              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-mono font-bold pointer-events-none">$</span>
+              <input
+                type="text"
+                value={stripDollarSign(formData.sellingPrice)}
+                onChange={e => handleChange('sellingPrice', e.target.value.replace(/^\$/, '').trim())}
+                onBlur={() => {
+                  const parsed = parseAudAccounts(formData.sellingPrice);
+                  if (parsed > 0) handleChange('sellingPrice', formatAudNumber(parsed));
+                }}
+                placeholder="10,500.00"
+                className="w-full pl-10 pr-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs font-mono font-semibold text-[#bef264] placeholder-gray-600 focus:border-[#bef264] focus:outline-none transition-colors"
+              />
+            </div>
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-400 mb-1">Deposit ($ AUD)</label>
-            <input
-              type="text"
-              value={formData.deposit}
-              onChange={e => handleChange('deposit', e.target.value)}
-              onBlur={() => {
-                const parsed = parseAudAccounts(formData.deposit);
-                if (parsed > 0) handleChange('deposit', formatAudAccounts(parsed));
-              }}
-              placeholder="$1,000.00"
-              className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs font-mono font-semibold text-[#bef264] placeholder-gray-600 focus:border-[#bef264] focus:outline-none transition-colors"
-            />
+            <label className="block text-xs font-medium text-gray-400 mb-1">Deposit (AUD)</label>
+            <div className="relative">
+              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-mono font-bold pointer-events-none">$</span>
+              <input
+                type="text"
+                value={stripDollarSign(formData.deposit)}
+                onChange={e => handleChange('deposit', e.target.value.replace(/^\$/, '').trim())}
+                onBlur={() => {
+                  const parsed = parseAudAccounts(formData.deposit);
+                  if (parsed > 0) handleChange('deposit', formatAudNumber(parsed));
+                }}
+                placeholder="1,000.00"
+                className="w-full pl-10 pr-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs font-mono font-semibold text-[#bef264] placeholder-gray-600 focus:border-[#bef264] focus:outline-none transition-colors"
+              />
+            </div>
           </div>
         </div>
       </section>
@@ -971,7 +996,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
             <span>Solar Inverter</span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
             <div>
               <label className="block text-xs font-medium text-gray-400 mb-1">No. of Inverters</label>
               <input
@@ -1008,6 +1033,21 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
                 {(inverterSizes.length > 0 ? inverterSizes : ['5.0', '6.0', '8.0', '10.0']).map(is => (
                   <option key={is} value={is}>
                     {is} kW
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-400 mb-1">Inverter Series</label>
+              <select
+                value={formData.inverterSeries || ''}
+                onChange={e => handleChange('inverterSeries', e.target.value)}
+                className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
+              >
+                <option value="">All Series</option>
+                {inverterSeriesList.map(s => (
+                  <option key={s} value={s}>
+                    {s}
                   </option>
                 ))}
               </select>
@@ -1598,18 +1638,21 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
-              <label className="block text-xs font-medium text-gray-400 mb-1">Installer Invoice Amount ($ AUD)</label>
-              <input
-                type="text"
-                value={formData.installerInvoiceAmount}
-                onChange={e => handleChange('installerInvoiceAmount', e.target.value)}
-                onBlur={() => {
-                  const parsed = parseAudAccounts(formData.installerInvoiceAmount);
-                  if (parsed > 0) handleChange('installerInvoiceAmount', formatAudAccounts(parsed));
-                }}
-                placeholder="$2,200.00"
-                className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs font-mono font-semibold text-[#bef264] placeholder-gray-600 focus:border-[#bef264] focus:outline-none transition-colors"
-              />
+              <label className="block text-xs font-medium text-gray-400 mb-1">Installer Invoice Amount (AUD)</label>
+              <div className="relative">
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-mono font-bold pointer-events-none">$</span>
+                <input
+                  type="text"
+                  value={stripDollarSign(formData.installerInvoiceAmount)}
+                  onChange={e => handleChange('installerInvoiceAmount', e.target.value.replace(/^\$/, '').trim())}
+                  onBlur={() => {
+                    const parsed = parseAudAccounts(formData.installerInvoiceAmount);
+                    if (parsed > 0) handleChange('installerInvoiceAmount', formatAudNumber(parsed));
+                  }}
+                  placeholder="2,200.00"
+                  className="w-full pl-10 pr-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs font-mono font-semibold text-[#bef264] placeholder-gray-600 focus:border-[#bef264] focus:outline-none transition-colors"
+                />
+              </div>
             </div>
 
             <div>
@@ -1708,18 +1751,21 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
 
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-3.5">
           <div>
-            <label className="block text-xs font-medium text-gray-400 mb-1">Warehouse Invoice Amount ($ AUD)</label>
-            <input
-              type="text"
-              value={formData.warehouseInvoiceAmount}
-              onChange={e => handleChange('warehouseInvoiceAmount', e.target.value)}
-              onBlur={() => {
-                const parsed = parseAudAccounts(formData.warehouseInvoiceAmount);
-                if (parsed > 0) handleChange('warehouseInvoiceAmount', formatAudAccounts(parsed));
-              }}
-              placeholder="$5,400.00"
-              className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs font-mono font-semibold text-[#bef264] placeholder-gray-600 focus:border-[#bef264] focus:outline-none transition-colors"
-            />
+            <label className="block text-xs font-medium text-gray-400 mb-1">Warehouse Invoice Amount (AUD)</label>
+            <div className="relative">
+              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-mono font-bold pointer-events-none">$</span>
+              <input
+                type="text"
+                value={stripDollarSign(formData.warehouseInvoiceAmount)}
+                onChange={e => handleChange('warehouseInvoiceAmount', e.target.value.replace(/^\$/, '').trim())}
+                onBlur={() => {
+                  const parsed = parseAudAccounts(formData.warehouseInvoiceAmount);
+                  if (parsed > 0) handleChange('warehouseInvoiceAmount', formatAudNumber(parsed));
+                }}
+                placeholder="5,400.00"
+                className="w-full pl-10 pr-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs font-mono font-semibold text-[#bef264] placeholder-gray-600 focus:border-[#bef264] focus:outline-none transition-colors"
+              />
+            </div>
           </div>
 
           <div>
@@ -1783,48 +1829,57 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
 
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-3.5">
           <div>
-            <label className="block text-xs font-medium text-gray-400 mb-1">System Price ($ AUD)</label>
-            <input
-              type="text"
-              value={formData.systemPrice}
-              onChange={e => handleChange('systemPrice', e.target.value)}
-              onBlur={() => {
-                const parsed = parseAudAccounts(formData.systemPrice);
-                if (parsed > 0) handleChange('systemPrice', formatAudAccounts(parsed));
-              }}
-              placeholder="$14,500.00"
-              className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs font-mono font-semibold text-[#bef264] placeholder-gray-600 focus:border-[#bef264] focus:outline-none transition-colors"
-            />
+            <label className="block text-xs font-medium text-gray-400 mb-1">System Price (AUD)</label>
+            <div className="relative">
+              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-mono font-bold pointer-events-none">$</span>
+              <input
+                type="text"
+                value={stripDollarSign(formData.systemPrice)}
+                onChange={e => handleChange('systemPrice', e.target.value.replace(/^\$/, '').trim())}
+                onBlur={() => {
+                  const parsed = parseAudAccounts(formData.systemPrice);
+                  if (parsed > 0) handleChange('systemPrice', formatAudNumber(parsed));
+                }}
+                placeholder="14,500.00"
+                className="w-full pl-10 pr-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs font-mono font-semibold text-[#bef264] placeholder-gray-600 focus:border-[#bef264] focus:outline-none transition-colors"
+              />
+            </div>
           </div>
 
           <div>
             <label className="block text-xs font-medium text-gray-400 mb-1">Selling Price (After Rebates)</label>
-            <input
-              type="text"
-              value={formData.sellingPrice}
-              onChange={e => handleChange('sellingPrice', e.target.value)}
-              onBlur={() => {
-                const parsed = parseAudAccounts(formData.sellingPrice);
-                if (parsed > 0) handleChange('sellingPrice', formatAudAccounts(parsed));
-              }}
-              placeholder="$10,500.00"
-              className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs font-mono font-semibold text-[#bef264] placeholder-gray-600 focus:border-[#bef264] focus:outline-none transition-colors"
-            />
+            <div className="relative">
+              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-mono font-bold pointer-events-none">$</span>
+              <input
+                type="text"
+                value={stripDollarSign(formData.sellingPrice)}
+                onChange={e => handleChange('sellingPrice', e.target.value.replace(/^\$/, '').trim())}
+                onBlur={() => {
+                  const parsed = parseAudAccounts(formData.sellingPrice);
+                  if (parsed > 0) handleChange('sellingPrice', formatAudNumber(parsed));
+                }}
+                placeholder="10,500.00"
+                className="w-full pl-10 pr-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs font-mono font-semibold text-[#bef264] placeholder-gray-600 focus:border-[#bef264] focus:outline-none transition-colors"
+              />
+            </div>
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-400 mb-1">Deposit ($ AUD)</label>
-            <input
-              type="text"
-              value={formData.deposit}
-              onChange={e => handleChange('deposit', e.target.value)}
-              onBlur={() => {
-                const parsed = parseAudAccounts(formData.deposit);
-                if (parsed > 0) handleChange('deposit', formatAudAccounts(parsed));
-              }}
-              placeholder="$1,000.00"
-              className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs font-mono font-semibold text-[#bef264] placeholder-gray-600 focus:border-[#bef264] focus:outline-none transition-colors"
-            />
+            <label className="block text-xs font-medium text-gray-400 mb-1">Deposit (AUD)</label>
+            <div className="relative">
+              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-mono font-bold pointer-events-none">$</span>
+              <input
+                type="text"
+                value={stripDollarSign(formData.deposit)}
+                onChange={e => handleChange('deposit', e.target.value.replace(/^\$/, '').trim())}
+                onBlur={() => {
+                  const parsed = parseAudAccounts(formData.deposit);
+                  if (parsed > 0) handleChange('deposit', formatAudNumber(parsed));
+                }}
+                placeholder="1,000.00"
+                className="w-full pl-10 pr-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs font-mono font-semibold text-[#bef264] placeholder-gray-600 focus:border-[#bef264] focus:outline-none transition-colors"
+              />
+            </div>
           </div>
 
           <div>
@@ -1840,18 +1895,21 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
           <div>
-            <label className="block text-xs font-medium text-gray-400 mb-1">Balance Payable ($ AUD)</label>
-            <input
-              type="text"
-              value={formData.balancePayable}
-              onChange={e => handleChange('balancePayable', e.target.value)}
-              onBlur={() => {
-                const parsed = parseAudAccounts(formData.balancePayable);
-                if (parsed > 0) handleChange('balancePayable', formatAudAccounts(parsed));
-              }}
-              placeholder="$9,500.00"
-              className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs font-mono font-semibold text-[#bef264] placeholder-gray-600 focus:border-[#bef264] focus:outline-none transition-colors"
-            />
+            <label className="block text-xs font-medium text-gray-400 mb-1">Balance Payable (AUD)</label>
+            <div className="relative">
+              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-mono font-bold pointer-events-none">$</span>
+              <input
+                type="text"
+                value={stripDollarSign(formData.balancePayable)}
+                onChange={e => handleChange('balancePayable', e.target.value.replace(/^\$/, '').trim())}
+                onBlur={() => {
+                  const parsed = parseAudAccounts(formData.balancePayable);
+                  if (parsed > 0) handleChange('balancePayable', formatAudNumber(parsed));
+                }}
+                placeholder="9,500.00"
+                className="w-full pl-10 pr-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs font-mono font-semibold text-[#bef264] placeholder-gray-600 focus:border-[#bef264] focus:outline-none transition-colors"
+              />
+            </div>
           </div>
 
           <div>
@@ -1865,18 +1923,21 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-400 mb-1">Remaining Payment ($ AUD)</label>
-            <input
-              type="text"
-              value={formData.remainingPayment}
-              onChange={e => handleChange('remainingPayment', e.target.value)}
-              onBlur={() => {
-                const parsed = parseAudAccounts(formData.remainingPayment);
-                if (parsed > 0) handleChange('remainingPayment', formatAudAccounts(parsed));
-              }}
-              placeholder="$0.00"
-              className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs font-mono font-semibold text-[#bef264] placeholder-gray-600 focus:border-[#bef264] focus:outline-none transition-colors"
-            />
+            <label className="block text-xs font-medium text-gray-400 mb-1">Remaining Payment (AUD)</label>
+            <div className="relative">
+              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-mono font-bold pointer-events-none">$</span>
+              <input
+                type="text"
+                value={stripDollarSign(formData.remainingPayment)}
+                onChange={e => handleChange('remainingPayment', e.target.value.replace(/^\$/, '').trim())}
+                onBlur={() => {
+                  const parsed = parseAudAccounts(formData.remainingPayment);
+                  if (parsed > 0) handleChange('remainingPayment', formatAudNumber(parsed));
+                }}
+                placeholder="0.00"
+                className="w-full pl-10 pr-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs font-mono font-semibold text-[#bef264] placeholder-gray-600 focus:border-[#bef264] focus:outline-none transition-colors"
+              />
+            </div>
           </div>
         </div>
 
@@ -1957,18 +2018,21 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-gray-400 mb-1">Finance Approved Amount ($ AUD)</label>
-              <input
-                type="text"
-                value={formData.financeApprovedAmount}
-                onChange={e => handleChange('financeApprovedAmount', e.target.value)}
-                onBlur={() => {
-                  const parsed = parseAudAccounts(formData.financeApprovedAmount);
-                  if (parsed > 0) handleChange('financeApprovedAmount', formatAudAccounts(parsed));
-                }}
-                placeholder="$10,500.00"
-                className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs font-mono font-semibold text-[#bef264] placeholder-gray-600 focus:border-[#bef264] focus:outline-none transition-colors"
-              />
+              <label className="block text-xs font-medium text-gray-400 mb-1">Finance Approved Amount (AUD)</label>
+              <div className="relative">
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-mono font-bold pointer-events-none">$</span>
+                <input
+                  type="text"
+                  value={stripDollarSign(formData.financeApprovedAmount)}
+                  onChange={e => handleChange('financeApprovedAmount', e.target.value.replace(/^\$/, '').trim())}
+                  onBlur={() => {
+                    const parsed = parseAudAccounts(formData.financeApprovedAmount);
+                    if (parsed > 0) handleChange('financeApprovedAmount', formatAudNumber(parsed));
+                  }}
+                  placeholder="10,500.00"
+                  className="w-full pl-10 pr-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs font-mono font-semibold text-[#bef264] placeholder-gray-600 focus:border-[#bef264] focus:outline-none transition-colors"
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -2038,18 +2102,21 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-gray-400 mb-1">Solar STC's Amount ($ AUD)</label>
-              <input
-                type="text"
-                value={formData.solarStcsAmount}
-                onChange={e => handleChange('solarStcsAmount', e.target.value)}
-                onBlur={() => {
-                  const parsed = parseAudAccounts(formData.solarStcsAmount);
-                  if (parsed > 0) handleChange('solarStcsAmount', formatAudAccounts(parsed));
-                }}
-                placeholder="$2,376.00"
-                className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs font-mono font-semibold text-[#bef264] placeholder-gray-600 focus:border-[#bef264] focus:outline-none transition-colors"
-              />
+              <label className="block text-xs font-medium text-gray-400 mb-1">Solar STC's Amount (AUD)</label>
+              <div className="relative">
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-mono font-bold pointer-events-none">$</span>
+                <input
+                  type="text"
+                  value={stripDollarSign(formData.solarStcsAmount)}
+                  onChange={e => handleChange('solarStcsAmount', e.target.value.replace(/^\$/, '').trim())}
+                  onBlur={() => {
+                    const parsed = parseAudAccounts(formData.solarStcsAmount);
+                    if (parsed > 0) handleChange('solarStcsAmount', formatAudNumber(parsed));
+                  }}
+                  placeholder="2,376.00"
+                  className="w-full pl-10 pr-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs font-mono font-semibold text-[#bef264] placeholder-gray-600 focus:border-[#bef264] focus:outline-none transition-colors"
+                />
+              </div>
             </div>
 
             <div>
@@ -2084,18 +2151,21 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-gray-400 mb-1">Battery STC's Amount ($ AUD)</label>
-              <input
-                type="text"
-                value={formData.batteryStcsAmount}
-                onChange={e => handleChange('batteryStcsAmount', e.target.value)}
-                onBlur={() => {
-                  const parsed = parseAudAccounts(formData.batteryStcsAmount);
-                  if (parsed > 0) handleChange('batteryStcsAmount', formatAudAccounts(parsed));
-                }}
-                placeholder="$864.00"
-                className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs font-mono font-semibold text-[#bef264] placeholder-gray-600 focus:border-[#bef264] focus:outline-none transition-colors"
-              />
+              <label className="block text-xs font-medium text-gray-400 mb-1">Battery STC's Amount (AUD)</label>
+              <div className="relative">
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-mono font-bold pointer-events-none">$</span>
+                <input
+                  type="text"
+                  value={stripDollarSign(formData.batteryStcsAmount)}
+                  onChange={e => handleChange('batteryStcsAmount', e.target.value.replace(/^\$/, '').trim())}
+                  onBlur={() => {
+                    const parsed = parseAudAccounts(formData.batteryStcsAmount);
+                    if (parsed > 0) handleChange('batteryStcsAmount', formatAudNumber(parsed));
+                  }}
+                  placeholder="864.00"
+                  className="w-full pl-10 pr-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs font-mono font-semibold text-[#bef264] placeholder-gray-600 focus:border-[#bef264] focus:outline-none transition-colors"
+                />
+              </div>
             </div>
 
             <div>
@@ -2113,18 +2183,21 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
         {/* Total STC Received, Admin Charges, Status & Submitted Date */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
           <div>
-            <label className="block text-xs font-medium text-gray-400 mb-1">Total STC Amount Received ($ AUD)</label>
-            <input
-              type="text"
-              value={formData.totalStcAmountReceived}
-              onChange={e => handleChange('totalStcAmountReceived', e.target.value)}
-              onBlur={() => {
-                const parsed = parseAudAccounts(formData.totalStcAmountReceived);
-                if (parsed > 0) handleChange('totalStcAmountReceived', formatAudAccounts(parsed));
-              }}
-              placeholder="$3,240.00"
-              className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs font-mono font-semibold text-[#bef264] placeholder-gray-600 focus:border-[#bef264] focus:outline-none transition-colors"
-            />
+            <label className="block text-xs font-medium text-gray-400 mb-1">Total STC Amount Received (AUD)</label>
+            <div className="relative">
+              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-mono font-bold pointer-events-none">$</span>
+              <input
+                type="text"
+                value={stripDollarSign(formData.totalStcAmountReceived)}
+                onChange={e => handleChange('totalStcAmountReceived', e.target.value.replace(/^\$/, '').trim())}
+                onBlur={() => {
+                  const parsed = parseAudAccounts(formData.totalStcAmountReceived);
+                  if (parsed > 0) handleChange('totalStcAmountReceived', formatAudNumber(parsed));
+                }}
+                placeholder="3,240.00"
+                className="w-full pl-10 pr-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs font-mono font-semibold text-[#bef264] placeholder-gray-600 focus:border-[#bef264] focus:outline-none transition-colors"
+              />
+            </div>
           </div>
 
           <div>

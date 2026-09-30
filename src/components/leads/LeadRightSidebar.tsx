@@ -404,7 +404,7 @@ export const LeadRightSidebar: React.FC<LeadRightSidebarProps> = ({
               <div className="text-xs text-gray-300 space-y-1">
                 <div className="flex justify-between">
                   <span className="text-gray-500">Total:</span>
-                  <span className="font-mono text-white">${formatAudAccounts(xeroInvoiceTotal || 0)} AUD</span>
+                  <span className="font-mono text-white">{formatAudAccounts(xeroInvoiceTotal || 0)} AUD</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-500">Status:</span>
@@ -440,7 +440,7 @@ export const LeadRightSidebar: React.FC<LeadRightSidebarProps> = ({
               <div className="text-xs text-gray-300 space-y-1">
                 <div className="flex justify-between">
                   <span className="text-gray-500">Deposit Paid:</span>
-                  <span className="font-mono text-emerald-400">${formatAudAccounts(xeroReceiptAmount || 0)} AUD</span>
+                  <span className="font-mono text-emerald-400">{formatAudAccounts(xeroReceiptAmount || 0)} AUD</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-500">Date:</span>

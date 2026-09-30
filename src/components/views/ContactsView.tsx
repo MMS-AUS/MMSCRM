@@ -473,18 +473,27 @@ export const ContactsView: React.FC = () => {
   };
 
   const filteredContacts = contacts.filter(c => {
-    const matchesSearch =
-      c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      c.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      c.phone.includes(searchTerm) ||
-      (c.suburb && c.suburb.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (c.city && c.city.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (c.contactOwnerName && c.contactOwnerName.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (c.postcode && c.postcode.includes(searchTerm)) ||
-      (c.addresses && c.addresses.some(a => a.address.toLowerCase().includes(searchTerm.toLowerCase())));
+    const sTerm = (searchTerm || '').trim().toLowerCase();
+    const nameStr = (c.name || `${c.firstName || ''} ${c.lastName || ''}`.trim() || '').toLowerCase();
+    const emailStr = (c.email || '').toLowerCase();
+    const phoneStr = (c.phone || '');
+    const suburbStr = (c.suburb || '').toLowerCase();
+    const cityStr = (c.city || '').toLowerCase();
+    const ownerStr = (c.contactOwnerName || c.contactOwner || '').toLowerCase();
+    const postcodeStr = (c.postcode || '');
+
+    const matchesSearch = !sTerm ||
+      nameStr.includes(sTerm) ||
+      emailStr.includes(sTerm) ||
+      phoneStr.includes(sTerm) ||
+      suburbStr.includes(sTerm) ||
+      cityStr.includes(sTerm) ||
+      ownerStr.includes(sTerm) ||
+      postcodeStr.includes(sTerm) ||
+      Boolean(c.addresses && c.addresses.some(a => (a.address || a.street || '').toLowerCase().includes(sTerm)));
 
     const matchesState = filterState === 'all' || c.state === filterState;
-    const matchesType = filterType === 'all' || (c.contactType || c.type) === filterType;
+    const matchesType = filterType === 'all' || (c.contactType || c.type || 'Residential') === filterType;
     return matchesSearch && matchesState && matchesType;
   });
 
@@ -1417,35 +1426,60 @@ export const ContactsView: React.FC = () => {
                   Current Linked Properties:
                 </label>
                 <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                  {(contacts.find(c => c.id === managingAddressesContact.id)?.addresses || []).map(addr => (
-                    <div
-                      key={addr.id}
-                      className="p-2.5 rounded-lg bg-[#141414] border border-[#2d2d2d] flex items-center justify-between gap-3 text-xs"
-                    >
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold text-white">{addr.address || addr.street}</span>
-                          {addr.isPrimary && (
-                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-[#bef26422] text-[#bef264]">
-                              Primary
-                            </span>
-                          )}
-                          <span className="text-[10px] text-gray-400">({addr.propertyType || 'Property'})</span>
-                        </div>
-                        <p className="text-gray-400 text-[11px]">
-                          {addr.city || addr.suburb}, {addr.state} {addr.postcode}
-                        </p>
-                      </div>
+                  {(() => {
+                    const activeContact = contacts.find(c => c.id === managingAddressesContact.id) || managingAddressesContact;
+                    const addrList = activeContact.addresses && activeContact.addresses.length > 0
+                      ? activeContact.addresses
+                      : (activeContact.address || activeContact.streetAddress)
+                        ? [{
+                            id: `primary-${activeContact.id}`,
+                            address: activeContact.address || `${activeContact.streetAddress || ''}, ${activeContact.suburb || ''} ${activeContact.state || ''}`.trim(),
+                            street: activeContact.streetAddress || activeContact.address,
+                            suburb: activeContact.suburb || activeContact.city || '',
+                            city: activeContact.city || activeContact.suburb || '',
+                            state: (activeContact.state as AustralianState) || 'NSW',
+                            postcode: activeContact.postcode || '',
+                            propertyType: 'Primary Residence',
+                            isPrimary: true
+                          }]
+                        : [];
 
-                      <button
-                        onClick={() => deleteContactAddress(managingAddressesContact.id, addr.id)}
-                        className="p-1.5 text-gray-500 hover:text-rose-400 transition-colors"
-                        title="Delete this address"
+                    if (addrList.length === 0) {
+                      return (
+                        <p className="text-gray-500 text-xs italic p-2">No properties linked to this contact yet. Add one below.</p>
+                      );
+                    }
+
+                    return addrList.map(addr => (
+                      <div
+                        key={addr.id}
+                        className="p-2.5 rounded-lg bg-[#141414] border border-[#2d2d2d] flex items-center justify-between gap-3 text-xs"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ))}
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-white">{addr.address || addr.street}</span>
+                            {addr.isPrimary && (
+                              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-[#bef26422] text-[#bef264]">
+                                Primary
+                              </span>
+                            )}
+                            <span className="text-[10px] text-gray-400">({addr.propertyType || 'Property'})</span>
+                          </div>
+                          <p className="text-gray-400 text-[11px]">
+                            {addr.city || addr.suburb}, {addr.state} {addr.postcode}
+                          </p>
+                        </div>
+
+                        <button
+                          onClick={() => deleteContactAddress(managingAddressesContact.id, addr.id)}
+                          className="p-1.5 text-gray-500 hover:text-rose-400 transition-colors"
+                          title="Delete this address"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ));
+                  })()}
                 </div>
               </div>
 
