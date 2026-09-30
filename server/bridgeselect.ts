@@ -3,7 +3,7 @@ import {
   BridgeSelectJobPayload,
   mapJobToBridgeSelectPayload,
   validateBridgeSelectPayload
-} from '../src/utils/bridgeselectMapper';
+} from '../src/utils/bridgeselectMapper.ts';
 
 export interface BridgeSelectPushResult {
   success: boolean;

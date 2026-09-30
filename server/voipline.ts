@@ -17,7 +17,7 @@ import {
   insertInboundSmsLog,
   StoredCallLog,
   StoredInboundSmsLog
-} from './supabase';
+} from './supabase.ts';
 
 export interface OriginateCallParams {
   userId: string;

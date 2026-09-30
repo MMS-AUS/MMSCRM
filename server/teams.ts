@@ -10,7 +10,7 @@
  * 6. Auto-deactivation of deleted webhook URLs on HTTP 404
  */
 
-import { getSupabase } from './supabase';
+import { getSupabase } from './supabase.ts';
 
 export interface TeamsSettingsRecord {
   tenant_id: string;

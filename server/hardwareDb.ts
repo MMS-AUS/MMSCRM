@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
-import { PanelHierarchyItem, InverterHierarchyItem, BatteryHierarchyItem } from '../src/types/index';
-import { INITIAL_DROPDOWNS } from '../src/data/initialData';
+import { PanelHierarchyItem, InverterHierarchyItem, BatteryHierarchyItem } from '../src/types/index.ts';
+import { INITIAL_DROPDOWNS } from '../src/data/initialData.ts';
 
 const HARDWARE_DB_FILE = path.join(process.cwd(), '.hardware_hierarchy.json');
 

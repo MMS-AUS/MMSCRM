@@ -1,8 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import { getSupabase } from './supabase';
-import { formatToE164 } from './messagemedia';
+import { getSupabase } from './supabase.ts';
+import { formatToE164 } from './messagemedia.ts';
 
 // ============================================================================
 // DATA MODELS & INTERFACES (Meta WhatsApp Cloud API v20.0 & Supabase)

@@ -1,8 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import { getSupabase } from './supabase';
-import { Lead } from '../src/types';
+import { getSupabase } from './supabase.ts';
+import { Lead } from '../src/types/index.ts';
 
 function toDeterministicUuid(id: string): string {
   const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -24,7 +24,7 @@ import {
   normalizePhoneForComparison,
   normalizeNameForComparison,
   areDistinctProperties
-} from '../src/utils/googleSheetsTemplate';
+} from '../src/utils/googleSheetsTemplate.ts';
 
 const LEADS_DB_FILE = path.join(process.cwd(), '.leads_db.json');
 

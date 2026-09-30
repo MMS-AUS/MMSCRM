@@ -1,8 +1,8 @@
 import fs from 'fs';
 import path from 'path';
-import { getSupabase } from './supabase';
-import { Contact, ContactAddress, Lead } from '../src/types';
-import { normalizeAddressForComparison } from '../src/utils/googleSheetsTemplate';
+import { getSupabase } from './supabase.ts';
+import { Contact, ContactAddress, Lead } from '../src/types/index.ts';
+import { normalizeAddressForComparison } from '../src/utils/googleSheetsTemplate.ts';
 
 const CONTACTS_DB_FILE = path.join(process.cwd(), '.contacts_db.json');
 

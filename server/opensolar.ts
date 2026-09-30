@@ -15,7 +15,7 @@ import {
   SyncQueueItem,
   ProjectDocument,
   getSupabase
-} from './supabase';
+} from './supabase.ts';
 import {
   makeOpenSolarRequest,
   isPayloadIdentical,
@@ -28,7 +28,7 @@ import {
   downloadOpenSolarSignedContract,
   OpenSolarCredentialsConfig,
   SyncResult
-} from '../src/utils/opensolarSync';
+} from '../src/utils/opensolarSync.ts';
 
 const CONTRACTS_DIR = path.join(process.cwd(), 'public', 'contracts');
 if (!fs.existsSync(CONTRACTS_DIR)) {

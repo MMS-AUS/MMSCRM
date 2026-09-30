@@ -6,7 +6,7 @@ import {
   updateGmailLatestHistoryId,
   upsertCrmEmail,
   getSupabase
-} from './supabase';
+} from './supabase.ts';
 
 export const REQUIRED_GMAIL_SCOPES = [
   'https://www.googleapis.com/auth/gmail.readonly',

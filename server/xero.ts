@@ -5,7 +5,7 @@ import {
   deleteXeroCredentials,
   StoredXeroCredentials,
   isSupabaseConfigured
-} from './supabase';
+} from './supabase.ts';
 
 const XERO_AUTH_URL = 'https://login.xero.com/identity/connect/authorize';
 const XERO_TOKEN_URL = 'https://identity.xero.com/connect/token';

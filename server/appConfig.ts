@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { resetSupabaseInstance } from './supabase';
+import { resetSupabaseInstance } from './supabase.ts';
 
 const CONFIG_FILE = path.join(process.cwd(), '.app_config.json');
 const FIREBASE_CONFIG_FILE = path.join(process.cwd(), 'firebase-applet-config.json');

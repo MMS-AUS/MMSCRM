@@ -12,9 +12,9 @@
 
 import fs from 'fs';
 import path from 'path';
-import { getSupabase } from './supabase';
-import { parseMetaFieldData, MappedMetaLeadResult } from '../src/utils/metaLeadMapper';
-import { constructCapiPayload, MetaCapiEventPayload, MetaCapiPushResult } from '../src/utils/metaCapiPush';
+import { getSupabase } from './supabase.ts';
+import { parseMetaFieldData, MappedMetaLeadResult } from '../src/utils/metaLeadMapper.ts';
+import { constructCapiPayload, MetaCapiEventPayload, MetaCapiPushResult } from '../src/utils/metaCapiPush.ts';
 
 export interface MetaPageConnection {
   tenant_id: string;
