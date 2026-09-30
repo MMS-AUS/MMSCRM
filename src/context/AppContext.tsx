@@ -3261,15 +3261,65 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         body: JSON.stringify({ sheetUrl: targetUrl, lastSyncTime: new Date().toISOString() })
       }).catch(() => {});
 
-      const res = await fetch('/api/leads/fetch-sheet', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sheetUrl: targetUrl })
-      });
+      // 1. First attempt: server proxy fetch
+      let csvText = '';
+      let isPrivate = false;
+      let errorMsg = '';
 
-      const data = await res.json();
-      if (!data.success) {
-        const errorMsg = data.error || 'Failed to fetch Google Sheet data.';
+      try {
+        const res = await fetch('/api/leads/fetch-sheet', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sheetUrl: targetUrl })
+        });
+        const data = await res.json().catch(() => null);
+        if (data && data.success && data.csvText) {
+          csvText = data.csvText;
+        } else if (data && !data.success) {
+          errorMsg = data.error || 'Failed to fetch Google Sheet data.';
+          isPrivate = Boolean(data.isPrivate);
+        }
+      } catch (serverErr) {
+        console.warn('Server fetch-sheet returned error, attempting direct browser fetch:', serverErr);
+      }
+
+      // 2. Second attempt (Fallback): Direct browser fetch from Google Sheets
+      if (!csvText && !isPrivate) {
+        try {
+          let directExportUrl = '';
+          const pubMatch = targetUrl.match(/\/d\/e\/([a-zA-Z0-9-_]+)/);
+          const sheetMatch = targetUrl.match(/\/d\/([a-zA-Z0-9-_]+)/) || targetUrl.match(/id=([a-zA-Z0-9-_]+)/);
+          const gidMatch = targetUrl.match(/[#?&]gid=([0-9]+)/);
+          const gid = gidMatch ? gidMatch[1] : '0';
+
+          if (pubMatch && pubMatch[1]) {
+            directExportUrl = `https://docs.google.com/spreadsheets/d/e/${pubMatch[1]}/pub?output=csv`;
+          } else if (sheetMatch && sheetMatch[1]) {
+            directExportUrl = `https://docs.google.com/spreadsheets/d/${sheetMatch[1]}/export?format=csv&gid=${gid}`;
+          } else if (targetUrl.includes('output=csv') || targetUrl.includes('format=csv')) {
+            directExportUrl = targetUrl;
+          }
+
+          if (directExportUrl) {
+            const directRes = await fetch(directExportUrl, { cache: 'no-cache' });
+            if (directRes.ok) {
+              const text = await directRes.text();
+              if (text && !text.includes('<!DOCTYPE') && !text.includes('<html')) {
+                csvText = text;
+                errorMsg = '';
+              } else if (text.includes('accounts.google.com') || text.includes('ServiceLogin')) {
+                isPrivate = true;
+                errorMsg = 'This Google Sheet is currently private. Please click "Share" -> change General access to "Anyone with the link can view".';
+              }
+            }
+          }
+        } catch (directErr) {
+          console.warn('Direct browser fetch fallback failed:', directErr);
+        }
+      }
+
+      if (!csvText) {
+        const finalError = errorMsg || 'Could not connect to Google Sheet. Make sure the sheet link is shared as "Anyone with the link can view" or upload CSV directly.';
         setLastSheetSyncStats({
           addedCount: 0,
           updatedCount: 0,
@@ -3277,7 +3327,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           totalRows: 0,
           timestamp: new Date(),
           status: 'error',
-          message: errorMsg
+          message: finalError
         });
         return {
           success: false,
@@ -3285,12 +3335,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           updatedCount: 0,
           duplicateCount: 0,
           totalRows: 0,
-          error: errorMsg,
-          isPrivate: data.isPrivate
+          error: finalError,
+          isPrivate
         };
       }
-
-      const csvText = data.csvText || '';
       if (!csvText.trim()) {
         const msg = 'Google Sheet returned empty data.';
         return { success: false, addedCount: 0, updatedCount: 0, duplicateCount: 0, totalRows: 0, error: msg };

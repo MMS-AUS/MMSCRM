@@ -1,1 +1,15 @@
-{}
+{
+  "VITE_FIREBASE_API_KEY": "AIzaSyBRxYiHVeeUGm6cV4tjTf3XfQs-GIPTirk",
+  "VITE_FIREBASE_PROJECT_ID": "fabled-direction-jxjsq",
+  "VITE_FIREBASE_APP_ID": "1:427218815020:web:a6b4286720d9c2a7202989",
+  "VITE_FIREBASE_AUTH_DOMAIN": "grand-analyzer-289307.firebaseapp.com",
+  "XERO_CLIENT_ID": "5B0696F29FD4423BAAD39E6485A71F68",
+  "XERO_CLIENT_SECRET": "oEzwXCpKDnu0alMAkLSpbomzmqbpDGPuSVV1gZnc8rHJKodmoEzwXCpKDnu0alMAkLSpbomzmqbpDGPuSVV1gZnc8rHJKodmoEzwXCpKDnu0alMAkLSpbomzmqbpDGPuSVV1gZnc8rHJKodm",
+  "XERO_REDIRECT_URI": "https://mysolarcrm.makemysolar.com.au/api/auth/xero/callback",
+  "NEXT_PUBLIC_APP_URL": "https://ais-dev-mp7xz6vwaezbn5khxghmuw-17731313724.asia-southeast1.run.app",
+  "APP_URL": "https://ais-dev-mp7xz6vwaezbn5khxghmuw-17731313724.asia-southeast1.run.app",
+  "SUPABASE_URL": "https://soecoieksewpjgymjnph.supabase.co",
+  "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNvZWNvaWVrc2V3cGpneW1qbnBoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAxNDQyMTYsImV4cCI6MjA5NTcyMDIxNn0.o5mCrGtTztq4Nz6UMawIsnWPlqLGW14JAoHECjhK-M0",
+  "SUPABASE_SERVICE_ROLE_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNvZWNvaWVrc2V3cGpneW1qbnBoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MDE0NDIxNiwiZXhwIjoyMDk1NzIwMjE2fQ.HKGcwiUEYyaKCK-d3WQgQ-BgKCBg4bCQ7KPOIRnCAYY",
+  "TEST_KEY": "test_value"
+}

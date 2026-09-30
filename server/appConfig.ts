@@ -185,6 +185,14 @@ export const MANAGED_FIELDS: Array<Omit<ConfigField, 'value' | 'isConfigured' | 
 
   // General & App URLs
   {
+    key: 'GOOGLE_SHEET_LEAD_URL',
+    label: 'Google Sheet Inbound Leads URL',
+    category: 'general',
+    isSecret: false,
+    placeholder: 'https://docs.google.com/spreadsheets/d/.../edit',
+    helpText: 'Shared Google Spreadsheet URL containing incoming marketing leads for continuous auto-sync'
+  },
+  {
     key: 'NEXT_PUBLIC_APP_URL',
     label: 'Public Application URL',
     category: 'general',

@@ -256,7 +256,7 @@ async function startServer() {
     }
   });
 
-  app.post('/api/system/credentials', async (req, res) => {
+  app.post('/api/system/credentials', (req, res) => {
     try {
       const { updates } = req.body;
       if (!updates || typeof updates !== 'object') {
@@ -264,19 +264,22 @@ async function startServer() {
       }
       const result = saveAppCredentials(updates);
 
-      // If Supabase credentials were updated or saved, trigger immediate sync
-      if (updates.SUPABASE_URL || updates.SUPABASE_ANON_KEY || updates.SUPABASE_SERVICE_ROLE_KEY) {
-        try {
-          const currentLeads = await getDbLeads();
-          if (currentLeads.length > 0) {
-            await saveDbLeads(currentLeads);
-          }
-        } catch (syncErr: any) {
-          console.warn('[Credentials] Warning syncing leads on credential save:', syncErr.message);
-        }
-      }
+      // Respond immediately to the client so the UI never times out or hangs
+      res.json(result);
 
-      return res.json(result);
+      // If Supabase credentials were updated or saved, trigger sync asynchronously in the background
+      if (updates.SUPABASE_URL || updates.SUPABASE_ANON_KEY || updates.SUPABASE_SERVICE_ROLE_KEY) {
+        setImmediate(async () => {
+          try {
+            const currentLeads = await getDbLeads();
+            if (currentLeads.length > 0) {
+              await saveDbLeads(currentLeads);
+            }
+          } catch (syncErr: any) {
+            console.warn('[Credentials] Non-blocking background Supabase sync notice:', syncErr.message);
+          }
+        });
+      }
     } catch (err: any) {
       return res.status(500).json({ success: false, error: err.message });
     }
@@ -404,20 +407,21 @@ async function startServer() {
 
       // 2. Standard Google Sheets URL: /d/SPREADSHEET_ID
       if (!csvExportUrl) {
-        const match = sheetUrl.match(/\/d\/([a-zA-Z0-9-_]{20,})/);
-        if (!match || !match[1]) {
+        const match = sheetUrl.match(/\/d\/([a-zA-Z0-9-_]+)/) || sheetUrl.match(/id=([a-zA-Z0-9-_]+)/);
+        if (match && match[1]) {
+          const spreadsheetId = match[1];
+          // Extract gid if present
+          const gidMatch = sheetUrl.match(/[#?&]gid=([0-9]+)/);
+          const gid = gidMatch ? gidMatch[1] : '0';
+          csvExportUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=csv&gid=${gid}`;
+        } else if (sheetUrl.endsWith('.csv') || sheetUrl.includes('output=csv') || sheetUrl.includes('format=csv')) {
+          csvExportUrl = sheetUrl;
+        } else {
           return res.status(400).json({
             success: false,
             error: 'Could not extract Google Spreadsheet ID from URL. Expected format: https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit'
           });
         }
-        const spreadsheetId = match[1];
-
-        // Extract gid if present (either ?gid=123, &gid=123, or #gid=123)
-        const gidMatch = sheetUrl.match(/[#?&]gid=([0-9]+)/);
-        const gid = gidMatch ? gidMatch[1] : '0';
-
-        csvExportUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=csv&id=${spreadsheetId}&gid=${gid}`;
       }
 
       // Append cache-buster timestamp query param to guarantee real-time fresh row updates
@@ -430,16 +434,18 @@ async function startServer() {
           'Cache-Control': 'no-cache, no-store, max-age=0, must-revalidate',
           'Pragma': 'no-cache'
         },
-        redirect: 'follow'
+        redirect: 'follow',
+        signal: AbortSignal.timeout(12000)
       });
 
       const contentType = response.headers.get('content-type') || '';
 
       // If redirected to Google Accounts login or HTML, sheet is private
-      if (contentType.includes('text/html') || response.status === 401 || response.status === 403) {
+      if (contentType.includes('text/html') || response.status === 401 || response.status === 403 || response.url.includes('accounts.google.com')) {
         return res.json({
           success: false,
           isPrivate: true,
+          csvExportUrl,
           error: 'This Google Sheet is currently private or requires sign-in. To allow instant live syncing, in Google Sheets click "Share" (top-right) -> change General access from "Restricted" to "Anyone with the link can view". Alternatively, you can copy-paste the rows or upload your CSV directly into the CRM.'
         });
       }
@@ -447,6 +453,7 @@ async function startServer() {
       if (!response.ok) {
         return res.status(response.status).json({
           success: false,
+          csvExportUrl,
           error: `Google Sheets responded with HTTP ${response.status}: ${response.statusText}`
         });
       }
@@ -454,6 +461,7 @@ async function startServer() {
       const csvText = await response.text();
       return res.json({
         success: true,
+        csvExportUrl,
         csvText
       });
     } catch (err: any) {
