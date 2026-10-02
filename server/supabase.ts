@@ -975,6 +975,25 @@ export async function insertSmsLog(
 
       if (!error && data?.id) {
         finalLog.id = data.id;
+      } else if (error && error.code === '42703') {
+        // If custom column project_id is pending migration in database, fallback to core columns
+        const { data: retryData } = await supabase
+          .from('sms_logs')
+          .insert([{
+            tenant_id: finalLog.tenant_id || null,
+            contact_id: finalLog.contact_id || null,
+            recipient_number: finalLog.recipient_number,
+            sender_id: finalLog.sender_id || null,
+            message_body: finalLog.message_body,
+            status: finalLog.status,
+            created_at: finalLog.created_at
+          }])
+          .select('id')
+          .single();
+
+        if (retryData?.id) {
+          finalLog.id = retryData.id;
+        }
       }
     } catch (err: any) {
       console.warn('[Supabase] Warning writing sms_logs to Supabase:', err.message || err);

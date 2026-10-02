@@ -22,7 +22,8 @@ import {
   Edit,
   Sun,
   Phone,
-  MessageSquare
+  MessageSquare,
+  Home
 } from 'lucide-react';
 import { Project, ProjectStatus, ViewMode } from '../../types';
 import { ViewModeSwitcher } from '../common/ViewModeSwitcher';
@@ -31,6 +32,7 @@ import { ProjectEditModal } from '../projects/ProjectEditModal';
 export const ProjectsView: React.FC<{ onNavigateToSection: (sec: any) => void }> = ({ onNavigateToSection }) => {
   const {
     projects,
+    leads,
     updateProjectStatus,
     setActiveBridgeSelectProject,
     setSelectedPreviewProposalUrl,
@@ -364,9 +366,59 @@ export const ProjectsView: React.FC<{ onNavigateToSection: (sec: any) => void }>
                         <span className="text-[10px] text-gray-500 font-mono">DNSP: {proj.dnsp}</span>
                       </td>
                       <td className="px-4 py-3">
-                        <span className="font-bold text-white block">{proj.systemSizeKw} kW</span>
-                        <span className="text-[11px] text-gray-400 block">{proj.panelCount}× {proj.panelBrand}</span>
-                        <span className="text-[10px] text-gray-500 block truncate">{proj.inverterBrand}</span>
+                        <div className="flex items-baseline gap-1.5">
+                          <span className="font-bold text-white text-sm">{proj.systemSizeKw} kW</span>
+                          {proj.batteryBrand && (
+                            <span className="text-[10px] font-semibold text-amber-400 bg-amber-400/10 px-1.5 py-0.2 rounded border border-amber-400/20">
+                              + Battery
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-[11px] text-gray-300 block truncate max-w-[210px]">
+                          {proj.panelCount}× {proj.panelBrand}
+                        </span>
+                        <span className="text-[10px] text-gray-500 block truncate max-w-[210px]">
+                          {proj.inverterBrand}
+                        </span>
+
+                        {/* 3 Visual Property Tags: House Storey, Roof Type, Electrical Phase */}
+                        {(() => {
+                          const linkedLead = proj.leadId ? leads.find(l => l.id === proj.leadId) : null;
+                          const houseStorey = proj.houseStorey || linkedLead?.houseStorey || 'Single Storey';
+                          const roofType = proj.roofType || linkedLead?.roofType || 'Colorbond / Metal Sheet';
+                          const phase = proj.phase || proj.phaseType || linkedLead?.phase || 'Single Phase';
+
+                          return (
+                            <div className="flex flex-wrap items-center gap-1 mt-1.5 pt-1.5 border-t border-[#262626]">
+                              {/* Tag 1: House Storey */}
+                              <span
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-500/10 text-amber-300 border border-amber-500/25 shadow-2xs"
+                                title={`House Storey: ${houseStorey}`}
+                              >
+                                <Building2 className="w-2.5 h-2.5 text-amber-400 shrink-0" />
+                                <span className="truncate max-w-[75px]">{houseStorey}</span>
+                              </span>
+
+                              {/* Tag 2: Roof Type */}
+                              <span
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-sky-500/10 text-sky-300 border border-sky-500/25 shadow-2xs"
+                                title={`Roof Type: ${roofType}`}
+                              >
+                                <Home className="w-2.5 h-2.5 text-sky-400 shrink-0" />
+                                <span className="truncate max-w-[85px]">{roofType}</span>
+                              </span>
+
+                              {/* Tag 3: Electrical Phase */}
+                              <span
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-violet-500/10 text-violet-300 border border-violet-500/25 shadow-2xs"
+                                title={`Electrical Phase: ${phase}`}
+                              >
+                                <Zap className="w-2.5 h-2.5 text-violet-400 shrink-0" />
+                                <span className="truncate max-w-[75px]">{phase}</span>
+                              </span>
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td className="px-4 py-3 font-mono">
                         <span className="font-bold text-white block">${proj.contractValueAud.toLocaleString()} AUD</span>
@@ -376,10 +428,20 @@ export const ProjectsView: React.FC<{ onNavigateToSection: (sec: any) => void }>
                         <span className="font-bold text-emerald-400 block">+${(proj.internalStcValueAud ?? proj.stcValueAud).toLocaleString()} AUD</span>
                         <span className="text-[10px] text-gray-400">{proj.stcCount} STCs @ ${(proj.internalStcRateAud ?? systemRules.internalStcRateAud ?? 39.50).toFixed(2)}</span>
                       </td>
-                      <td className="px-4 py-3 font-mono">
-                        <span className="font-bold text-blue-400 block">-${(proj.customerStcValueAud ?? Math.round(proj.stcCount * (systemRules.customerStcRateAud || 36.00))).toLocaleString()} AUD</span>
-                        <span className="text-[10px] text-gray-400">{proj.stcCount} STCs @ ${(proj.customerStcRateAud ?? systemRules.customerStcRateAud ?? 36.00).toFixed(2)}</span>
-                      </td>
+                      {(() => {
+                        const globalCustomerStcRate = Number(systemRules?.customerStcRateAud ?? 36.00);
+                        const customerStcRebate = Math.round((proj.stcCount || 0) * globalCustomerStcRate);
+                        return (
+                          <td className="px-4 py-3 font-mono">
+                            <span className="font-bold text-blue-400 block">
+                              -${customerStcRebate.toLocaleString()} AUD
+                            </span>
+                            <span className="text-[10px] text-gray-400">
+                              {proj.stcCount} STCs @ ${globalCustomerStcRate.toFixed(2)}
+                            </span>
+                          </td>
+                        );
+                      })()}
                       <td className="px-4 py-3">
                         <select
                           value={proj.status}
@@ -520,6 +582,20 @@ export const ProjectsView: React.FC<{ onNavigateToSection: (sec: any) => void }>
                       <p className="font-bold text-white mt-0.5">{proj.systemSizeKw} kW Capacity</p>
                       <p className="text-gray-400 text-[11px] truncate">{proj.panelCount} × {proj.panelBrand}</p>
                       <p className="text-gray-400 text-[11px] truncate">{proj.inverterBrand}</p>
+                      {/* Compact property badges */}
+                      {(() => {
+                        const linkedLead = proj.leadId ? leads.find(l => l.id === proj.leadId) : null;
+                        const houseStorey = proj.houseStorey || linkedLead?.houseStorey || 'Single Storey';
+                        const roofType = proj.roofType || linkedLead?.roofType || 'Colorbond';
+                        const phase = proj.phase || proj.phaseType || linkedLead?.phase || 'Single Phase';
+                        return (
+                          <div className="flex flex-wrap items-center gap-1 mt-1.5 pt-1 border-t border-[#262626]">
+                            <span className="px-1 py-0.2 rounded text-[9px] font-semibold bg-amber-500/10 text-amber-300 border border-amber-500/20 truncate max-w-[65px]">{houseStorey}</span>
+                            <span className="px-1 py-0.2 rounded text-[9px] font-semibold bg-sky-500/10 text-sky-300 border border-sky-500/20 truncate max-w-[70px]">{roofType}</span>
+                            <span className="px-1 py-0.2 rounded text-[9px] font-semibold bg-violet-500/10 text-violet-300 border border-violet-500/20 truncate max-w-[65px]">{phase}</span>
+                          </div>
+                        );
+                      })()}
                     </div>
 
                     <div className="p-2.5 bg-[#161616] rounded-lg border border-[#262626]">
@@ -528,18 +604,25 @@ export const ProjectsView: React.FC<{ onNavigateToSection: (sec: any) => void }>
                       <p className="text-gray-400 text-[11px]">Customer Net Invoice</p>
                     </div>
 
-                    <div className="p-2.5 bg-[#161616] rounded-lg border border-[#262626]">
-                      <span className="text-[10px] font-bold uppercase text-gray-400 block">Dual STC Values</span>
-                      <p className="font-bold text-emerald-400 mt-0.5 text-xs font-mono">
-                        CER Claim: +${(proj.internalStcValueAud ?? proj.stcValueAud).toLocaleString()} AUD
-                      </p>
-                      <p className="text-blue-400 text-[11px] font-mono">
-                        Customer Rebate: -${(proj.customerStcValueAud ?? Math.round(proj.stcCount * (systemRules.customerStcRateAud || 36.00))).toLocaleString()} AUD
-                      </p>
-                      <p className="text-gray-400 text-[10px] mt-0.5">
-                        Trading spread: +${((proj.internalStcValueAud ?? proj.stcValueAud) - (proj.customerStcValueAud ?? Math.round(proj.stcCount * (systemRules.customerStcRateAud || 36.00)))).toLocaleString()} AUD
-                      </p>
-                    </div>
+                    {(() => {
+                      const globalCustomerStcRate = Number(systemRules?.customerStcRateAud ?? 36.00);
+                      const customerStcRebate = Math.round((proj.stcCount || 0) * globalCustomerStcRate);
+                      const internalStcVal = proj.internalStcValueAud ?? proj.stcValueAud ?? 0;
+                      return (
+                        <div className="p-2.5 bg-[#161616] rounded-lg border border-[#262626]">
+                          <span className="text-[10px] font-bold uppercase text-gray-400 block">Dual STC Values</span>
+                          <p className="font-bold text-emerald-400 mt-0.5 text-xs font-mono">
+                            CER Claim: +${internalStcVal.toLocaleString()} AUD
+                          </p>
+                          <p className="text-blue-400 text-[11px] font-mono">
+                            Customer Rebate: -${customerStcRebate.toLocaleString()} AUD
+                          </p>
+                          <p className="text-gray-400 text-[10px] mt-0.5">
+                            Trading spread: +${(internalStcVal - customerStcRebate).toLocaleString()} AUD
+                          </p>
+                        </div>
+                      );
+                    })()}
 
                     <div className="p-2.5 bg-[#161616] rounded-lg border border-[#262626]">
                       <span className="text-[10px] font-bold uppercase text-gray-400 block">Subcontractor</span>

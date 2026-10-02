@@ -214,5 +214,15 @@
     "createdAt": "2026-04-09",
     "assignedTo": "",
     "systemSizeKw": 0
+  },
+  {
+    "id": "test-lead-1790845246390",
+    "customerName": "Marcus Vance",
+    "email": "marcus.vance@example.com",
+    "phone": "0412345678",
+    "systemSizeKw": 9.9,
+    "sellingPrice": 11200,
+    "state": "NSW",
+    "status": "New"
   }
 ]

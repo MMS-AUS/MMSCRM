@@ -326,7 +326,7 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
           </span>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+        <div className="grid grid-cols-1 gap-3.5">
           <div>
             <label className="block text-xs font-medium text-gray-400 mb-1 flex items-center gap-1">
               <Hash className="w-3 h-3 text-[#bef264]" />
@@ -472,7 +472,7 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
           </span>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+        <div className="grid grid-cols-1 gap-3.5">
           <div>
             <label className="block text-xs font-medium text-gray-400 mb-1">
               First Name <span className="text-rose-400">*</span>
@@ -591,9 +591,9 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
               </span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+            <div className="grid grid-cols-1 gap-3.5">
               {/* a. Company Name */}
-              <div className="sm:col-span-2">
+              <div className="w-full">
                 <label className="block text-xs font-medium text-gray-300 mb-1">
                   Company Name <span className="text-rose-400">*</span>
                 </label>
@@ -694,7 +694,7 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
               </div>
 
               {/* h. ABN Number */}
-              <div className="sm:col-span-2">
+              <div className="w-full">
                 <div className="flex items-center justify-between mb-1">
                   <label className="block text-xs font-medium text-gray-300">
                     ABN Number (Australian Business Number)
@@ -798,7 +798,7 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
             )}
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3.5">
+          <div className="grid grid-cols-1 gap-3.5">
             <div>
               <label className="block text-xs font-medium text-gray-400 mb-1">
                 Suburb
@@ -901,7 +901,7 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
           </div>
         )}
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+        <div className="grid grid-cols-1 gap-3.5">
           <div>
             <div className="flex items-center justify-between mb-1">
               <label className="block text-xs font-medium text-gray-400">
@@ -986,7 +986,7 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
             />
           </div>
 
-          <div className="sm:col-span-2">
+          <div className="w-full">
             <div className="flex items-center justify-between mb-1">
               <label className="block text-xs font-medium text-gray-400">
                 Email ID (Accepts multiple emails separated by commas) <span className="text-rose-400">*</span>
@@ -1095,7 +1095,7 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
             <span className="text-[11px] text-gray-400">Hardware Tier 1</span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 gap-3.5">
             <div>
               <label className="block text-[11px] font-medium text-gray-400 mb-1">
                 Number of Panels
@@ -1160,7 +1160,7 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
               </select>
             </div>
 
-            <div className="sm:col-span-2">
+            <div className="w-full">
               <label className="block text-[11px] font-medium text-gray-400 mb-1">
                 Panel Model
               </label>
@@ -1189,7 +1189,7 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
             <span className="text-[11px] text-gray-400">CEC Approved</span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+          <div className="grid grid-cols-1 gap-3.5">
             <div>
               <label className="block text-[11px] font-medium text-gray-400 mb-1">
                 Number of Inverters
@@ -1298,7 +1298,7 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
           </div>
 
           {formData.batteryRequired && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 pt-1">
+            <div className="grid grid-cols-1 gap-3.5 pt-1">
               <div>
                 <label className="block text-[11px] font-medium text-gray-400 mb-1">
                   Number of Batteries
@@ -1367,7 +1367,7 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
         </div>
 
         {/* Site Details (Storey, Phase, Roof Type, Docs) */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3.5 pt-1">
+        <div className="grid grid-cols-1 gap-3.5 pt-1">
           <div>
             <label className="block text-xs font-medium text-gray-400 mb-1">
               House Storey
@@ -1431,7 +1431,7 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
             </select>
           </div>
 
-          <div className="sm:col-span-2 md:col-span-4">
+          <div className="w-full">
             <label className="block text-xs font-medium text-gray-400 mb-1">
               Existing System Details
             </label>
@@ -1465,7 +1465,7 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
           </span>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+        <div className="grid grid-cols-1 gap-3.5">
           <div>
             <label className="block text-xs font-medium text-gray-400 mb-1">
               System Price (AUD)

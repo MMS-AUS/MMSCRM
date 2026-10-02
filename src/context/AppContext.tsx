@@ -1361,6 +1361,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
       return merged;
     });
+
+    if (updates.customerStcRateAud !== undefined || updates.internalStcRateAud !== undefined) {
+      setProjects(prev =>
+        prev.map(p => {
+          const custRate = updates.customerStcRateAud !== undefined ? updates.customerStcRateAud : (p.customerStcRateAud ?? 36.00);
+          const intRate = updates.internalStcRateAud !== undefined ? updates.internalStcRateAud : (p.internalStcRateAud ?? 39.50);
+          const custVal = Math.round((p.stcCount || 0) * custRate);
+          const intVal = Math.round((p.stcCount || 0) * intRate);
+          return {
+            ...p,
+            customerStcRateAud: custRate,
+            customerStcValueAud: custVal,
+            internalStcRateAud: intRate,
+            internalStcValueAud: intVal,
+            stcValueAud: intVal
+          };
+        })
+      );
+    }
   };
 
   const recalculateAllProjectsStc = (customerRate: number, internalRate: number) => {
@@ -2433,6 +2452,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         merged.assignedTo = updated.salesPersonName;
       }
 
+      // Persist updated lead to server DB and Supabase
+      fetch('/api/leads', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(merged)
+      }).catch(err => console.warn('[AppContext] Failed to save updated lead to server DB:', err));
+
       return merged;
     })));
   };
@@ -2934,6 +2960,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // Update lead status
     updateLead(leadId, { status: 'Converted to Project' });
+
+    // Persist new converted project to server database and Supabase
+    fetch('/api/projects', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newProject)
+    }).catch(err => console.warn('[AppContext] Failed to persist converted project to server DB:', err));
 
     return newProject;
   };

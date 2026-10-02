@@ -459,7 +459,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
         </div>
 
         {/* Sales Person & State */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+        <div className="grid grid-cols-1 gap-3.5">
           <div>
             <label className="block text-xs font-medium text-gray-400 mb-1">
               Sales Person Name <span className="text-rose-400">*</span>
@@ -497,7 +497,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
         </div>
 
         {/* Postcode, Area, Nearest Big City */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+        <div className="grid grid-cols-1 gap-3.5">
           <div>
             <label className="block text-xs font-medium text-gray-400 mb-1">Post Code</label>
             <input
@@ -532,7 +532,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
         </div>
 
         {/* Sale Date */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+        <div className="grid grid-cols-1 gap-3.5">
           <div>
             <label className="block text-xs font-medium text-gray-400 mb-1">Sale Date</label>
             <input
@@ -561,7 +561,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
             <span>Primary Customer &amp; Rentee Details</span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3.5">
             <div>
               <label className="block text-xs font-medium text-gray-400 mb-1">
                 First Name <span className="text-rose-400">*</span>
@@ -588,7 +588,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 border-t border-[#222]">
+          <div className="grid grid-cols-1 gap-3.5 pt-1 border-t border-[#222]">
             <div>
               <label className="block text-xs font-medium text-gray-400 mb-1">Manager/Rentee First Name</label>
               <input
@@ -648,7 +648,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
             </div>
           )}
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3.5">
             <div>
               <label className="block text-xs font-medium text-gray-400 mb-1">
                 Street Address <span className="text-rose-400">*</span>
@@ -685,7 +685,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
         )}
 
         {/* Contact info: Mobile, Email */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+        <div className="grid grid-cols-1 gap-3.5">
           <div>
             <div className="flex items-center justify-between mb-1">
               <label className="block text-xs font-medium text-gray-400">
@@ -802,7 +802,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
         </div>
 
         {/* Pricing Summary */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 pt-1">
+        <div className="grid grid-cols-1 gap-3.5 pt-1">
           <div>
             <label className="block text-xs font-medium text-gray-400 mb-1">System Price (AUD)</label>
             <div className="relative">
@@ -912,7 +912,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
             <span>Solar Panels (PV Modules)</span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 gap-3.5">
             <div>
               <label className="block text-xs font-medium text-gray-400 mb-1">No. of Panels</label>
               <input
@@ -955,7 +955,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3.5">
             <div>
               <label className="block text-xs font-medium text-gray-400 mb-1">Panel Series</label>
               <select
@@ -996,7 +996,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
             <span>Solar Inverter</span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+          <div className="grid grid-cols-1 gap-3.5">
             <div>
               <label className="block text-xs font-medium text-gray-400 mb-1">No. of Inverters</label>
               <input
@@ -1077,7 +1077,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
             <span>Battery Storage System</span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
+          <div className="grid grid-cols-1 gap-3.5">
             <div>
               <label className="block text-xs font-medium text-gray-400 mb-1">No. of Batteries</label>
               <input
@@ -1152,7 +1152,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
         </div>
 
         {/* Site Details: Roof Type, Storey, Phase, Existing System, Docs */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+        <div className="grid grid-cols-1 gap-3.5">
           <div>
             <label className="block text-xs font-medium text-gray-400 mb-1">Roof Type</label>
             <select
@@ -1199,7 +1199,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+        <div className="grid grid-cols-1 gap-3.5">
           <div>
             <label className="block text-xs font-medium text-gray-400 mb-1">Existing System Details</label>
             <input
@@ -1254,7 +1254,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
           </span>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+        <div className="grid grid-cols-1 gap-3.5">
           <div className="p-3 bg-[#141414] border border-[#282828] rounded-xl space-y-2">
             <label className="block text-xs font-medium text-gray-300">
               Q1: Customer Name on EB matches Application?
@@ -1363,7 +1363,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
           </span>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+        <div className="grid grid-cols-1 gap-3.5">
           <div>
             <label className="block text-xs font-medium text-gray-400 mb-1">
               National Meter Identifier (NMI) <span className="text-rose-400">*</span>
@@ -1407,7 +1407,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+        <div className="grid grid-cols-1 gap-3.5">
           <div>
             <label className="block text-xs font-medium text-gray-400 mb-1">Energy Retailer</label>
             <select
@@ -1436,7 +1436,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
         </div>
 
         {/* Grid App Status & Dates */}
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3.5 pt-1">
+        <div className="grid grid-cols-1 gap-3.5 pt-1">
           <div>
             <label className="block text-xs font-medium text-gray-400 mb-1">Grid App Status</label>
             <select
@@ -1500,7 +1500,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
           </span>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3.5">
+        <div className="grid grid-cols-1 gap-3.5">
           <div>
             <label className="block text-xs font-medium text-gray-400 mb-1">Installation Date</label>
             <input
@@ -1553,7 +1553,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+        <div className="grid grid-cols-1 gap-3.5">
           <div>
             <label className="block text-xs font-medium text-gray-400 mb-1">Completed Month</label>
             <input
@@ -1597,7 +1597,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
             <span>Accredited Installer &amp; Subcontractor Invoicing</span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 gap-3.5">
             <div>
               <label className="block text-xs font-medium text-gray-400 mb-1">Installer Name (CEC Electrician)</label>
               <select
@@ -1636,7 +1636,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 gap-3.5">
             <div>
               <label className="block text-xs font-medium text-gray-400 mb-1">Installer Invoice Amount (AUD)</label>
               <div className="relative">
@@ -1700,7 +1700,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
           </span>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3.5">
+        <div className="grid grid-cols-1 gap-3.5">
           <div>
             <label className="block text-xs font-medium text-gray-400 mb-1">Warehouse Location</label>
             <select
@@ -1749,7 +1749,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3.5">
+        <div className="grid grid-cols-1 gap-3.5">
           <div>
             <label className="block text-xs font-medium text-gray-400 mb-1">Warehouse Invoice Amount (AUD)</label>
             <div className="relative">
@@ -1827,7 +1827,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
           </span>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3.5">
+        <div className="grid grid-cols-1 gap-3.5">
           <div>
             <label className="block text-xs font-medium text-gray-400 mb-1">System Price (AUD)</label>
             <div className="relative">
@@ -1893,7 +1893,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+        <div className="grid grid-cols-1 gap-3.5">
           <div>
             <label className="block text-xs font-medium text-gray-400 mb-1">Balance Payable (AUD)</label>
             <div className="relative">
@@ -1948,7 +1948,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
             <span>Finance Brokerage &amp; Green Loan Application</span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 gap-3.5">
             <div>
               <label className="block text-xs font-medium text-gray-400 mb-1">Is on Finance</label>
               <select
@@ -1996,7 +1996,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 gap-3.5">
             <div>
               <label className="block text-xs font-medium text-gray-400 mb-1">Finance Applied Date</label>
               <input
@@ -2054,7 +2054,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
           </span>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+        <div className="grid grid-cols-1 gap-3.5">
           <div>
             <label className="block text-xs font-medium text-gray-400 mb-1">STC Traded Portal</label>
             <select
@@ -2089,7 +2089,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
             <span>Solar STC Trading &amp; Claim</span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 gap-3.5">
             <div>
               <label className="block text-xs font-medium text-gray-400 mb-1">Solar STC's (Count)</label>
               <input
@@ -2138,7 +2138,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
             <span>Battery STC / Peak Demand Incentive</span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 gap-3.5">
             <div>
               <label className="block text-xs font-medium text-gray-400 mb-1">Battery STC's (Count)</label>
               <input
@@ -2181,7 +2181,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
         </div>
 
         {/* Total STC Received, Admin Charges, Status & Submitted Date */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+        <div className="grid grid-cols-1 gap-3.5">
           <div>
             <label className="block text-xs font-medium text-gray-400 mb-1">Total STC Amount Received (AUD)</label>
             <div className="relative">

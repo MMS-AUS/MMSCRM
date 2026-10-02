@@ -50,11 +50,12 @@ export const OperationalRulesTab: React.FC = () => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    recalculateAllProjectsStc(formData.customerStcRateAud, formData.internalStcRateAud);
     updateSystemRules({
       ...formData,
       stcTradingRateAud: formData.internalStcRateAud // keep backward compatible
     });
-    setFeedback('Operational rules and dual STC rates saved successfully to system parameters.');
+    setFeedback('Operational rules and dual STC rates saved successfully and synchronized across all active projects.');
     setTimeout(() => setFeedback(null), 4000);
   };
 

@@ -297,18 +297,27 @@ CREATE TABLE IF NOT EXISTS public.sms_logs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id UUID,
   user_id UUID,
-  contact_id UUID REFERENCES public.contacts(id) ON DELETE SET NULL,
-  lead_id UUID REFERENCES public.leads(id) ON DELETE SET NULL,
-  message_id TEXT,
-  destination_number TEXT NOT NULL,
+  contact_id UUID,
+  lead_id UUID,
+  project_id UUID,
+  recipient_number TEXT,
+  destination_number TEXT,
+  sender_id TEXT,
   sender_number TEXT,
-  message_content TEXT NOT NULL,
+  message_body TEXT,
+  message_content TEXT,
+  provider_message_id TEXT,
+  message_id TEXT,
   direction TEXT NOT NULL DEFAULT 'outbound',
-  status TEXT NOT NULL DEFAULT 'queued',
+  status TEXT NOT NULL DEFAULT 'sent',
+  delivery_status TEXT DEFAULT 'enroute',
+  error_message TEXT,
   error_code TEXT,
   created_at TIMESTAMPTZ DEFAULT now(),
   delivered_at TIMESTAMPTZ
 );
+
+CREATE INDEX IF NOT EXISTS idx_sms_logs_project_id ON public.sms_logs(project_id);
 
 -- VoIPLine Telecom AU
 CREATE TABLE IF NOT EXISTS public.voipline_settings (

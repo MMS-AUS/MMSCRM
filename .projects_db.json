@@ -1,0 +1,14 @@
+[
+  {
+    "id": "test-proj-1790845247429",
+    "projectCode": "SOL-NSW-7788",
+    "leadId": "test-lead-1790845246390",
+    "customerName": "Marcus Vance",
+    "customerEmail": "marcus.vance@example.com",
+    "customerPhone": "0412345678",
+    "systemSizeKw": 9.9,
+    "contractValueAud": 11200,
+    "state": "NSW",
+    "status": "Site Survey"
+  }
+]
