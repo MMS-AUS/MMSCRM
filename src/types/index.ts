@@ -424,9 +424,11 @@ export interface Project {
   amount?: number | string; // Amount - Auto populate from Selling Price (AUD) and lock for editing
   projectCreatedDate?: string; // Project Created Date - Auto populate when lead is converted
   projectClosedDate?: string; // Project Closed Date - Auto populate when Installation Status is changed to Closed
-  projectStage?: string; // Project Stage - Dropdown list managed from Settings
+  projectStatus?: string; // Project Status - Dropdown list managed from Settings
+  projectStage?: string; // Project Stage/ Installation Status - Dropdown list managed from Settings
 
   // Section 1: Customer & Sales
+  streetAddress?: string;
   salesPersonName?: string;
   postcode?: string;
   area?: string;
@@ -453,6 +455,7 @@ export interface Project {
   noOfInverters?: number | string;
   inverterManufacturer?: string;
   inverterSizeKw?: number | string;
+  inverterSeries?: string;
   noOfBatteries?: number | string;
   batteryManufacturer?: string;
   batteryModel?: string;
@@ -556,6 +559,7 @@ export interface Project {
 export interface Ticket {
   id: string;
   ticketNumber: string; // Auto-generated e.g. TKT-2026-042
+  ticketId?: string; // Alias for ticketNumber
   projectId: string;
   projectCode: string;
   customerId?: string;
@@ -858,6 +862,7 @@ export interface DynamicDropdownConfig {
   employeeDepartments: string[];
   referralPaymentStatuses: string[];
   states: string[];
+  areas?: string[];
   contactTypes: string[];
   companyTypes: string[];
   platforms?: string[];
@@ -883,6 +888,7 @@ export interface DynamicDropdownConfig {
   energyRetailers?: string[];
   gridApplicationStatuses?: string[];
   installationStatuses?: string[];
+  installers?: string[];
   installationBookedByOptions?: string[];
   installationMonths?: string[];
   installationDocsStatuses?: string[];

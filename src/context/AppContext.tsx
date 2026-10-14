@@ -50,6 +50,7 @@ import {
   generateXeroReceiptForLead
 } from '../services/xeroService';
 import { applyDropdownImport, DropdownImportSummary } from '../services/dropdownExcelService';
+import { DEFAULT_DROPDOWN_MAPPINGS } from '../utils/dropdownMappingConfig';
 import {
   sendOutboundSms,
   fetchSmsLogs
@@ -88,7 +89,8 @@ import {
   formatAudAccounts,
   formatAudNumber,
   stripDollarSign,
-  parseAudAccounts
+  parseAudAccounts,
+  extractStreetAddressOnly
 } from '../utils/australianPostcodes';
 import {
   parseGoogleSheetCsv,
@@ -101,6 +103,7 @@ import {
 } from '../utils/googleSheetsTemplate';
 import { dispatchSystemAlert, getPersonalEmailConfig } from '../services/systemAlertsEmailService';
 import { triggerCapiStageEvent } from '../services/metaAdsService';
+import { normalizeProjectStatus, normalizeProjectStage } from '../utils/statusUtils';
 
 interface AppContextType {
   currentUser: UserProfile;
@@ -171,13 +174,14 @@ interface AppContextType {
 
   // State entities
   contacts: Contact[];
-  addContact: (contact: Omit<Contact, 'id' | 'createdAt'>) => void;
-  updateContact: (id: string, contact: Partial<Contact>) => void;
-  deleteContact: (id: string) => void;
-  addContactAddress: (contactId: string, address: Omit<ContactAddress, 'id'>) => void;
-  updateContactAddress: (contactId: string, addressId: string, address: Partial<ContactAddress>) => void;
-  removeContactAddress: (contactId: string, addressId: string) => void;
-  deleteContactAddress: (contactId: string, addressId: string) => void;
+  refreshContacts: () => Promise<Contact[]>;
+  addContact: (contact: Omit<Contact, 'id' | 'createdAt'>) => Promise<Contact> | Contact;
+  updateContact: (id: string, contact: Partial<Contact>) => Promise<void> | void;
+  deleteContact: (id: string) => Promise<void> | void;
+  addContactAddress: (contactId: string, address: Omit<ContactAddress, 'id'>) => Promise<void> | void;
+  updateContactAddress: (contactId: string, addressId: string, address: Partial<ContactAddress>) => Promise<void> | void;
+  removeContactAddress: (contactId: string, addressId: string) => Promise<void> | void;
+  deleteContactAddress: (contactId: string, addressId: string) => Promise<void> | void;
 
   // Referral Bonuses
   referralBonuses: ReferralBonus[];
@@ -188,20 +192,22 @@ interface AppContextType {
   removeReferralAttachment: (referralId: string, attachmentId: string) => void;
 
   companies: Company[];
-  addCompany: (comp: Omit<Company, 'id'>) => void;
-  updateCompany: (id: string, comp: Partial<Company>) => void;
-  deleteCompany: (id: string) => void;
+  refreshCompanies: () => Promise<Company[]>;
+  addCompany: (comp: Omit<Company, 'id'>) => Promise<Company> | Company;
+  updateCompany: (id: string, comp: Partial<Company>) => Promise<void> | void;
+  deleteCompany: (id: string) => Promise<void> | void;
 
   leads: Lead[];
   refreshLeads: () => Promise<Lead[]>;
-  addLead: (lead: Partial<Lead>) => Lead;
-  updateLead: (id: string, lead: Partial<Lead>) => void;
-  deleteLead: (id: string) => void;
-  deleteLeads: (ids: string[]) => void;
+  addLead: (lead: Partial<Lead>) => Promise<Lead> | Lead;
+  updateLead: (id: string, lead: Partial<Lead>) => Promise<Lead | null> | void;
+  deleteLead: (id: string) => Promise<void> | void;
+  deleteLeads: (ids: string[]) => Promise<void> | void;
   deleteDummyLeads: () => number;
   clearAllLeads: () => void;
+  clearAllSystemData: () => Promise<boolean>;
   importSheetCsv: (csvText: string) => { count: number; leads: Lead[] };
-  convertLeadToProject: (leadId: string) => Project;
+  convertLeadToProject: (leadId: string) => Project | Promise<Project>;
   syncGoogleSheetLeads: (customLeads?: Partial<Lead>[]) => number;
   addLeadActivity: (leadId: string, activity: Omit<LeadActivity, 'id' | 'createdAt'>) => void;
   toggleLeadActivityTask: (leadId: string, activityId: string) => void;
@@ -236,15 +242,21 @@ interface AppContextType {
   }>;
 
   projects: Project[];
-  addProject: (proj: Omit<Project, 'id' | 'projectCode'>) => Project;
-  updateProject: (id: string, proj: Partial<Project>) => void;
-  updateProjectStatus: (id: string, status: ProjectStatus) => void;
+  refreshProjects: () => Promise<Project[]>;
+  addProject: (proj: Omit<Project, 'id' | 'projectCode'>) => Promise<Project> | Project;
+  updateProject: (id: string, proj: Partial<Project>) => Promise<Project | null> | void;
+  updateProjectStatus: (id: string, status: ProjectStatus) => Promise<void> | void;
   uploadProjectPhoto: (projectId: string, photo: { category: any; url: string }) => void;
+  deleteProject: (id: string) => Promise<void> | void;
+  deleteProjects: (ids: string[]) => Promise<void> | void;
 
   tickets: Ticket[];
-  addTicket: (ticket: Omit<Ticket, 'id' | 'ticketNumber' | 'createdAt' | 'updatedAt'>) => { success: boolean; message?: string; ticket?: Ticket };
-  updateTicket: (id: string, ticket: Partial<Ticket>) => void;
-  updateTicketStatus: (id: string, status: TicketStatus, resolutionNotes?: string) => void;
+  refreshTickets: () => Promise<Ticket[]>;
+  addTicket: (ticket: Omit<Ticket, 'id' | 'ticketNumber' | 'createdAt' | 'updatedAt'>) => Promise<{ success: boolean; message?: string; ticket?: Ticket }> | { success: boolean; message?: string; ticket?: Ticket };
+  updateTicket: (id: string, ticket: Partial<Ticket>) => Promise<void> | void;
+  updateTicketStatus: (id: string, status: TicketStatus, resolutionNotes?: string) => Promise<void> | void;
+  deleteTicket: (id: string) => Promise<void> | void;
+  deleteTickets: (ids: string[]) => Promise<void> | void;
 
   maintenanceRecords: MaintenanceRecord[];
   sendMaintenanceNotification: (id: string) => void;
@@ -276,17 +288,35 @@ interface AppContextType {
 
   dropdowns: DynamicDropdownConfig;
   setDropdowns: React.Dispatch<React.SetStateAction<DynamicDropdownConfig>>;
-  addDropdownItem: (category: keyof DynamicDropdownConfig, value: string) => void;
-  removeDropdownItem: (category: keyof DynamicDropdownConfig, value: string) => void;
+  refreshDropdowns: () => Promise<DynamicDropdownConfig>;
+  addDropdownItem: (category: keyof DynamicDropdownConfig, value: string) => Promise<void> | void;
+  removeDropdownItem: (category: keyof DynamicDropdownConfig, value: string) => Promise<void> | void;
   dropdownConfigs: DropdownCategoryConfig[];
-  addDropdownOption: (categoryKey: string, value: string) => void;
-  removeDropdownOption: (categoryKey: string, value: string) => void;
+  addDropdownOption: (categoryKey: string, value: string) => Promise<void> | void;
+  removeDropdownOption: (categoryKey: string, value: string) => Promise<void> | void;
   batchImportDropdowns: (
     summary: DropdownImportSummary,
     mode?: 'merge' | 'replace'
-  ) => { addedCount: number; updatedCount: number; deletedCount: number; categoriesModified: number };
+  ) => { addedCount: number; updatedCount: number; deletedCount: number; categoriesModified: number } | Promise<{ addedCount: number; updatedCount: number; deletedCount: number; categoriesModified: number }>;
+
+  // Dropdown Field-to-Category Mappings
+  dropdownMappings: Record<string, string>;
+  updateDropdownMapping: (fieldKey: string, categoryKey: string) => void;
+  batchUpdateDropdownMappings: (mappings: Record<string, string>) => void;
+  resetDropdownMappings: () => void;
+  getMappedCategoryKey: (fieldKey: string) => string;
+  getMappedDropdownOptions: (fieldKey: string, fallback?: string[]) => string[];
+  isMappingModalOpen: boolean;
+  mappingModalSectionId: string | null;
+  openMappingModal: (sectionId?: string) => void;
+  closeMappingModal: () => void;
 
   // Hardware Cascades (Panels, Inverters, Batteries)
+  refreshHardwareHierarchy: () => Promise<{
+    panelHierarchy?: PanelHierarchyItem[];
+    inverterHierarchy?: InverterHierarchyItem[];
+    batteryHierarchy?: BatteryHierarchyItem[];
+  } | null>;
   saveHardwareHierarchy: (data: {
     panelHierarchy?: PanelHierarchyItem[];
     inverterHierarchy?: InverterHierarchyItem[];
@@ -310,6 +340,9 @@ interface AppContextType {
     mode?: 'merge' | 'replace'
   ) => Promise<{ panelsCount: number; invertersCount: number; batteriesCount: number }>;
   resetHardwareToDefaults: () => Promise<void>;
+
+  // Global Refresh Function
+  refreshAllData: () => Promise<void>;
 
   connectedDomains: string[];
   connectedDomain: string;
@@ -372,6 +405,17 @@ interface AppContextType {
   generateLeadXeroReceipt: (leadId: string, amountPaid?: number) => XeroPaymentReceipt;
   xeroPaymentReceipts: XeroPaymentReceipt[];
   addCustomerUpload: (targetId: string, attachment: Omit<LeadAttachment, 'id' | 'uploadedAt' | 'uploadedBy'>) => LeadAttachment;
+
+  // Supabase Settings & Integrations Database Persistence
+  supabaseSettingsStatus: {
+    configured: boolean;
+    appSettingsTableOk: boolean;
+    integrationsConfigTableOk: boolean;
+    lastSyncedAt?: string;
+    isSyncing: boolean;
+    message?: string;
+  };
+  syncAllSettingsToSupabase: () => Promise<{ success: boolean; message: string }>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -505,7 +549,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // One-time production initialization: purge legacy demo/dummy data from browser localStorage
   if (typeof window !== 'undefined') {
     try {
-      const PROD_CLEAN_KEY = 'solar_crm_prod_clean_v2';
+      const PROD_CLEAN_KEY = 'solar_crm_clean_slate_v4';
       if (!localStorage.getItem(PROD_CLEAN_KEY)) {
         const demoKeys = [
           'solar_contacts',
@@ -534,6 +578,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           'solar_mailchimp_emails'
         ];
         demoKeys.forEach(k => localStorage.removeItem(k));
+        localStorage.setItem('solar_contacts', JSON.stringify([]));
+        localStorage.setItem('solar_leads', JSON.stringify([]));
+        localStorage.setItem('solar_projects', JSON.stringify([]));
+        localStorage.setItem('solar_tickets', JSON.stringify([]));
+        localStorage.setItem('solar_maintenance', JSON.stringify([]));
         localStorage.setItem(PROD_CLEAN_KEY, 'true');
       }
     } catch (e) {
@@ -542,8 +591,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }
 
   const [contacts, setContacts] = useState<Contact[]>(() => {
-    const saved = localStorage.getItem('solar_contacts');
-    return saved ? JSON.parse(saved) : INITIAL_CONTACTS;
+    try {
+      const saved = localStorage.getItem('solar_contacts');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {}
+    return [];
   });
 
   const contactsRef = useRef<Contact[]>(contacts);
@@ -551,43 +606,71 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     contactsRef.current = contacts;
   }, [contacts]);
 
-  // Sync contacts with persistent server database on mount
-  useEffect(() => {
-    fetch('/api/contacts')
-      .then(r => r.json())
-      .then(d => {
-        if (d.success && Array.isArray(d.contacts) && d.contacts.length > 0) {
-          setContacts(d.contacts);
-          contactsRef.current = d.contacts;
-          try {
-            localStorage.setItem('solar_contacts', JSON.stringify(d.contacts));
-          } catch (e) {
-            console.warn('Failed to save solar_contacts to localStorage', e);
-          }
-        } else {
-          // If server database is empty but client has local contacts, seed the server database
-          const local = localStorage.getItem('solar_contacts');
-          if (local) {
-            try {
-              const parsed = JSON.parse(local);
-              if (Array.isArray(parsed) && parsed.length > 0) {
-                fetch('/api/contacts/seed-if-empty', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ contacts: parsed })
-                }).catch(() => {});
-              }
-            } catch {}
-          }
+  // Sync contacts with persistent server database
+  const refreshContacts = useCallback(async (): Promise<Contact[]> => {
+    try {
+      const r = await fetch(`/api/contacts?_t=${Date.now()}`, { cache: 'no-store' });
+      const d = await r.json();
+      if (d && d.success && Array.isArray(d.contacts)) {
+        setContacts(d.contacts);
+        contactsRef.current = d.contacts;
+        try {
+          localStorage.setItem('solar_contacts', JSON.stringify(d.contacts));
+        } catch (e) {
+          console.warn('Failed to save solar_contacts to localStorage', e);
         }
-      })
-      .catch(err => console.warn('Could not fetch server contacts:', err));
+        return d.contacts;
+      }
+    } catch (err) {
+      console.warn('Could not fetch server contacts:', err);
+    }
+    return contactsRef.current || [];
   }, []);
+
+  useEffect(() => {
+    refreshContacts();
+    const handleSync = () => {
+      refreshContacts();
+    };
+    window.addEventListener('solar:reload_contacts', handleSync);
+    return () => {
+      window.removeEventListener('solar:reload_contacts', handleSync);
+    };
+  }, [refreshContacts]);
 
   const [companies, setCompanies] = useState<Company[]>(() => {
     const saved = localStorage.getItem('solar_companies');
     return saved ? JSON.parse(saved) : INITIAL_COMPANIES;
   });
+
+  // Sync companies with persistent server database (and Supabase)
+  const refreshCompanies = useCallback(async (): Promise<Company[]> => {
+    try {
+      const r = await fetch(`/api/companies?_t=${Date.now()}`, { cache: 'no-store' });
+      const d = await r.json();
+      if (d && d.success && Array.isArray(d.companies)) {
+        setCompanies(d.companies);
+        try {
+          localStorage.setItem('solar_companies', JSON.stringify(d.companies));
+        } catch (e) {}
+        return d.companies;
+      }
+    } catch (err) {
+      console.warn('Could not fetch server companies:', err);
+    }
+    return [];
+  }, []);
+
+  useEffect(() => {
+    refreshCompanies();
+    const handleSync = () => {
+      refreshCompanies();
+    };
+    window.addEventListener('solar:reload_companies', handleSync);
+    return () => {
+      window.removeEventListener('solar:reload_companies', handleSync);
+    };
+  }, [refreshCompanies]);
 
   const [leads, setLeads] = useState<Lead[]>(() => {
     const saved = localStorage.getItem('solar_leads');
@@ -613,9 +696,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Sync leads with persistent server database (and Supabase)
   const refreshLeads = useCallback(async (): Promise<Lead[]> => {
     try {
-      const r = await fetch('/api/leads');
+      const r = await fetch(`/api/leads?_t=${Date.now()}`, { cache: 'no-store' });
       const d = await r.json();
-      if (d.success && Array.isArray(d.leads) && d.leads.length > 0) {
+      if (d.success && Array.isArray(d.leads)) {
+        if (d.leads.length === 0) {
+          setLeads([]);
+          leadsRef.current = [];
+          try {
+            localStorage.setItem('solar_leads', JSON.stringify([]));
+          } catch (e) {}
+          return [];
+        }
         const sorted = sortLeadsByDateDesc(d.leads);
         setLeads(sorted);
         leadsRef.current = sorted;
@@ -814,51 +905,148 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [projects, setProjects] = useState<Project[]>(() => {
     try {
       const saved = localStorage.getItem('solar_projects');
-      const baseProjects: Project[] = saved ? JSON.parse(saved) : INITIAL_PROJECTS;
-      return (baseProjects || []).filter(Boolean).map(p => {
-        const custRate = p.customerStcRateAud ?? 36.00;
-        const intRate = p.internalStcRateAud ?? 39.50;
-        const custVal = p.customerStcValueAud ?? Math.round((p.stcCount || 0) * custRate);
-        const intVal = p.internalStcValueAud ?? Math.round((p.stcCount || 0) * intRate);
-        return {
-          ...p,
-          customerStcRateAud: custRate,
-          customerStcValueAud: custVal,
-          internalStcRateAud: intRate,
-          internalStcValueAud: intVal,
-          stcValueAud: intVal
-        };
-      });
-    } catch {
-      return INITIAL_PROJECTS;
-    }
+      if (saved) {
+        const baseProjects: Project[] = JSON.parse(saved);
+        if (Array.isArray(baseProjects)) {
+          return baseProjects.filter(Boolean).map(p => {
+            const custRate = p.customerStcRateAud ?? 36.00;
+            const intRate = p.internalStcRateAud ?? 39.50;
+            const custVal = p.customerStcValueAud ?? Math.round((p.stcCount || 0) * custRate);
+            const intVal = p.internalStcValueAud ?? Math.round((p.stcCount || 0) * intRate);
+            return {
+              ...p,
+              status: normalizeProjectStatus(p.status || p.projectStage),
+              projectStage: normalizeProjectStage(p.projectStage || p.status),
+              customerStcRateAud: custRate,
+              customerStcValueAud: custVal,
+              internalStcRateAud: intRate,
+              internalStcValueAud: intVal,
+              stcValueAud: intVal
+            };
+          });
+        }
+      }
+    } catch {}
+    return [];
   });
+
+  const projectsRef = useRef<Project[]>(projects);
+  useEffect(() => {
+    projectsRef.current = projects;
+  }, [projects]);
+
+  // Sync projects with persistent server database
+  const refreshProjects = useCallback(async (): Promise<Project[]> => {
+    try {
+      const r = await fetch(`/api/projects?_t=${Date.now()}`, { cache: 'no-store' });
+      const d = await r.json();
+      if (d && d.success && Array.isArray(d.projects)) {
+        const normalized = d.projects.map((p: any) => {
+          const systemKw = Number(p.systemSizeKw) || 6.6;
+          const contractVal = Number(p.contractValueAud ?? p.amount ?? p.totalContractAud) || 9400;
+          const stcCount = typeof p.stcCount === 'number' ? p.stcCount : Math.round(systemKw * 10);
+          const custRate = p.customerStcRateAud ?? 36.00;
+          const intRate = p.internalStcRateAud ?? 39.50;
+          const custVal = p.customerStcValueAud ?? Math.round(stcCount * custRate);
+          const intVal = p.internalStcValueAud ?? Math.round(stcCount * intRate);
+          return {
+            ...p,
+            status: normalizeProjectStatus(p.status || p.projectStage),
+            projectStage: normalizeProjectStage(p.projectStage || p.status),
+            contractValueAud: contractVal,
+            stcCount,
+            customerStcRateAud: custRate,
+            customerStcValueAud: custVal,
+            internalStcRateAud: intRate,
+            internalStcValueAud: intVal,
+            stcValueAud: p.stcValueAud ?? intVal,
+            suburb: p.suburb || ''
+          };
+        });
+        setProjects(normalized);
+        projectsRef.current = normalized;
+        try {
+          localStorage.setItem('solar_projects', JSON.stringify(normalized));
+        } catch (e) {}
+        return normalized;
+      }
+    } catch (err) {
+      console.warn('Could not fetch server projects:', err);
+    }
+    return [];
+  }, []);
+
+  useEffect(() => {
+    refreshProjects();
+    const handleSync = () => {
+      refreshProjects();
+    };
+    window.addEventListener('solar:reload_projects', handleSync);
+    return () => {
+      window.removeEventListener('solar:reload_projects', handleSync);
+    };
+  }, [refreshProjects]);
 
   const [tickets, setTickets] = useState<Ticket[]>(() => {
     try {
       const saved = localStorage.getItem('solar_tickets');
-      return saved ? (JSON.parse(saved) || []).filter(Boolean) : INITIAL_TICKETS;
-    } catch {
-      return INITIAL_TICKETS;
-    }
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed.filter(Boolean);
+      }
+    } catch {}
+    return [];
   });
+
+  // Sync tickets with persistent server database
+  const refreshTickets = useCallback(async (): Promise<Ticket[]> => {
+    try {
+      const r = await fetch(`/api/tickets?_t=${Date.now()}`, { cache: 'no-store' });
+      const d = await r.json();
+      if (d && d.success && Array.isArray(d.tickets)) {
+        setTickets(d.tickets);
+        try {
+          localStorage.setItem('solar_tickets', JSON.stringify(d.tickets));
+        } catch (e) {}
+        return d.tickets;
+      }
+    } catch (err) {
+      console.warn('Could not fetch server tickets:', err);
+    }
+    return [];
+  }, []);
+
+  useEffect(() => {
+    refreshTickets();
+    const handleSync = () => {
+      refreshTickets();
+    };
+    window.addEventListener('solar:reload_tickets', handleSync);
+    return () => {
+      window.removeEventListener('solar:reload_tickets', handleSync);
+    };
+  }, [refreshTickets]);
 
   const [maintenanceRecords, setMaintenanceRecords] = useState<MaintenanceRecord[]>(() => {
     try {
       const saved = localStorage.getItem('solar_maintenance');
-      return saved ? (JSON.parse(saved) || []).filter(Boolean) : INITIAL_MAINTENANCE;
-    } catch {
-      return INITIAL_MAINTENANCE;
-    }
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed.filter(Boolean);
+      }
+    } catch {}
+    return [];
   });
 
   const [subContractors, setSubContractors] = useState<SubContractor[]>(() => {
     try {
       const saved = localStorage.getItem('solar_subcontractors');
-      return saved ? (JSON.parse(saved) || []).filter(Boolean) : INITIAL_SUBCONTRACTORS;
-    } catch {
-      return INITIAL_SUBCONTRACTORS;
-    }
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed.filter(Boolean);
+      }
+    } catch {}
+    return [];
   });
 
   const [salesOrders, setSalesOrders] = useState<SalesOrder[]>(() => {
@@ -866,38 +1054,44 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (saved) {
       try {
         const parsed: SalesOrder[] = JSON.parse(saved);
-        return (parsed || []).filter(Boolean).map(so => ({
-          ...so,
-          warehouseLocation:
-            so.warehouseLocation ||
-            (so.projectCode?.includes('NSW')
-              ? 'Sydney Wetherill Park Logistics Hub'
-              : 'Brisbane Acacia Ridge Distribution Hub'),
-          dispatchDate: so.dispatchDate || (so?.status === 'Ordered' ? 'Pending dispatch' : so.orderDate)
-        }));
+        if (Array.isArray(parsed)) {
+          return parsed.filter(Boolean).map(so => ({
+            ...so,
+            warehouseLocation:
+              so.warehouseLocation ||
+              (so.projectCode?.includes('NSW')
+                ? 'Sydney Wetherill Park Logistics Hub'
+                : 'Brisbane Acacia Ridge Distribution Hub'),
+            dispatchDate: so.dispatchDate || (so?.status === 'Ordered' ? 'Pending dispatch' : so.orderDate)
+          }));
+        }
       } catch (e) {
         console.error('Error parsing cached sales orders', e);
       }
     }
-    return INITIAL_SALES_ORDERS;
+    return [];
   });
 
   const [installOrders, setInstallOrders] = useState<InstallOrder[]>(() => {
     try {
       const saved = localStorage.getItem('solar_install_orders');
-      return saved ? (JSON.parse(saved) || []).filter(Boolean) : INITIAL_INSTALL_ORDERS;
-    } catch {
-      return INITIAL_INSTALL_ORDERS;
-    }
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed.filter(Boolean);
+      }
+    } catch {}
+    return [];
   });
 
   const [customerReviews, setCustomerReviews] = useState<CustomerReview[]>(() => {
     try {
       const saved = localStorage.getItem('solar_reviews');
-      return saved ? (JSON.parse(saved) || []).filter(Boolean) : INITIAL_REVIEWS;
-    } catch {
-      return INITIAL_REVIEWS;
-    }
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed.filter(Boolean);
+      }
+    } catch {}
+    return [];
   });
 
   const [smsMessages, setSmsMessages] = useState<MessageMediaSMS[]>(() => {
@@ -919,6 +1113,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           ...INITIAL_DROPDOWNS,
           ...parsed,
           states: parsed.states && parsed.states.length > 0 ? parsed.states : INITIAL_DROPDOWNS.states,
+          areas: parsed.areas && parsed.areas.length > 0 ? parsed.areas : INITIAL_DROPDOWNS.areas,
           contactTypes: parsed.contactTypes && parsed.contactTypes.length > 0 ? parsed.contactTypes : INITIAL_DROPDOWNS.contactTypes,
           companyTypes: parsed.companyTypes && parsed.companyTypes.length > 0 ? parsed.companyTypes : INITIAL_DROPDOWNS.companyTypes,
           platforms: parsed.platforms && parsed.platforms.length > 0 ? parsed.platforms : INITIAL_DROPDOWNS.platforms,
@@ -936,6 +1131,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           energyRetailers: parsed.energyRetailers || INITIAL_DROPDOWNS.energyRetailers,
           gridApplicationStatuses: parsed.gridApplicationStatuses || INITIAL_DROPDOWNS.gridApplicationStatuses,
           installationStatuses: parsed.installationStatuses || INITIAL_DROPDOWNS.installationStatuses,
+          installers: parsed.installers || INITIAL_DROPDOWNS.installers,
           installationBookedByOptions: parsed.installationBookedByOptions || INITIAL_DROPDOWNS.installationBookedByOptions,
           installationMonths: parsed.installationMonths || INITIAL_DROPDOWNS.installationMonths,
           installationDocsStatuses: parsed.installationDocsStatuses || INITIAL_DROPDOWNS.installationDocsStatuses,
@@ -971,48 +1167,118 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return INITIAL_DROPDOWNS;
   });
 
-  // Sync hardware hierarchy with server database on mount
-  useEffect(() => {
-    fetch('/api/hardware-hierarchy')
-      .then(async r => {
-        if (!r.ok) {
-          throw new Error(`Server returned HTTP ${r.status}`);
-        }
-        const contentType = r.headers.get('content-type') || '';
-        if (!contentType.includes('application/json')) {
-          throw new Error('Server returned non-JSON response');
-        }
-        return r.json();
-      })
-      .then(d => {
-        if (d && d.success) {
-          setDropdowns(prev => {
-            const hasPanels = Array.isArray(d.panelHierarchy) && d.panelHierarchy.length > 0;
-            const hasInverters = Array.isArray(d.inverterHierarchy) && d.inverterHierarchy.length > 0;
-            const hasBatteries = Array.isArray(d.batteryHierarchy) && d.batteryHierarchy.length > 0;
+  // Sync hardware hierarchy with server database (and Supabase)
+  const refreshHardwareHierarchy = useCallback(async (): Promise<{
+    panelHierarchy?: PanelHierarchyItem[];
+    inverterHierarchy?: InverterHierarchyItem[];
+    batteryHierarchy?: BatteryHierarchyItem[];
+  } | null> => {
+    try {
+      const res = await fetch(`/api/hardware-hierarchy?_t=${Date.now()}`, { cache: 'no-store' });
+      if (!res.ok) {
+        throw new Error(`Server returned HTTP ${res.status}`);
+      }
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        throw new Error('Server returned non-JSON response');
+      }
+      const d = await res.json();
+      if (d && d.success) {
+        setDropdowns(prev => {
+          const hasPanels = Array.isArray(d.panelHierarchy) && d.panelHierarchy.length > 0;
+          const hasInverters = Array.isArray(d.inverterHierarchy) && d.inverterHierarchy.length > 0;
+          const hasBatteries = Array.isArray(d.batteryHierarchy) && d.batteryHierarchy.length > 0;
 
-            const nextPanels = hasPanels ? d.panelHierarchy : prev.panelHierarchy || INITIAL_DROPDOWNS.panelHierarchy;
-            const nextInverters = hasInverters ? d.inverterHierarchy : prev.inverterHierarchy || INITIAL_DROPDOWNS.inverterHierarchy;
-            const nextBatteries = hasBatteries ? d.batteryHierarchy : prev.batteryHierarchy || INITIAL_DROPDOWNS.batteryHierarchy;
+          const nextPanels = hasPanels ? d.panelHierarchy : prev.panelHierarchy || INITIAL_DROPDOWNS.panelHierarchy;
+          const nextInverters = hasInverters ? d.inverterHierarchy : prev.inverterHierarchy || INITIAL_DROPDOWNS.inverterHierarchy;
+          const nextBatteries = hasBatteries ? d.batteryHierarchy : prev.batteryHierarchy || INITIAL_DROPDOWNS.batteryHierarchy;
 
-            const nextPBrands = Array.from(new Set([...(prev.panelBrands || []), ...nextPanels.map((p: any) => p.manufacturer)]));
-            const nextIBrands = Array.from(new Set([...(prev.inverterBrands || []), ...nextInverters.map((i: any) => i.manufacturer)]));
-            const nextBBrands = Array.from(new Set([...(prev.batteryBrands || []), ...nextBatteries.map((b: any) => b.manufacturer)]));
+          const nextPBrands = Array.from(new Set([...(prev.panelBrands || []), ...nextPanels.map((p: any) => p.manufacturer)]));
+          const nextIBrands = Array.from(new Set([...(prev.inverterBrands || []), ...nextInverters.map((i: any) => i.manufacturer)]));
+          const nextBBrands = Array.from(new Set([...(prev.batteryBrands || []), ...nextBatteries.map((b: any) => b.manufacturer)]));
 
-            return {
-              ...prev,
-              panelHierarchy: nextPanels,
-              inverterHierarchy: nextInverters,
-              batteryHierarchy: nextBatteries,
-              panelBrands: nextPBrands,
-              inverterBrands: nextIBrands,
-              batteryBrands: nextBBrands
-            };
-          });
-        }
-      })
-      .catch(err => console.warn('Could not fetch server hardware hierarchy:', err));
+          const updated: DynamicDropdownConfig = {
+            ...prev,
+            panelHierarchy: nextPanels,
+            inverterHierarchy: nextInverters,
+            batteryHierarchy: nextBatteries,
+            panelBrands: nextPBrands,
+            inverterBrands: nextIBrands,
+            batteryBrands: nextBBrands
+          };
+          try {
+            localStorage.setItem('solar_dropdowns', JSON.stringify(updated));
+          } catch (e) {}
+          return updated;
+        });
+        window.dispatchEvent(new CustomEvent('solar:reload_hardware', { detail: d }));
+        return d;
+      }
+    } catch (err) {
+      console.warn('Could not fetch server hardware hierarchy:', err);
+    }
+    return null;
   }, []);
+
+  // Sync dropdown options with server database
+  const refreshDropdowns = useCallback(async (): Promise<DynamicDropdownConfig> => {
+    try {
+      const res = await fetch(`/api/dropdowns?_t=${Date.now()}`, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const d = await res.json();
+      if (d && d.success && d.dropdowns) {
+        let updatedDropdowns: DynamicDropdownConfig = INITIAL_DROPDOWNS;
+        setDropdowns(prev => {
+          const serverData = d.dropdowns;
+          updatedDropdowns = {
+            ...prev,
+            ...serverData,
+            panelHierarchy: Array.isArray(serverData.panelHierarchy) && serverData.panelHierarchy.length > 0 ? serverData.panelHierarchy : prev.panelHierarchy || INITIAL_DROPDOWNS.panelHierarchy,
+            inverterHierarchy: Array.isArray(serverData.inverterHierarchy) && serverData.inverterHierarchy.length > 0 ? serverData.inverterHierarchy : prev.inverterHierarchy || INITIAL_DROPDOWNS.inverterHierarchy,
+            batteryHierarchy: Array.isArray(serverData.batteryHierarchy) && serverData.batteryHierarchy.length > 0 ? serverData.batteryHierarchy : prev.batteryHierarchy || INITIAL_DROPDOWNS.batteryHierarchy
+          };
+          try {
+            localStorage.setItem('solar_dropdowns', JSON.stringify(updatedDropdowns));
+          } catch (e) {}
+          return updatedDropdowns;
+        });
+        window.dispatchEvent(new CustomEvent('solar:reload_dropdowns', { detail: d.dropdowns }));
+        return updatedDropdowns;
+      }
+    } catch (err) {
+      console.warn('Could not fetch server dropdowns:', err);
+    }
+    return dropdowns;
+  }, [dropdowns]);
+
+  // Global Refresh Function: synchronizes every data table, catalog and dropdown config from database
+  const refreshAllData = useCallback(async (): Promise<void> => {
+    await Promise.allSettled([
+      refreshLeads(),
+      refreshProjects(),
+      refreshTickets(),
+      refreshContacts(),
+      refreshCompanies(),
+      refreshDropdowns(),
+      refreshHardwareHierarchy()
+    ]);
+  }, [refreshLeads, refreshProjects, refreshTickets, refreshContacts, refreshCompanies, refreshDropdowns, refreshHardwareHierarchy]);
+
+  // Sync hardware and dropdowns on mount and listen to reload events
+  useEffect(() => {
+    refreshDropdowns();
+    refreshHardwareHierarchy();
+    const handleSync = () => {
+      refreshDropdowns();
+      refreshHardwareHierarchy();
+    };
+    window.addEventListener('solar:reload_dropdowns', handleSync);
+    window.addEventListener('solar:reload_hardware', handleSync);
+    return () => {
+      window.removeEventListener('solar:reload_dropdowns', handleSync);
+      window.removeEventListener('solar:reload_hardware', handleSync);
+    };
+  }, [refreshDropdowns, refreshHardwareHierarchy]);
 
   const [connectedDomains, setConnectedDomains] = useState<string[]>(() => {
     const saved = localStorage.getItem('solar_domains');
@@ -1334,6 +1600,205 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.setItem('solar_dynamic_roles', JSON.stringify(dynamicRoles));
   }, [dynamicRoles]);
 
+  // Supabase Settings & Integrations Database Persistence State
+  const [supabaseSettingsStatus, setSupabaseSettingsStatus] = useState<{
+    configured: boolean;
+    appSettingsTableOk: boolean;
+    integrationsConfigTableOk: boolean;
+    lastSyncedAt?: string;
+    isSyncing: boolean;
+    message?: string;
+  }>({
+    configured: false,
+    appSettingsTableOk: false,
+    integrationsConfigTableOk: false,
+    isSyncing: false
+  });
+
+  // Initial Hydration from Supabase (or backend fallback) on application start
+  useEffect(() => {
+    let isMounted = true;
+
+    // Check Supabase Settings database connectivity
+    fetch('/api/settings/status')
+      .then(r => r.json())
+      .then(d => {
+        if (isMounted && d && d.success) {
+          setSupabaseSettingsStatus(prev => ({
+            ...prev,
+            configured: Boolean(d.supabaseConfigured),
+            appSettingsTableOk: Boolean(d.appSettingsTableOk),
+            integrationsConfigTableOk: Boolean(d.integrationsConfigTableOk),
+            message: d.message
+          }));
+        }
+      })
+      .catch(() => {});
+
+    // Hydrate Settings from app_settings
+    fetch('/api/settings')
+      .then(r => r.json())
+      .then(d => {
+        if (!isMounted || !d || !d.success || !d.settings) return;
+        const s = d.settings;
+
+        if (s.dropdowns && typeof s.dropdowns === 'object' && Object.keys(s.dropdowns).length > 0) {
+          setDropdowns(prev => ({
+            ...prev,
+            ...s.dropdowns,
+            panelHierarchy: (Array.isArray(prev.panelHierarchy) && prev.panelHierarchy.length > 20) ? prev.panelHierarchy : (s.dropdowns.panelHierarchy || prev.panelHierarchy),
+            inverterHierarchy: (Array.isArray(prev.inverterHierarchy) && prev.inverterHierarchy.length > 20) ? prev.inverterHierarchy : (s.dropdowns.inverterHierarchy || prev.inverterHierarchy),
+            batteryHierarchy: (Array.isArray(prev.batteryHierarchy) && prev.batteryHierarchy.length > 20) ? prev.batteryHierarchy : (s.dropdowns.batteryHierarchy || prev.batteryHierarchy),
+            panelBrands: (Array.isArray(prev.panelBrands) && prev.panelBrands.length > 20) ? prev.panelBrands : (s.dropdowns.panelBrands || prev.panelBrands),
+            inverterBrands: (Array.isArray(prev.inverterBrands) && prev.inverterBrands.length > 20) ? prev.inverterBrands : (s.dropdowns.inverterBrands || prev.inverterBrands),
+            batteryBrands: (Array.isArray(prev.batteryBrands) && prev.batteryBrands.length > 20) ? prev.batteryBrands : (s.dropdowns.batteryBrands || prev.batteryBrands)
+          }));
+        }
+        if (s.company_profile && typeof s.company_profile === 'object') {
+          setCompanyProfile(prev => ({ ...prev, ...s.company_profile }));
+        }
+        if (s.portal_addresses && typeof s.portal_addresses === 'object') {
+          setPortalAddresses(prev => ({ ...prev, ...s.portal_addresses }));
+        }
+        if (s.system_rules && typeof s.system_rules === 'object') {
+          setSystemRules(prev => ({ ...prev, ...s.system_rules }));
+        }
+        if (Array.isArray(s.system_features) && s.system_features.length > 0) {
+          setSystemFeatures(s.system_features);
+        }
+        if (Array.isArray(s.access_roles) && s.access_roles.length > 0) {
+          setAccessRoles(s.access_roles);
+        }
+        if (Array.isArray(s.dynamic_roles) && s.dynamic_roles.length > 0) {
+          setDynamicRoles(s.dynamic_roles);
+        }
+        if (Array.isArray(s.system_users) && s.system_users.length > 0) {
+          setSystemUsers(s.system_users);
+        }
+      })
+      .catch(err => console.warn('[Settings] Hydration notice:', err));
+
+    // Hydrate Integrations from integrations_config
+    fetch('/api/integrations')
+      .then(r => r.json())
+      .then(d => {
+        if (!isMounted || !d || !d.success || !Array.isArray(d.integrations) || d.integrations.length === 0) return;
+        setIntegrations(prev => {
+          const map = new Map(prev.map(i => [i.id, i]));
+          d.integrations.forEach((item: any) => {
+            const existing = map.get(item.id);
+            if (existing && typeof existing === 'object') {
+              map.set(item.id, { ...existing, ...(item || {}) });
+            } else {
+              map.set(item.id, item);
+            }
+          });
+          return Array.from(map.values());
+        });
+      })
+      .catch(err => console.warn('[Integrations] Hydration notice:', err));
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // Sync all Settings, Custom Dropdowns & Integrations to Supabase on demand
+  const syncAllSettingsToSupabase = async (): Promise<{ success: boolean; message: string }> => {
+    setSupabaseSettingsStatus(prev => ({ ...prev, isSyncing: true }));
+    try {
+      const settingsPayload = [
+        { key: 'dropdowns', value: dropdowns, category: 'dropdowns', description: 'Dynamic dropdown options and hardware models' },
+        { key: 'portal_addresses', value: portalAddresses, category: 'portals', description: 'System and regulatory portal addresses' },
+        { key: 'company_profile', value: companyProfile, category: 'company', description: 'Company details and legal information' },
+        { key: 'system_rules', value: systemRules, category: 'rules', description: 'Operational automation rules' },
+        { key: 'system_features', value: systemFeatures, category: 'features', description: 'System feature toggles' },
+        { key: 'access_roles', value: accessRoles, category: 'security', description: 'Role permissions matrix' },
+        { key: 'dynamic_roles', value: dynamicRoles, category: 'security', description: 'Custom dynamic roles' },
+        { key: 'system_users', value: systemUsers, category: 'users', description: 'System users and access' }
+      ];
+
+      const [settingsRes, integrationsRes] = await Promise.all([
+        fetch('/api/settings/batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ entries: settingsPayload })
+        }),
+        fetch('/api/integrations/batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ integrations })
+        })
+      ]);
+
+      const sData = await settingsRes.json();
+      const iData = await integrationsRes.json();
+      const now = new Date().toLocaleTimeString();
+
+      const isCloud = sData.source === 'supabase' || iData.source === 'supabase';
+      setSupabaseSettingsStatus(prev => ({
+        ...prev,
+        isSyncing: false,
+        lastSyncedAt: now,
+        message: isCloud
+          ? `Successfully synced all Settings & Integrations to Supabase database at ${now}.`
+          : `Saved locally (Supabase tables pending migration). Run the SQL migration in Supabase to persist in the cloud.`
+      }));
+
+      return {
+        success: true,
+        message: isCloud
+          ? 'All Settings, Custom Dropdowns, and Integrations successfully saved to Supabase!'
+          : 'Settings saved locally. Run the Supabase SQL migration to persist in the database table.'
+      };
+    } catch (err: any) {
+      setSupabaseSettingsStatus(prev => ({
+        ...prev,
+        isSyncing: false,
+        message: `Sync failed: ${err.message}`
+      }));
+      return { success: false, message: err.message };
+    }
+  };
+
+  // Background auto-save debounces to Supabase when settings/dropdowns change
+  const initialSettingsMountRef = useRef(true);
+  useEffect(() => {
+    if (initialSettingsMountRef.current) {
+      initialSettingsMountRef.current = false;
+      return;
+    }
+    const timer = setTimeout(() => {
+      fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          key: 'dropdowns',
+          value: dropdowns,
+          category: 'dropdowns',
+          description: 'Dynamic dropdown options and hardware models'
+        })
+      }).catch(() => {});
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [dropdowns]);
+
+  const initialIntegrationsMountRef = useRef(true);
+  useEffect(() => {
+    if (initialIntegrationsMountRef.current) {
+      initialIntegrationsMountRef.current = false;
+      return;
+    }
+    const timer = setTimeout(() => {
+      fetch('/api/integrations/batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ integrations })
+      }).catch(() => {});
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [integrations]);
+
   // Dynamic Features & System Functionalities Handlers
   const updateSystemFeature = (id: string, updates: Partial<SystemFeatureConfig>) => {
     setSystemFeatures(prev => prev.map(f => (f.id === id ? { ...f, ...updates } : f)));
@@ -1653,26 +2118,71 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Contact Handlers
-  const addContact = (contact: Omit<Contact, 'id' | 'createdAt'>) => {
+  const addContact = (contact: Omit<Contact, 'id' | 'createdAt'>): Contact => {
     const newContact: Contact = {
       ...contact,
       id: `cnt-${Date.now()}`,
       createdAt: new Date().toISOString().split('T')[0]
     };
-    setContacts(prev => [newContact, ...prev]);
+    setContacts(prev => {
+      const next = [newContact, ...prev];
+      contactsRef.current = next;
+      try { localStorage.setItem('solar_contacts', JSON.stringify(next)); } catch (e) {}
+      return next;
+    });
+    fetch('/api/contacts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newContact)
+    })
+      .then(() => refreshContacts())
+      .catch(err => console.warn('[AppContext] Failed to save contact to DB:', err));
+    return newContact;
   };
 
   const updateContact = (id: string, updated: Partial<Contact>) => {
-    setContacts(prev => prev.map(c => (c.id === id ? { ...c, ...updated } : c)));
+    let savedContact: Contact | null = null;
+    setContacts(prev => {
+      const next = prev.map(c => {
+        if (c.id === id) {
+          savedContact = { ...c, ...updated };
+          return savedContact;
+        }
+        return c;
+      });
+      contactsRef.current = next;
+      try { localStorage.setItem('solar_contacts', JSON.stringify(next)); } catch (e) {}
+      return next;
+    });
+    if (savedContact) {
+      fetch('/api/contacts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(savedContact)
+      })
+        .then(() => refreshContacts())
+        .catch(err => console.warn('[AppContext] Failed to persist updated contact to DB:', err));
+    }
   };
 
   const deleteContact = (id: string) => {
-    setContacts(prev => prev.filter(c => c.id !== id));
+    setContacts(prev => {
+      const next = prev.filter(c => c.id !== id);
+      contactsRef.current = next;
+      try { localStorage.setItem('solar_contacts', JSON.stringify(next)); } catch (e) {}
+      return next;
+    });
+    fetch(`/api/contacts/${encodeURIComponent(id)}`, {
+      method: 'DELETE'
+    })
+      .then(() => refreshContacts())
+      .catch(err => console.warn('[AppContext] Failed to delete contact from DB:', err));
   };
 
   const addContactAddress = (contactId: string, addressData: Omit<ContactAddress, 'id'>) => {
-    setContacts(prev =>
-      prev.map(c => {
+    let targetContact: Contact | null = null;
+    setContacts(prev => {
+      const next = prev.map(c => {
         if (c.id !== contactId) return c;
         const currentAddrs = c.addresses && c.addresses.length > 0 ? c.addresses : [
           {
@@ -1693,18 +2203,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           : [...currentAddrs, newAddr];
 
         const primaryAddr = updatedList.find(a => a.isPrimary) || updatedList[0];
-        return {
+        targetContact = {
           ...c,
           addresses: updatedList,
           address: primaryAddr ? `${primaryAddr.street}, ${primaryAddr.suburb} ${primaryAddr.state}` : c.address
         };
+        return targetContact;
+      });
+      contactsRef.current = next;
+      try { localStorage.setItem('solar_contacts', JSON.stringify(next)); } catch (e) {}
+      return next;
+    });
+    if (targetContact) {
+      fetch('/api/contacts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(targetContact)
       })
-    );
+        .then(() => refreshContacts())
+        .catch(err => console.warn('[AppContext] Failed to persist contact address to DB:', err));
+    }
   };
 
   const updateContactAddress = (contactId: string, addressId: string, updated: Partial<ContactAddress>) => {
-    setContacts(prev =>
-      prev.map(c => {
+    let targetContact: Contact | null = null;
+    setContacts(prev => {
+      const next = prev.map(c => {
         if (c.id !== contactId) return c;
         const currentAddrs = c.addresses && c.addresses.length > 0 ? c.addresses : [
           {
@@ -1726,18 +2250,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           return a;
         });
         const primaryAddr = updatedList.find(a => a.isPrimary) || updatedList[0];
-        return {
+        targetContact = {
           ...c,
           addresses: updatedList,
           address: primaryAddr ? `${primaryAddr.street}, ${primaryAddr.suburb} ${primaryAddr.state}` : c.address
         };
+        return targetContact;
+      });
+      contactsRef.current = next;
+      try { localStorage.setItem('solar_contacts', JSON.stringify(next)); } catch (e) {}
+      return next;
+    });
+    if (targetContact) {
+      fetch('/api/contacts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(targetContact)
       })
-    );
+        .then(() => refreshContacts())
+        .catch(err => console.warn('[AppContext] Failed to persist updated contact address to DB:', err));
+    }
   };
 
   const removeContactAddress = (contactId: string, addressId: string) => {
-    setContacts(prev =>
-      prev.map(c => {
+    let targetContact: Contact | null = null;
+    setContacts(prev => {
+      const next = prev.map(c => {
         if (c.id !== contactId) return c;
         const currentAddrs = c.addresses || [];
         const remaining = currentAddrs.filter(a => a.id !== addressId);
@@ -1745,13 +2283,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           remaining[0].isPrimary = true;
         }
         const primaryAddr = remaining.find(a => a.isPrimary) || remaining[0];
-        return {
+        targetContact = {
           ...c,
           addresses: remaining,
           address: primaryAddr ? `${primaryAddr.street}, ${primaryAddr.suburb} ${primaryAddr.state}` : c.address
         };
-      })
-    );
+        return targetContact;
+      });
+      contactsRef.current = next;
+      try { localStorage.setItem('solar_contacts', JSON.stringify(next)); } catch (e) {}
+      return next;
+    });
+    if (targetContact) {
+      fetch('/api/contacts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(targetContact)
+      }).catch(err => console.warn('[AppContext] Failed to persist removed contact address to DB:', err));
+    }
   };
 
   // Referral Bonus Handlers
@@ -1811,14 +2360,56 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       id: `comp-${Date.now()}`
     };
     setCompanies(prev => [newCompany, ...prev]);
+
+    fetch('/api/companies', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newCompany)
+    })
+      .then(r => r.json())
+      .then(async res => {
+        if (res.success && res.company) {
+          setCompanies(prev => prev.map(c => c.id === newCompany.id ? res.company : c));
+        }
+        await refreshCompanies();
+      })
+      .catch(err => console.error('[AppContext] Failed to save company to server DB:', err));
   };
 
   const updateCompany = (id: string, updated: Partial<Company>) => {
-    setCompanies(prev => prev.map(c => (c.id === id ? { ...c, ...updated } : c)));
+    let mergedCompany: Company | null = null;
+    setCompanies(prev =>
+      prev.map(c => {
+        if (c.id === id) {
+          mergedCompany = { ...c, ...updated };
+          return mergedCompany;
+        }
+        return c;
+      })
+    );
+
+    if (mergedCompany) {
+      fetch('/api/companies', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(mergedCompany)
+      })
+        .then(r => r.json())
+        .then(async res => {
+          if (res.success && res.company) {
+            setCompanies(prev => prev.map(c => c.id === id ? res.company : c));
+          }
+          await refreshCompanies();
+        })
+        .catch(err => console.error('[AppContext] Failed to save updated company to server DB:', err));
+    }
   };
 
   const deleteCompany = (id: string) => {
     setCompanies(prev => prev.filter(c => c.id !== id));
+    fetch(`/api/companies/${encodeURIComponent(id)}`, { method: 'DELETE' })
+      .then(() => refreshCompanies())
+      .catch(err => console.error('[AppContext] Failed to delete company:', err));
   };
 
   // Lead Activity Handlers
@@ -2194,7 +2785,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(newLead)
-    }).catch(err => console.warn('[AppContext] Failed to save lead to server DB:', err));
+    })
+      .then(async () => {
+        await refreshLeads();
+        await refreshContacts();
+      })
+      .catch(err => console.warn('[AppContext] Failed to save lead to server DB:', err));
 
     // Dispatch automated email alert for new incoming lead
     const customerPrimaryEmail = newLead.email ? newLead.email.split(',')[0].trim() : '';
@@ -2457,7 +3053,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(merged)
-      }).catch(err => console.warn('[AppContext] Failed to save updated lead to server DB:', err));
+      })
+        .then(async r => {
+          const data = await r.json().catch(() => null);
+          if (!r.ok || (data && !data.success)) {
+            console.error('[AppContext] Supabase lead update error:', data?.error, data?.details);
+          } else {
+            console.log(`[AppContext] Lead ${merged.id} successfully updated in database (source: ${data?.source || 'db'})`);
+          }
+          await refreshLeads();
+          await refreshContacts();
+        })
+        .catch(err => console.error('[AppContext] Failed to save updated lead to server DB:', err));
 
       return merged;
     })));
@@ -2802,7 +3409,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       customerName: lead.customerName,
       customerEmail: lead.email,
       customerPhone: lead.phone,
-      address: lead.address ? `${lead.address}, ${lead.suburb} ${lead.state} ${lead.postcode || ''}`.trim() : `${lead.suburb}, ${lead.state}`,
+      address: extractStreetAddressOnly(lead.address, lead.suburb, lead.state, lead.postcode),
+      streetAddress: extractStreetAddressOnly(lead.address, lead.suburb, lead.state, lead.postcode),
       suburb: lead.suburb,
       state: lead.state,
       dnsp: lead.state === 'QLD' ? 'Energex' : 'Ausgrid',
@@ -2956,7 +3564,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       attachments: lead.attachments ? [...lead.attachments] : []
     };
 
-    setProjects(prev => [newProject, ...prev]);
+    setProjects(prev => {
+      const next = [newProject, ...prev];
+      try { localStorage.setItem('solar_projects', JSON.stringify(next)); } catch (e) {}
+      return next;
+    });
 
     // Update lead status
     updateLead(leadId, { status: 'Converted to Project' });
@@ -2966,7 +3578,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(newProject)
-    }).catch(err => console.warn('[AppContext] Failed to persist converted project to server DB:', err));
+    })
+      .then(async () => {
+        await refreshProjects();
+        await refreshLeads();
+        await refreshContacts();
+      })
+      .catch(err => console.warn('[AppContext] Failed to persist converted project to server DB:', err));
 
     return newProject;
   };
@@ -3065,24 +3683,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const updatedLeadsMap = new Map<string, Lead>();
 
     for (const candidate of mappedLeads) {
-      const effectiveCurrentLeads = currentLeadsSnapshot.map(l => updatedLeadsMap.get(l.id) || l);
-      const matchResult = isLeadAlreadyInSystem(candidate, [...effectiveCurrentLeads, ...newOnly]);
-      if (matchResult.isDuplicate && matchResult.matchedLead) {
-        // Matched an existing lead! Check for changes in details
-        const baseLead = updatedLeadsMap.get(matchResult.matchedLead.id) || matchResult.matchedLead;
+      const candRowId = (candidate.sheetSyncRowId || '').trim();
+      const candId = (candidate.id || '').trim();
+
+      // Check if this EXACT sheet row or ID was already synced in a previous pass
+      const alreadySyncedLead = currentLeadsSnapshot.find(l => {
+        if (candRowId && l.sheetSyncRowId && l.sheetSyncRowId === candRowId) return true;
+        if (candId && l.id === candId) return true;
+        return false;
+      });
+
+      if (alreadySyncedLead) {
+        // Matched an existing sheet row! Check for changes in details
+        const baseLead = updatedLeadsMap.get(alreadySyncedLead.id) || alreadySyncedLead;
         const { hasChanges, updatedLead } = applySheetUpdatesToLead(baseLead, candidate);
         if (hasChanges) {
-          updatedLeadsMap.set(matchResult.matchedLead.id, updatedLead);
+          updatedLeadsMap.set(alreadySyncedLead.id, updatedLead);
         }
-      } else if (!matchResult.isDuplicate) {
+      } else {
+        // Brand new row added to Google Sheet -> Fresh lead!
         newOnly.push(candidate);
       }
     }
 
     if (newOnly.length > 0 || updatedLeadsMap.size > 0) {
       const withUpdates = currentLeadsSnapshot.map(l => updatedLeadsMap.get(l.id) || l);
-      // Filter strictly new leads against state to prevent any duplicate entry
-      const strictlyNew = newOnly.filter(c => !isLeadAlreadyInSystem(c, withUpdates).isDuplicate);
+      // Strictly new leads from fresh sheet rows
+      const strictlyNew = newOnly;
 
       // Automatically create contacts for all newly synced leads, and capture multiple properties under existing contacts
       const newContactsToCreate: Contact[] = [];
@@ -3526,7 +4153,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         name: targetLead?.customerName || `${targetLead?.firstName || ''} ${targetLead?.lastName || ''}`.trim(),
         sheetSyncRowId: targetLead?.sheetSyncRowId
       })
-    }).catch(err => console.error('[AppContext] Failed to delete lead from database:', err));
+    })
+      .then(() => refreshLeads())
+      .catch(err => console.error('[AppContext] Failed to delete lead from database:', err));
   };
 
   const deleteLeads = (leadIds: string[]) => {
@@ -3555,7 +4184,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ids: leadIds, items: targetItems })
-    }).catch(err => console.error('[AppContext] Failed to delete batch from database:', err));
+    })
+      .then(() => refreshLeads())
+      .catch(err => console.error('[AppContext] Failed to delete batch from database:', err));
   };
 
   const deleteDummyLeads = (): number => {
@@ -3618,6 +4249,47 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }).catch(err => console.error('[AppContext] Failed to clear all leads from database:', err));
   };
 
+  const clearAllSystemData = async (): Promise<boolean> => {
+    setLeads([]);
+    leadsRef.current = [];
+    setContacts([]);
+    contactsRef.current = [];
+    setProjects([]);
+    setTickets([]);
+    setMaintenanceRecords([]);
+    setSubContractors([]);
+    setSalesOrders([]);
+    setInstallOrders([]);
+    setCustomerReviews([]);
+
+    const keysToReset = [
+      'solar_leads',
+      'solar_contacts',
+      'solar_projects',
+      'solar_tickets',
+      'solar_maintenance',
+      'solar_subcontractors',
+      'solar_sales_orders',
+      'solar_install_orders',
+      'solar_reviews',
+      'last_synced_sheet_csv'
+    ];
+    keysToReset.forEach(k => {
+      try {
+        localStorage.setItem(k, JSON.stringify([]));
+      } catch (e) {}
+    });
+
+    try {
+      const r = await fetch('/api/system/clear-all-data', { method: 'POST' });
+      const d = await r.json();
+      return Boolean(d.success);
+    } catch (err) {
+      console.error('[AppContext] Failed to clear all system data:', err);
+      return false;
+    }
+  };
+
   const importSheetCsv = (csvText: string): { count: number; leads: Lead[] } => {
     const parsed = parseGoogleSheetCsv(csvText);
     if (!parsed || parsed.length === 0) {
@@ -3628,185 +4300,272 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Project Handlers
-  const addProject = (proj: Omit<Project, 'id' | 'projectCode'>): Project => {
+  const addProject = async (proj: Omit<Project, 'id' | 'projectCode'>): Promise<Project> => {
     const randNum = Math.floor(1000 + Math.random() * 9000);
+    const normalizedStatus = normalizeProjectStatus(proj.status || (proj as any).projectStage);
+    const normalizedStage = normalizeProjectStage((proj as any).projectStage || normalizedStatus);
     const newProj: Project = {
       ...proj,
       id: `proj-${Date.now()}`,
-      projectCode: `SOL-${proj.state}-${randNum}`
+      projectCode: proj.projectNumber?.trim() || `SOL-${proj.state || 'NSW'}-${randNum}`,
+      status: normalizedStatus,
+      projectStage: normalizedStage
     };
-    setProjects(prev => [newProj, ...prev]);
+    setProjects(prev => {
+      const next = [newProj, ...prev];
+      try { localStorage.setItem('solar_projects', JSON.stringify(next)); } catch (e) {}
+      return next;
+    });
+    try {
+      await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newProj)
+      });
+      await refreshProjects();
+      window.dispatchEvent(new CustomEvent('solar:reload_projects', { detail: newProj }));
+    } catch (err) {
+      console.warn('[AppContext] Failed to save project to server DB:', err);
+    }
     return newProj;
   };
 
-  const updateProject = (id: string, updated: Partial<Project>) => {
-    setProjects(prev =>
-      prev.map(p => {
-        if (p.id !== id) return p;
-        const merged: Project = { ...p, ...updated };
-        const todayDate = new Date().toISOString().split('T')[0];
+  const updateProject = async (id: string, updated: Partial<Project>): Promise<Project | null> => {
+    const list = projectsRef.current && projectsRef.current.length > 0 ? projectsRef.current : projects;
+    const existing = list.find(p => p.id === id || p.projectCode === id || p.projectNumber === id);
+    const baseProject = existing || ({} as Project);
+    const merged: Project = { ...baseProject, ...updated, id: baseProject.id || id };
+    const todayDate = new Date().toISOString().split('T')[0];
 
-        // 1. If Installation Status changed to Closed, auto-populate Project Closed Date
-        if (merged.installationStatus === 'Closed' && (!merged.projectClosedDate || p.installationStatus !== 'Closed')) {
-          merged.projectClosedDate = todayDate;
-        }
+    // 1. If Installation Status changed to Closed, auto-populate Project Closed Date
+    if (merged.installationStatus === 'Closed' && (!merged.projectClosedDate || baseProject.installationStatus !== 'Closed')) {
+      merged.projectClosedDate = todayDate;
+    }
 
-        // 2. Grid Application Status change date auto-updates
-        if (updated.gridAppStatus && updated.gridAppStatus !== p.gridAppStatus) {
-          if (updated.gridAppStatus === 'Grid Applied' && !merged.gridAppliedDate) {
-            merged.gridAppliedDate = todayDate;
-          } else if (updated.gridAppStatus === 'Grid Rejected' && !merged.gridRejectedDate) {
-            merged.gridRejectedDate = todayDate;
-          } else if (updated.gridAppStatus === 'Grid App Approved' && !merged.gridApprovalDate) {
-            merged.gridApprovalDate = todayDate;
-          }
-        }
+    // 2. Grid Application Status change date auto-updates
+    if (updated.gridAppStatus && updated.gridAppStatus !== baseProject.gridAppStatus) {
+      if (updated.gridAppStatus === 'Grid Applied' && !merged.gridAppliedDate) {
+        merged.gridAppliedDate = todayDate;
+      } else if (updated.gridAppStatus === 'Grid Rejected' && !merged.gridRejectedDate) {
+        merged.gridRejectedDate = todayDate;
+      } else if (updated.gridAppStatus === 'Grid App Approved' && !merged.gridApprovalDate) {
+        merged.gridApprovalDate = todayDate;
+      }
+    }
 
-        // 3. Amount is auto-populated from Selling Price (AUD) and locked
-        if (updated.sellingPrice !== undefined) {
-          const formattedSellingPrice = typeof updated.sellingPrice === 'number'
-            ? formatAudNumber(updated.sellingPrice)
-            : stripDollarSign(String(updated.sellingPrice));
-          merged.amount = formattedSellingPrice;
-          const parsedVal = parseAudAccounts(formattedSellingPrice);
-          if (parsedVal > 0) {
-            merged.contractValueAud = parsedVal;
-          }
-        }
+    // 3. Amount is auto-populated from Selling Price (AUD) and locked
+    if (updated.sellingPrice !== undefined) {
+      const formattedSellingPrice = typeof updated.sellingPrice === 'number'
+        ? formatAudNumber(updated.sellingPrice)
+        : stripDollarSign(String(updated.sellingPrice));
+      merged.amount = formattedSellingPrice;
+      const parsedVal = parseAudAccounts(formattedSellingPrice);
+      if (parsedVal > 0) {
+        merged.contractValueAud = parsedVal;
+      }
+    }
 
-        // 4. Postcode / Suburb auto-classification
-        if (updated.postcode !== undefined) {
-          merged.area = classifyAustralianPostcode(merged.postcode || '', String(merged.state));
-        }
-        if (updated.suburb !== undefined || updated.postcode !== undefined) {
-          merged.nearestBigCity = getNearestBigCity(merged.suburb, merged.postcode || '', String(merged.state));
-        }
+    // 4. Postcode / Suburb auto-classification
+    if (updated.postcode !== undefined) {
+      merged.area = classifyAustralianPostcode(merged.postcode || '', String(merged.state));
+    }
+    if (updated.suburb !== undefined || updated.postcode !== undefined) {
+      merged.nearestBigCity = getNearestBigCity(merged.suburb, merged.postcode || '', String(merged.state));
+    }
 
-        // 5. Customer name sync if first/last changed
-        if (updated.firstName !== undefined || updated.lastName !== undefined) {
-          merged.customerName = `${merged.firstName || ''} ${merged.lastName || ''}`.trim() || merged.customerName;
-        }
+    // 5. Customer name sync if first/last changed
+    if (updated.firstName !== undefined || updated.lastName !== undefined) {
+      merged.customerName = `${merged.firstName || ''} ${merged.lastName || ''}`.trim() || merged.customerName;
+    }
 
-        // 6. Mobile format
-        if (updated.primaryMobile !== undefined) {
-          merged.customerPhone = formatAustralianMobile(updated.primaryMobile);
-          merged.primaryMobile = merged.customerPhone;
-        }
-        if (updated.secondaryMobile !== undefined) {
-          merged.secondaryMobile = formatAustralianMobile(updated.secondaryMobile);
-        }
+    // 6. Mobile format
+    if (updated.primaryMobile !== undefined) {
+      merged.customerPhone = formatAustralianMobile(updated.primaryMobile);
+      merged.primaryMobile = merged.customerPhone;
+    }
+    if (updated.secondaryMobile !== undefined) {
+      merged.secondaryMobile = formatAustralianMobile(updated.secondaryMobile);
+    }
 
-        // 7. Project stage sync with status if compatible
-        if (updated.projectStage && (!updated.status || updated.status === p.status)) {
-          const stageToStatusMap: Record<string, ProjectStatus> = {
-            'Site Survey': 'Site Survey',
-            'DNSP Application Submitted': 'Engineering & DNSP Approval',
-            'DNSP Approved': 'Engineering & DNSP Approval',
-            'Stock Allocated': 'Sales Order Dispatched',
-            'Installation Scheduled': 'Install Scheduled',
-            'Install Scheduled': 'Install Scheduled',
-            'Installation in Progress': 'Installation in Progress',
-            'Installation Completed': 'Installation Completed',
-            'BridgeSelect STC Claimed': 'BridgeSelect STC Claimed',
-            'Grid Meter Connected': 'Grid Meter Connected',
-            'Completed': 'Completed'
-          };
-          if (stageToStatusMap[updated.projectStage]) {
-            merged.status = stageToStatusMap[updated.projectStage];
-          }
-        }
+    // 7. Project stage and status lockstep synchronization & normalization
+    if (updated.status) {
+      merged.status = normalizeProjectStatus(updated.status);
+      merged.projectStage = normalizeProjectStage(updated.projectStage || updated.status);
+    } else if (updated.projectStage) {
+      merged.status = normalizeProjectStatus(updated.projectStage);
+      merged.projectStage = normalizeProjectStage(updated.projectStage);
+    } else {
+      merged.status = normalizeProjectStatus(merged.status);
+      merged.projectStage = normalizeProjectStage(merged.projectStage || merged.status);
+    }
 
-        // BridgeSelect Automated Push Trigger:
-        // When installation_status is updated to "Booked", automatically invoke the push route
-        const isNowBooked =
-          (merged.installationStatus === 'Booked' || (merged as any).installation_status === 'Booked') &&
-          p.installationStatus !== 'Booked' &&
-          (p as any).installation_status !== 'Booked';
+    // BridgeSelect Automated Push Trigger:
+    const isNowBooked =
+      (merged.installationStatus === 'Booked' || (merged as any).installation_status === 'Booked') &&
+      baseProject.installationStatus !== 'Booked' &&
+      (baseProject as any).installation_status !== 'Booked';
 
-        if (isNowBooked) {
-          fetch('/api/jobs/update-status', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              jobId: merged.id,
-              installation_status: 'Booked',
-              jobData: merged
-            })
-          }).catch(e => console.warn('[BridgeSelect Trigger] Auto-push trigger error:', e));
-        }
+    if (isNowBooked) {
+      fetch('/api/jobs/update-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jobId: merged.id,
+          installation_status: 'Booked',
+          jobData: merged
+        })
+      }).catch(e => console.warn('[BridgeSelect Trigger] Auto-push trigger error:', e));
+    }
 
-        return merged;
-      })
-    );
+    setProjects(prev => {
+      const next = prev.map(p =>
+        (p.id === id || p.id === merged.id || (p.projectNumber && (p.projectNumber === merged.projectNumber || p.projectCode === merged.projectNumber)) || (p.projectCode && (p.projectCode === merged.projectCode || p.projectNumber === merged.projectCode)))
+          ? merged
+          : p
+      );
+      projectsRef.current = next;
+      try { localStorage.setItem('solar_projects', JSON.stringify(next)); } catch (e) {}
+      return next;
+    });
+
+    // Immediately persist to DB and refresh frontend
+    try {
+      const res = await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(merged)
+      });
+      const data = await res.json().catch(() => null);
+      if (data && data.project) {
+        const persisted = data.project;
+        setProjects(prev => {
+          const next = prev.map(p =>
+            (p.id === id || p.id === persisted.id || (p.projectNumber && p.projectNumber === persisted.projectNumber) || (p.projectCode && p.projectCode === persisted.projectCode))
+              ? { ...p, ...persisted }
+              : p
+          );
+          projectsRef.current = next;
+          try { localStorage.setItem('solar_projects', JSON.stringify(next)); } catch (e) {}
+          return next;
+        });
+      }
+      await refreshProjects();
+      window.dispatchEvent(new CustomEvent('solar:reload_projects', { detail: merged }));
+    } catch (err) {
+      console.error('[AppContext] Failed to persist updated project to DB:', err);
+    }
+
+    return merged;
   };
 
-  const updateProjectStatus = (id: string, status: ProjectStatus) => {
-    setProjects(prev =>
-      prev.map(p => {
-        if (p.id !== id) return p;
-        const isNowCompleted = status === 'Completed';
-        const updated = {
-          ...p,
-          status,
-          completedDate: isNowCompleted ? new Date().toISOString().split('T')[0] : p.completedDate,
-          installationDate: (status === 'Installation Completed' || isNowCompleted) && !p.installationDate
-            ? new Date().toISOString().split('T')[0]
-            : p.installationDate
-        };
+  const updateProjectStatus = async (id: string, status: ProjectStatus | string) => {
+    const list = projectsRef.current && projectsRef.current.length > 0 ? projectsRef.current : projects;
+    const existing = list.find(p => p.id === id || p.projectCode === id || p.projectNumber === id || (p as any)._id === id);
+    if (!existing) {
+      console.warn('[AppContext] updateProjectStatus: Project not found for id/code:', id);
+      return;
+    }
 
-        // If completed, ensure maintenance record is created automatically (2 years from install date)
-        if (isNowCompleted) {
-          const installDate = updated.installationDate || new Date().toISOString().split('T')[0];
-          const installD = new Date(installDate);
-          const nextDue = new Date(installD.getFullYear() + 2, installD.getMonth(), installD.getDate());
-          
-          setMaintenanceRecords(mPrev => {
-            const existing = mPrev.find(m => m.projectId === id);
-            if (existing) return mPrev;
-            return [
-              {
-                id: `maint-${Date.now()}`,
-                projectId: id,
-                projectCode: p.projectCode,
-                customerId: p.customerId,
-                customerName: p.customerName,
-                customerPhone: p.customerPhone,
-                customerEmail: p.customerEmail,
-                address: p.address,
-                state: p.state,
-                installationDate: installDate,
-                nextPeriodicServiceDueDate: nextDue.toISOString().split('T')[0],
-                status: 'Pending',
-                notes: 'Automatic 2-year maintenance scheduled on project completion.'
-              },
-              ...mPrev
-            ];
+    const normalizedStatus = normalizeProjectStatus(status);
+    const resolvedStage = normalizeProjectStage(status) || normalizedStatus;
+    const isNowCompleted = normalizedStatus === 'Completed';
+
+    const updated: Project = {
+      ...existing,
+      status: normalizedStatus,
+      projectStage: resolvedStage,
+      completedDate: isNowCompleted ? (existing.completedDate || new Date().toISOString().split('T')[0]) : existing.completedDate,
+      installationDate: (normalizedStatus === 'Installation Completed' || isNowCompleted) && !existing.installationDate
+        ? new Date().toISOString().split('T')[0]
+        : existing.installationDate
+    };
+
+    if (isNowCompleted) {
+      const installDate = updated.installationDate || new Date().toISOString().split('T')[0];
+      const installD = new Date(installDate);
+      const nextDue = new Date(installD.getFullYear() + 2, installD.getMonth(), installD.getDate());
+
+      setMaintenanceRecords(mPrev => {
+        const hasRec = mPrev.find(m => m.projectId === id || m.projectId === existing.id);
+        if (hasRec) return mPrev;
+        return [
+          {
+            id: `maint-${Date.now()}`,
+            projectId: existing.id || id,
+            projectCode: existing.projectCode,
+            customerId: existing.customerId,
+            customerName: existing.customerName,
+            customerPhone: existing.customerPhone,
+            customerEmail: existing.customerEmail,
+            address: existing.address,
+            state: existing.state,
+            installationDate: installDate,
+            nextPeriodicServiceDueDate: nextDue.toISOString().split('T')[0],
+            status: 'Pending',
+            notes: 'Automatic 2-year maintenance scheduled on project completion.'
+          },
+          ...mPrev
+        ];
+      });
+    }
+
+    if (existing.status !== normalizedStatus) {
+      const customerEmail = existing.customerEmail || (existing.primaryMobile ? `${existing.primaryMobile.replace(/\s+/g, '')}@customer.mysolarcrm.com.au` : 'customer@gmail.com');
+      dispatchSystemAlert({
+        type: 'project_milestone',
+        title: `Project Milestone: ${existing.projectCode} is now ${normalizedStatus}`,
+        recipientEmail: customerEmail,
+        recipientName: existing.customerName || 'Valued Customer',
+        data: {
+          projectCode: existing.projectCode,
+          customerName: existing.customerName,
+          newStatus: normalizedStatus,
+          previousStatus: existing.status,
+          systemSize: `${existing.systemSizeKw} kW`,
+          address: existing.address,
+          description: `Your solar installation has progressed to milestone "${normalizedStatus}". Our team will notify you of all subsequent inspections and meter reconnections.`
+        }
+      }).catch(e => console.warn('Project milestone alert dispatch failed:', e));
+    }
+
+    setProjects(prev => {
+      const next = prev.map(p =>
+        (p.id === id || p.id === existing.id || (p.projectCode && (p.projectCode === id || p.projectCode === existing.projectCode)) || (p.projectNumber && (p.projectNumber === id || p.projectNumber === existing.projectNumber)))
+          ? updated
+          : p
+      );
+      projectsRef.current = next;
+      try { localStorage.setItem('solar_projects', JSON.stringify(next)); } catch (e) {}
+      return next;
+    });
+
+    try {
+      const res = await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updated)
+      });
+      if (res.ok) {
+        const data = await res.json().catch(() => null);
+        if (data && data.project) {
+          const persisted = data.project;
+          setProjects(prev => {
+            const next = prev.map(p =>
+              (p.id === id || p.id === existing.id || p.id === persisted.id || (p.projectCode && (p.projectCode === id || p.projectCode === existing.projectCode || p.projectCode === persisted.projectCode)))
+                ? { ...p, ...persisted }
+                : p
+            );
+            projectsRef.current = next;
+            try { localStorage.setItem('solar_projects', JSON.stringify(next)); } catch (e) {}
+            return next;
           });
         }
-
-        // Dispatch project milestone alert if status changed
-        if (p.status !== status) {
-          const customerEmail = p.customerEmail || (p.primaryMobile ? `${p.primaryMobile.replace(/\s+/g, '')}@customer.mysolarcrm.com.au` : 'customer@gmail.com');
-          dispatchSystemAlert({
-            type: 'project_milestone',
-            title: `Project Milestone: ${p.projectCode} is now ${status}`,
-            recipientEmail: customerEmail,
-            recipientName: p.customerName || 'Valued Customer',
-            data: {
-              projectCode: p.projectCode,
-              customerName: p.customerName,
-              newStatus: status,
-              previousStatus: p.status,
-              systemSize: `${p.systemSizeKw} kW`,
-              address: p.address,
-              description: `Your solar installation has progressed to milestone "${status}". Our team will notify you of all subsequent inspections and meter reconnections.`
-            }
-          }).catch(e => console.warn('Project milestone alert dispatch failed:', e));
-        }
-
-        return updated;
-      })
-    );
+      }
+      await refreshProjects();
+      window.dispatchEvent(new CustomEvent('solar:reload_projects', { detail: updated }));
+    } catch (err) {
+      console.warn('[AppContext] Failed to persist updated project status to DB:', err);
+    }
   };
 
   const uploadProjectPhoto = (projectId: string, photo: { category: any; url: string }) => {
@@ -3829,59 +4588,152 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
   };
 
-  // Tickets (Requirement: Only allow customer to raise ticket when project status is Completed!)
+  const deleteProject = (projectId: string) => {
+    setProjects(prev => {
+      const next = prev.filter(p => p.id !== projectId);
+      try {
+        localStorage.setItem('solar_projects', JSON.stringify(next));
+      } catch (e) {
+        console.error('Failed to save solar_projects', e);
+      }
+      return next;
+    });
+
+    fetch(`/api/projects/${encodeURIComponent(projectId)}`, {
+      method: 'DELETE'
+    })
+      .then(() => refreshProjects())
+      .catch(err => console.error('[AppContext] Failed to delete project from database:', err));
+  };
+
+  const deleteProjects = (projectIds: string[]) => {
+    const idSet = new Set(projectIds);
+    setProjects(prev => {
+      const next = prev.filter(p => !idSet.has(p.id));
+      try {
+        localStorage.setItem('solar_projects', JSON.stringify(next));
+      } catch (e) {
+        console.error('Failed to save solar_projects', e);
+      }
+      return next;
+    });
+
+    fetch('/api/projects/delete-batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: projectIds })
+    })
+      .then(() => refreshProjects())
+      .catch(err => console.error('[AppContext] Failed to delete projects batch:', err));
+  };
+
+  // Tickets (Supports both Customer Portal and Customer Support Desk)
   const addTicket = (
     ticket: Omit<Ticket, 'id' | 'ticketNumber' | 'createdAt' | 'updatedAt'>
   ): { success: boolean; message?: string; ticket?: Ticket } => {
-    const project = projects.find(p => p.id === ticket.projectId);
-    if (!project) {
-      return { success: false, message: 'Project not found.' };
-    }
-    if (project.status !== 'Completed') {
-      return {
-        success: false,
-        message: `Tickets can only be raised once Project Status is "Completed". Current project status is "${project.status}".`
-      };
-    }
+    const project = projects.find(
+      p =>
+        (ticket.projectId && (p.id === ticket.projectId || p.projectCode === ticket.projectId || p.projectNumber === ticket.projectId)) ||
+        (ticket.installationProjectNo && (p.projectCode === ticket.installationProjectNo || p.projectNumber === ticket.installationProjectNo || p.id === ticket.installationProjectNo))
+    );
 
     const randNum = Math.floor(100 + Math.random() * 900);
     const newTicket: Ticket = {
       ...ticket,
       id: `tkt-${Date.now()}`,
-      ticketNumber: `TKT-${new Date().getFullYear()}-${randNum}`,
+      ticketNumber: (ticket as any).ticketNumber || `TKT-${new Date().getFullYear()}-${randNum}`,
+      projectId: project?.id || ticket.projectId || '',
+      projectCode: project?.projectCode || ticket.projectCode || ticket.installationProjectNo || 'SOL-PRJ-001',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
 
     setTickets(prev => [newTicket, ...prev]);
 
+    // Persist to server DB & Supabase
+    fetch('/api/tickets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newTicket)
+    })
+      .then(r => r.json())
+      .then(async res => {
+        if (res.success && res.ticket) {
+          setTickets(prev => prev.map(t => (t.id === newTicket.id || t.ticketNumber === newTicket.ticketNumber ? res.ticket : t)));
+        }
+        await refreshTickets();
+      })
+      .catch(err => console.error('[AppContext] Failed to save ticket to server DB:', err));
+
     // Dispatch automated support ticket alert email
-    const customerEmail = project.customerEmail || (project.primaryMobile ? `${project.primaryMobile.replace(/\s+/g, '')}@customer.mysolarcrm.com.au` : 'customer@gmail.com');
-    dispatchSystemAlert({
-      type: 'ticket_created',
-      title: `Support Ticket Opened: #${newTicket.ticketNumber} - ${newTicket.title}`,
-      recipientEmail: customerEmail,
-      recipientName: newTicket.customerName || project.customerName,
-      data: {
-        ticketNumber: newTicket.ticketNumber,
-        subject: newTicket.title,
-        priority: newTicket.priority,
-        category: newTicket.category,
-        projectCode: project.projectCode,
-        systemSize: `${project.systemSizeKw || '6.6'} kW`,
-        description: newTicket.description || 'Solar warranty and maintenance ticket logged in Apex Solar ERP.'
-      }
-    }).catch(e => console.warn('Ticket alert dispatch failed:', e));
+    const customerEmail = project?.customerEmail || newTicket.emailId || (project?.primaryMobile ? `${project.primaryMobile.replace(/\s+/g, '')}@customer.mysolarcrm.com.au` : '');
+    if (customerEmail) {
+      dispatchSystemAlert({
+        type: 'ticket_created',
+        title: `Support Ticket Opened: #${newTicket.ticketNumber} - ${newTicket.title}`,
+        recipientEmail: customerEmail,
+        recipientName: newTicket.customerName || project?.customerName || 'Customer',
+        data: {
+          ticketNumber: newTicket.ticketNumber,
+          subject: newTicket.title,
+          priority: newTicket.priority,
+          category: newTicket.category,
+          projectCode: project?.projectCode || newTicket.installationProjectNo || '',
+          systemSize: `${project?.systemSizeKw || '6.6'} kW`,
+          description: newTicket.description || 'Solar warranty and maintenance ticket logged in Apex Solar ERP.'
+        }
+      }).catch(e => console.warn('Ticket alert dispatch failed:', e));
+    }
 
     return { success: true, ticket: newTicket };
   };
 
   const updateTicket = (id: string, updated: Partial<Ticket>) => {
+    let mergedTicket: Ticket | null = null;
     setTickets(prev =>
-      prev.map(t =>
-        t.id === id ? { ...t, ...updated, updatedAt: new Date().toISOString() } : t
-      )
+      prev.map(t => {
+        if (t.id === id || t.ticketNumber === id) {
+          mergedTicket = { ...t, ...updated, updatedAt: new Date().toISOString() };
+          return mergedTicket;
+        }
+        return t;
+      })
     );
+
+    if (mergedTicket) {
+      fetch('/api/tickets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(mergedTicket)
+      })
+        .then(r => r.json())
+        .then(async res => {
+          if (res.success && res.ticket) {
+            setTickets(prev => prev.map(t => (t.id === id || t.ticketNumber === id ? res.ticket : t)));
+          }
+          await refreshTickets();
+        })
+        .catch(err => console.error('[AppContext] Failed to save updated ticket to server DB:', err));
+    }
+  };
+
+  const deleteTicket = (id: string) => {
+    setTickets(prev => prev.filter(t => t.id !== id && t.ticketNumber !== id));
+    fetch(`/api/tickets/${encodeURIComponent(id)}`, { method: 'DELETE' })
+      .then(() => refreshTickets())
+      .catch(err => console.error('[AppContext] Failed to delete ticket:', err));
+  };
+
+  const deleteTickets = (ids: string[]) => {
+    const idSet = new Set(ids);
+    setTickets(prev => prev.filter(t => !idSet.has(t.id) && !idSet.has(t.ticketNumber)));
+    fetch('/api/tickets/delete-batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids })
+    })
+      .then(() => refreshTickets())
+      .catch(err => console.error('[AppContext] Failed to delete tickets batch:', err));
   };
 
   // Maintenance Handlers
@@ -4153,27 +5005,60 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setVoipCalls(prev => [newCall, ...prev]);
   };
 
-  // Dynamic Dropdown management
-  const addDropdownItem = (category: keyof DynamicDropdownConfig, value: string) => {
-    if (!value.trim()) return;
-    setDropdowns(prev => {
-      const current = (prev[category] as unknown as string[]) || [];
-      if (Array.isArray(current) && current.includes(value.trim())) return prev;
-      return {
-        ...prev,
-        [category]: [...current, value.trim()]
-      };
-    });
+  // Helper to persist dropdown state directly to database
+  const syncDropdownsToBackend = async (nextDropdowns: DynamicDropdownConfig) => {
+    try {
+      const res = await fetch('/api/dropdowns', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dropdowns: nextDropdowns })
+      });
+      return await res.json();
+    } catch (err) {
+      console.warn('[AppContext] Failed to sync dropdowns to database:', err);
+    }
   };
 
-  const removeDropdownItem = (category: keyof DynamicDropdownConfig, value: string) => {
-    setDropdowns(prev => {
-      const current = (prev[category] as unknown as string[]) || [];
-      return {
-        ...prev,
-        [category]: current.filter(item => item !== value)
-      };
-    });
+  // Dynamic Dropdown management
+  const addDropdownItem = async (category: keyof DynamicDropdownConfig, value: string) => {
+    if (!value.trim()) return;
+    const current = (dropdowns[category] as unknown as string[]) || [];
+    if (Array.isArray(current) && current.includes(value.trim())) return;
+    const next: any = {
+      ...dropdowns,
+      [category]: [...current, value.trim()]
+    };
+    if (category === 'projectStages') {
+      next.installationStatuses = [...current, value.trim()];
+    } else if (category === 'installationStatuses') {
+      next.projectStages = [...current, value.trim()];
+    }
+    setDropdowns(next);
+    try {
+      localStorage.setItem('solar_dropdowns', JSON.stringify(next));
+    } catch (e) {}
+    await syncDropdownsToBackend(next);
+    await refreshDropdowns();
+  };
+
+  const removeDropdownItem = async (category: keyof DynamicDropdownConfig, value: string) => {
+    const current = (dropdowns[category] as unknown as string[]) || [];
+    const filtered = current.filter(item => item !== value);
+    const next: any = {
+      ...dropdowns,
+      [category]: filtered
+    };
+    if (category === 'projectStages') {
+      next.installationStatuses = filtered;
+    } else if (category === 'installationStatuses') {
+      next.projectStages = filtered;
+    }
+    setDropdowns(next);
+    try {
+      localStorage.setItem('solar_dropdowns', JSON.stringify(next));
+    } catch (e) {}
+    await syncDropdownsToBackend(next);
+    await refreshDropdowns();
   };
 
   // Hardware Cascades Management (Panels, Inverters, Batteries)
@@ -4206,7 +5091,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         console.warn('Failed to save hardware hierarchy to server:', errMsg);
         return false;
       }
-      return !!result?.success;
+
+      if (result && result.success) {
+        setDropdowns(prev => {
+          const nextPanels = Array.isArray(result.panelHierarchy) && result.panelHierarchy.length > 0 ? result.panelHierarchy : data.panelHierarchy || prev.panelHierarchy || [];
+          const nextInverters = Array.isArray(result.inverterHierarchy) && result.inverterHierarchy.length > 0 ? result.inverterHierarchy : data.inverterHierarchy || prev.inverterHierarchy || [];
+          const nextBatteries = Array.isArray(result.batteryHierarchy) && result.batteryHierarchy.length > 0 ? result.batteryHierarchy : data.batteryHierarchy || prev.batteryHierarchy || [];
+          const nextPBrands = Array.from(new Set([...(prev.panelBrands || []), ...nextPanels.map((p: any) => p.manufacturer)]));
+          const nextIBrands = Array.from(new Set([...(prev.inverterBrands || []), ...nextInverters.map((i: any) => i.manufacturer)]));
+          const nextBBrands = Array.from(new Set([...(prev.batteryBrands || []), ...nextBatteries.map((b: any) => b.manufacturer)]));
+
+          const updated: DynamicDropdownConfig = {
+            ...prev,
+            panelHierarchy: nextPanels,
+            inverterHierarchy: nextInverters,
+            batteryHierarchy: nextBatteries,
+            panelBrands: nextPBrands,
+            inverterBrands: nextIBrands,
+            batteryBrands: nextBBrands
+          };
+          try {
+            localStorage.setItem('solar_dropdowns', JSON.stringify(updated));
+          } catch (e) {}
+          return updated;
+        });
+      }
+
+      await refreshHardwareHierarchy();
+      await refreshDropdowns();
+      return true;
     } catch (err: any) {
       console.warn('Failed to save hardware hierarchy to server:', err?.message || err);
       return false;
@@ -4218,43 +5131,47 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ...item,
       id: `ph-${Date.now()}-${Math.floor(Math.random() * 1000)}`
     };
-    setDropdowns(prev => {
-      const current = prev.panelHierarchy || [];
-      const nextPanels = [...current, newItem];
-      const nextBrands = prev.panelBrands?.includes(item.manufacturer)
-        ? prev.panelBrands
-        : [...(prev.panelBrands || []), item.manufacturer];
-      saveHardwareHierarchy({ panelHierarchy: nextPanels });
-      return {
-        ...prev,
-        panelHierarchy: nextPanels,
-        panelBrands: nextBrands
-      };
-    });
+    const current = dropdowns.panelHierarchy || [];
+    const nextPanels = [...current, newItem];
+    const nextBrands = dropdowns.panelBrands?.includes(item.manufacturer)
+      ? dropdowns.panelBrands
+      : [...(dropdowns.panelBrands || []), item.manufacturer];
+
+    setDropdowns(prev => ({
+      ...prev,
+      panelHierarchy: nextPanels,
+      panelBrands: nextBrands
+    }));
+
+    await saveHardwareHierarchy({ panelHierarchy: nextPanels });
+    await refreshHardwareHierarchy();
+    await refreshDropdowns();
   };
 
   const updatePanelItem = async (id: string, updated: Partial<PanelHierarchyItem>) => {
-    setDropdowns(prev => {
-      const current = prev.panelHierarchy || [];
-      const nextPanels = current.map(p => (p.id === id ? { ...p, ...updated } : p));
-      saveHardwareHierarchy({ panelHierarchy: nextPanels });
-      return {
-        ...prev,
-        panelHierarchy: nextPanels
-      };
-    });
+    const current = dropdowns.panelHierarchy || [];
+    const nextPanels = current.map(p => (p.id === id ? { ...p, ...updated } : p));
+    setDropdowns(prev => ({
+      ...prev,
+      panelHierarchy: nextPanels
+    }));
+
+    await saveHardwareHierarchy({ panelHierarchy: nextPanels });
+    await refreshHardwareHierarchy();
+    await refreshDropdowns();
   };
 
   const deletePanelItem = async (id: string) => {
-    setDropdowns(prev => {
-      const current = prev.panelHierarchy || [];
-      const nextPanels = current.filter(p => p.id !== id);
-      saveHardwareHierarchy({ panelHierarchy: nextPanels });
-      return {
-        ...prev,
-        panelHierarchy: nextPanels
-      };
-    });
+    const current = dropdowns.panelHierarchy || [];
+    const nextPanels = current.filter(p => p.id !== id);
+    setDropdowns(prev => ({
+      ...prev,
+      panelHierarchy: nextPanels
+    }));
+
+    await saveHardwareHierarchy({ panelHierarchy: nextPanels });
+    await refreshHardwareHierarchy();
+    await refreshDropdowns();
   };
 
   const addInverterItem = async (item: Omit<InverterHierarchyItem, 'id'>) => {
@@ -4262,43 +5179,47 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ...item,
       id: `ih-${Date.now()}-${Math.floor(Math.random() * 1000)}`
     };
-    setDropdowns(prev => {
-      const current = prev.inverterHierarchy || [];
-      const nextInverters = [...current, newItem];
-      const nextBrands = prev.inverterBrands?.includes(item.manufacturer)
-        ? prev.inverterBrands
-        : [...(prev.inverterBrands || []), item.manufacturer];
-      saveHardwareHierarchy({ inverterHierarchy: nextInverters });
-      return {
-        ...prev,
-        inverterHierarchy: nextInverters,
-        inverterBrands: nextBrands
-      };
-    });
+    const current = dropdowns.inverterHierarchy || [];
+    const nextInverters = [...current, newItem];
+    const nextBrands = dropdowns.inverterBrands?.includes(item.manufacturer)
+      ? dropdowns.inverterBrands
+      : [...(dropdowns.inverterBrands || []), item.manufacturer];
+
+    setDropdowns(prev => ({
+      ...prev,
+      inverterHierarchy: nextInverters,
+      inverterBrands: nextBrands
+    }));
+
+    await saveHardwareHierarchy({ inverterHierarchy: nextInverters });
+    await refreshHardwareHierarchy();
+    await refreshDropdowns();
   };
 
   const updateInverterItem = async (id: string, updated: Partial<InverterHierarchyItem>) => {
-    setDropdowns(prev => {
-      const current = prev.inverterHierarchy || [];
-      const nextInverters = current.map(i => (i.id === id ? { ...i, ...updated } : i));
-      saveHardwareHierarchy({ inverterHierarchy: nextInverters });
-      return {
-        ...prev,
-        inverterHierarchy: nextInverters
-      };
-    });
+    const current = dropdowns.inverterHierarchy || [];
+    const nextInverters = current.map(i => (i.id === id ? { ...i, ...updated } : i));
+    setDropdowns(prev => ({
+      ...prev,
+      inverterHierarchy: nextInverters
+    }));
+
+    await saveHardwareHierarchy({ inverterHierarchy: nextInverters });
+    await refreshHardwareHierarchy();
+    await refreshDropdowns();
   };
 
   const deleteInverterItem = async (id: string) => {
-    setDropdowns(prev => {
-      const current = prev.inverterHierarchy || [];
-      const nextInverters = current.filter(i => i.id !== id);
-      saveHardwareHierarchy({ inverterHierarchy: nextInverters });
-      return {
-        ...prev,
-        inverterHierarchy: nextInverters
-      };
-    });
+    const current = dropdowns.inverterHierarchy || [];
+    const nextInverters = current.filter(i => i.id !== id);
+    setDropdowns(prev => ({
+      ...prev,
+      inverterHierarchy: nextInverters
+    }));
+
+    await saveHardwareHierarchy({ inverterHierarchy: nextInverters });
+    await refreshHardwareHierarchy();
+    await refreshDropdowns();
   };
 
   const addBatteryItem = async (item: Omit<BatteryHierarchyItem, 'id'>) => {
@@ -4306,43 +5227,47 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ...item,
       id: `bh-${Date.now()}-${Math.floor(Math.random() * 1000)}`
     };
-    setDropdowns(prev => {
-      const current = prev.batteryHierarchy || [];
-      const nextBatteries = [...current, newItem];
-      const nextBrands = prev.batteryBrands?.includes(item.manufacturer)
-        ? prev.batteryBrands
-        : [...(prev.batteryBrands || []), item.manufacturer];
-      saveHardwareHierarchy({ batteryHierarchy: nextBatteries });
-      return {
-        ...prev,
-        batteryHierarchy: nextBatteries,
-        batteryBrands: nextBrands
-      };
-    });
+    const current = dropdowns.batteryHierarchy || [];
+    const nextBatteries = [...current, newItem];
+    const nextBrands = dropdowns.batteryBrands?.includes(item.manufacturer)
+      ? dropdowns.batteryBrands
+      : [...(dropdowns.batteryBrands || []), item.manufacturer];
+
+    setDropdowns(prev => ({
+      ...prev,
+      batteryHierarchy: nextBatteries,
+      batteryBrands: nextBrands
+    }));
+
+    await saveHardwareHierarchy({ batteryHierarchy: nextBatteries });
+    await refreshHardwareHierarchy();
+    await refreshDropdowns();
   };
 
   const updateBatteryItem = async (id: string, updated: Partial<BatteryHierarchyItem>) => {
-    setDropdowns(prev => {
-      const current = prev.batteryHierarchy || [];
-      const nextBatteries = current.map(b => (b.id === id ? { ...b, ...updated } : b));
-      saveHardwareHierarchy({ batteryHierarchy: nextBatteries });
-      return {
-        ...prev,
-        batteryHierarchy: nextBatteries
-      };
-    });
+    const current = dropdowns.batteryHierarchy || [];
+    const nextBatteries = current.map(b => (b.id === id ? { ...b, ...updated } : b));
+    setDropdowns(prev => ({
+      ...prev,
+      batteryHierarchy: nextBatteries
+    }));
+
+    await saveHardwareHierarchy({ batteryHierarchy: nextBatteries });
+    await refreshHardwareHierarchy();
+    await refreshDropdowns();
   };
 
   const deleteBatteryItem = async (id: string) => {
-    setDropdowns(prev => {
-      const current = prev.batteryHierarchy || [];
-      const nextBatteries = current.filter(b => b.id !== id);
-      saveHardwareHierarchy({ batteryHierarchy: nextBatteries });
-      return {
-        ...prev,
-        batteryHierarchy: nextBatteries
-      };
-    });
+    const current = dropdowns.batteryHierarchy || [];
+    const nextBatteries = current.filter(b => b.id !== id);
+    setDropdowns(prev => ({
+      ...prev,
+      batteryHierarchy: nextBatteries
+    }));
+
+    await saveHardwareHierarchy({ batteryHierarchy: nextBatteries });
+    await refreshHardwareHierarchy();
+    await refreshDropdowns();
   };
 
   const batchImportHardware = async (
@@ -4426,6 +5351,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       batteryHierarchy: nextBatteries
     });
 
+    await refreshHardwareHierarchy();
+    await refreshDropdowns();
+
     return {
       panelsCount: nextPanels.length,
       invertersCount: nextInverters.length,
@@ -4450,6 +5378,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       inverterHierarchy: defaultInverters,
       batteryHierarchy: defaultBatteries
     });
+
+    await refreshHardwareHierarchy();
+    await refreshDropdowns();
   };
 
   // Connected Domains (Employees authentication whitelist)
@@ -4629,7 +5560,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     batteryBrands: 'Battery Storage Brands',
     leadSources: 'Lead Sources & Channels',
     roofTypes: 'Roof Types & Mounting Profiles',
-    projectStatuses: 'Project Pipeline Stages',
+    projectStatuses: 'Project Status',
     ticketCategories: 'Support & Post-Install Issue Categories',
     ticketPriorities: 'Ticket Priority Levels',
     dnspsNSW: 'NSW Electricity Distribution Networks (DNSPs)',
@@ -4638,15 +5569,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     referralPaymentStatuses: 'Referral Bonus Payment Statuses',
     houseStoreys: 'House Storey (Single, Double, Triple, Split Level)',
     phases: 'Electrical Grid Phase (Single Phase, Three Phase)',
+    areas: 'Property Region / Area (Metro, Regional, Rural, Remote)',
     docsReceivedOptions: 'Documentation Received Status (Docs Received?)',
     existingSystemTemplates: 'Existing System Details Presets',
 
     // Project Dropdowns
-    projectStages: 'Project Stages (Project Stage)',
+    projectStages: 'Project Stage/ Installation Status',
     electricityDistributors: 'Electricity Distributors / DNSPs',
     energyRetailers: 'Energy Retailers',
     gridApplicationStatuses: 'Grid Application Statuses',
-    installationStatuses: 'Installation Statuses',
+    installers: 'Accredited Subcontractor Installers (CEC Certified)',
     installationBookedByOptions: 'Installation Booked By Options',
     installationMonths: 'Installation Completed Months',
     installationDocsStatuses: 'Installation Documents Statuses',
@@ -4691,42 +5623,121 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
 
   const resolveDropdownKey = (categoryKey: string): keyof DynamicDropdownConfig => {
+    if (categoryKey === 'installationStatuses' || categoryKey === 'installation_statuses') {
+      return 'projectStages';
+    }
     if (categoryKey in dropdownCategoryLabels) {
       return categoryKey as keyof DynamicDropdownConfig;
     }
     const camel = categoryKey.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase()) as keyof DynamicDropdownConfig;
+    if (camel === 'installationStatuses') return 'projectStages';
     if (camel in dropdownCategoryLabels) {
       return camel;
     }
     return 'panelBrands';
   };
 
-  const addDropdownOption = (categoryKey: string, value: string) => {
+  const addDropdownOption = async (categoryKey: string, value: string) => {
     const key = resolveDropdownKey(categoryKey);
-    addDropdownItem(key, value);
+    await addDropdownItem(key, value);
+    await refreshDropdowns();
   };
 
-  const removeDropdownOption = (categoryKey: string, value: string) => {
+  const removeDropdownOption = async (categoryKey: string, value: string) => {
     const key = resolveDropdownKey(categoryKey);
-    removeDropdownItem(key, value);
+    await removeDropdownItem(key, value);
+    await refreshDropdowns();
   };
 
-  const batchImportDropdowns = (
+  const batchImportDropdowns = async (
     summary: DropdownImportSummary,
     mode: 'merge' | 'replace' = 'merge'
   ) => {
     let result = { addedCount: 0, updatedCount: 0, deletedCount: 0, categoriesModified: 0 };
-    setDropdowns(prev => {
-      const outcome = applyDropdownImport(prev, summary, mode);
-      result = {
-        addedCount: outcome.addedCount,
-        updatedCount: outcome.updatedCount,
-        deletedCount: outcome.deletedCount,
-        categoriesModified: outcome.categoriesModified
-      };
-      return outcome.updatedDropdowns;
-    });
+    const outcome = applyDropdownImport(dropdowns, summary, mode);
+    result = {
+      addedCount: outcome.addedCount,
+      updatedCount: outcome.updatedCount,
+      deletedCount: outcome.deletedCount,
+      categoriesModified: outcome.categoriesModified
+    };
+    setDropdowns(outcome.updatedDropdowns);
+    try {
+      localStorage.setItem('solar_dropdowns', JSON.stringify(outcome.updatedDropdowns));
+    } catch (e) {}
+    await syncDropdownsToBackend(outcome.updatedDropdowns);
+    await refreshDropdowns();
     return result;
+  };
+
+  // Dropdown Field-to-Category Mappings State & Engine
+  const [dropdownMappings, setDropdownMappings] = useState<Record<string, string>>(() => {
+    const saved = localStorage.getItem('solar_dropdown_mappings');
+    if (saved) {
+      try {
+        return {
+          ...DEFAULT_DROPDOWN_MAPPINGS,
+          ...JSON.parse(saved)
+        };
+      } catch (e) {
+        console.warn('Error parsing solar_dropdown_mappings:', e);
+      }
+    }
+    return { ...DEFAULT_DROPDOWN_MAPPINGS };
+  });
+
+  const [isMappingModalOpen, setIsMappingModalOpen] = useState(false);
+  const [mappingModalSectionId, setMappingModalSectionId] = useState<string | null>(null);
+
+  const openMappingModal = (sectionId?: string) => {
+    setMappingModalSectionId(sectionId || null);
+    setIsMappingModalOpen(true);
+  };
+
+  const closeMappingModal = () => {
+    setIsMappingModalOpen(false);
+    setMappingModalSectionId(null);
+  };
+
+  const updateDropdownMapping = (fieldKey: string, categoryKey: string) => {
+    setDropdownMappings(prev => {
+      const updated = { ...prev, [fieldKey]: categoryKey };
+      try {
+        localStorage.setItem('solar_dropdown_mappings', JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
+  };
+
+  const batchUpdateDropdownMappings = (mappings: Record<string, string>) => {
+    setDropdownMappings(prev => {
+      const updated = { ...prev, ...mappings };
+      try {
+        localStorage.setItem('solar_dropdown_mappings', JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
+  };
+
+  const resetDropdownMappings = () => {
+    setDropdownMappings({ ...DEFAULT_DROPDOWN_MAPPINGS });
+    try {
+      localStorage.setItem('solar_dropdown_mappings', JSON.stringify(DEFAULT_DROPDOWN_MAPPINGS));
+    } catch (e) {}
+  };
+
+  const getMappedCategoryKey = (fieldKey: string): string => {
+    return dropdownMappings[fieldKey] || DEFAULT_DROPDOWN_MAPPINGS[fieldKey] || fieldKey;
+  };
+
+  const getMappedDropdownOptions = (fieldKey: string, fallback?: string[]): string[] => {
+    const categoryKey = getMappedCategoryKey(fieldKey);
+    const rawVal = (dropdowns as any)?.[categoryKey];
+    if (Array.isArray(rawVal) && rawVal.length > 0) {
+      return rawVal.map((x: any) => typeof x === 'string' ? x : x.name || x.model || String(x));
+    }
+    if (fallback && fallback.length > 0) return fallback;
+    return [];
   };
 
   return (
@@ -4818,6 +5829,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         deleteLeads,
         deleteDummyLeads,
         clearAllLeads,
+        clearAllSystemData,
         importSheetCsv,
         convertLeadToProject,
         syncGoogleSheetLeads,
@@ -4842,11 +5854,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateProject,
         updateProjectStatus,
         uploadProjectPhoto,
+        deleteProject,
+        deleteProjects,
 
         tickets,
         addTicket,
         updateTicket,
         updateTicketStatus,
+        deleteTicket,
+        deleteTickets,
 
         maintenanceRecords,
         sendMaintenanceNotification,
@@ -4884,6 +5900,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addDropdownOption,
         removeDropdownOption,
         batchImportDropdowns,
+
+        // Dropdown Field-to-Category Mappings
+        dropdownMappings,
+        updateDropdownMapping,
+        batchUpdateDropdownMappings,
+        resetDropdownMappings,
+        getMappedCategoryKey,
+        getMappedDropdownOptions,
+        isMappingModalOpen,
+        mappingModalSectionId,
+        openMappingModal,
+        closeMappingModal,
 
         // Hardware Cascades (Panels, Inverters, Batteries)
         saveHardwareHierarchy,
@@ -4952,7 +5980,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         createLeadXeroInvoice,
         generateLeadXeroReceipt,
         xeroPaymentReceipts,
-        addCustomerUpload
+        addCustomerUpload,
+
+        // Supabase Settings & Integrations Database Persistence
+        supabaseSettingsStatus,
+        syncAllSettingsToSupabase
       }}
     >
       {children}

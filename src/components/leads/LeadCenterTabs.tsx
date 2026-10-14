@@ -266,23 +266,34 @@ export const LeadCenterTabs: React.FC<LeadCenterTabsProps> = ({
                 <div className="flex items-center justify-between border-b border-[#222] pb-2">
                   <span className="text-xs font-semibold text-gray-300 flex items-center gap-1.5">
                     <Sun className="w-3.5 h-3.5 text-amber-400" />
-                    Hardware Specs (Section 4B)
+                    Hardware Specs (Section 6)
                   </span>
                   <span className="text-[10px] font-bold font-mono text-[#bef264] px-1.5 py-0.5 rounded bg-[#bef26415] border border-[#bef26430]">
-                    {formData.systemSizeKw} kW
+                    {(() => {
+                      const kw = (formData.systemSizeKw && Number(formData.systemSizeKw) > 0)
+                        ? Number(formData.systemSizeKw)
+                        : (Number(formData.noOfPanels) > 0 && Number(formData.panelSizeW) > 0)
+                        ? Math.round((Number(formData.noOfPanels) * Number(formData.panelSizeW) / 1000) * 100) / 100
+                        : 0;
+                      return `${kw} kW`;
+                    })()}
                   </span>
                 </div>
                 <div className="space-y-1.5 text-xs">
                   <div className="flex items-center justify-between">
                     <span className="text-gray-400">Panels:</span>
                     <span className="text-gray-200 font-medium truncate max-w-[180px]">
-                      {formData.noOfPanels}x {formData.panelManufacturer} {formData.panelSizeW}W
+                      {formData.noOfPanels || formData.panelManufacturer
+                        ? `${formData.noOfPanels || 0}x ${formData.panelManufacturer || ''} ${formData.panelSizeW ? `${formData.panelSizeW}W` : ''}`.trim()
+                        : 'Not Set'}
                     </span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-gray-400">Inverter:</span>
                     <span className="text-gray-200 font-medium truncate max-w-[180px]">
-                      {formData.noOfInverters}x {formData.inverterManufacturer} ({formData.inverterSizeKw}kW)
+                      {formData.inverterManufacturer || formData.inverterModel
+                        ? `${formData.noOfInverters || 1}x ${formData.inverterManufacturer || ''} ${formData.inverterSizeKw ? `(${formData.inverterSizeKw}kW)` : ''}`.trim()
+                        : 'Not Set'}
                     </span>
                   </div>
                   <div className="flex items-center justify-between">

@@ -30,6 +30,7 @@ import { WhatsAppSettingsModal } from '../modals/WhatsAppSettingsModal';
 import { VoIPLineSettingsModal } from '../modals/VoIPLineSettingsModal';
 import { MetaAdsSettingsModal } from '../modals/MetaAdsSettingsModal';
 import { TeamsSettingsModal } from '../modals/TeamsSettingsModal';
+import { SupabaseSettingsSyncBanner } from '../settings/SupabaseSettingsSyncBanner';
 
 export const IntegrationsView: React.FC = () => {
   const { integrations = [], toggleIntegration, themeMode } = useApp();
@@ -199,6 +200,9 @@ export const IntegrationsView: React.FC = () => {
           Connected: <strong className={isLight ? 'text-slate-900' : 'text-white'}>{safeIntegrations.filter(i => i.enabled).length} / {safeIntegrations.length} Services</strong>
         </div>
       </div>
+
+      {/* Supabase Database Cloud Persistence Banner */}
+      <SupabaseSettingsSyncBanner />
 
       {/* Integrations Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

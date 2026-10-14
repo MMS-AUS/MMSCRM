@@ -449,6 +449,24 @@ export const ApiKeysSettingsTab: React.FC = () => {
     }
   };
 
+  const copyFinancialSql = async () => {
+    try {
+      const res = await fetch('/api/system/financial-migration-sql');
+      const data = await res.json();
+      if (data.success && data.sql) {
+        await navigator.clipboard.writeText(data.sql);
+        setCopiedKey('financial_sql_migration');
+        setTimeout(() => setCopiedKey(null), 2500);
+        setFeedback({
+          type: 'success',
+          message: 'Deposit (AUD), Deposit Received Date, Sale Date & System Price SQL migration copied to clipboard! Paste into Supabase SQL Editor and click Run.'
+        });
+      }
+    } catch (err: any) {
+      setFeedback({ type: 'error', message: 'Failed to copy SQL: ' + err.message });
+    }
+  };
+
   useEffect(() => {
     loadCredentials();
     loadSchemaSql();
@@ -999,6 +1017,20 @@ export const ApiKeysSettingsTab: React.FC = () => {
                   <Copy className="w-4 h-4" />
                 )}
                 <span>{copiedKey === 'master_sql_schema' ? 'Copied Master SQL!' : 'Copy Master SQL'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={copyFinancialSql}
+                className="flex items-center gap-1.5 px-3.5 py-2 bg-[#bef264] hover:bg-[#a6db4d] text-slate-950 rounded-xl text-xs font-bold transition-all shadow-xs"
+                title="Copy focused SQL to add deposit_aud, deposit_received_date, sale_date and system_price_aud"
+              >
+                {copiedKey === 'financial_sql_migration' ? (
+                  <Check className="w-4 h-4 text-slate-950" />
+                ) : (
+                  <Copy className="w-4 h-4" />
+                )}
+                <span>{copiedKey === 'financial_sql_migration' ? 'Copied Deposit & Date SQL!' : 'Copy Deposit & Date SQL'}</span>
               </button>
 
               <button

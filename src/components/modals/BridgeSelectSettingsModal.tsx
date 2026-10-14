@@ -569,7 +569,7 @@ export const BridgeSelectSettingsModal: React.FC<BridgeSelectSettingsModalProps>
                 <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg text-xs text-blue-300 flex items-start gap-2">
                   <Info className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
                   <span>
-                    <strong>Automated Status Trigger:</strong> When any job's installation status updates to <strong className="text-white">"Booked"</strong>, the CRM automatically validates required STC fields and pushes the record to BridgeSelect in the background.
+                    <strong>Automated Status Trigger:</strong> When any job's Project Stage/ Installation Status updates to <strong className="text-white">"Booked"</strong>, the CRM automatically validates required STC fields and pushes the record to BridgeSelect in the background.
                   </span>
                 </div>
               </div>

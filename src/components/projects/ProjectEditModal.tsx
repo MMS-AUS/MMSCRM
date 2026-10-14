@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Project, AustralianState, LeadActivity, LeadAttachment, CustomerPortalCredentials, ProjectStatus } from '../../types';
+import { ALL_PROJECT_STATUSES, normalizeProjectStatus } from '../../utils/statusUtils';
 import {
   formatAudAccounts,
   formatAudNumber,
@@ -30,7 +31,10 @@ import {
   Send,
   AlertTriangle,
   AlertCircle,
-  RefreshCw
+  RefreshCw,
+  Loader2,
+  Trash2,
+  SlidersHorizontal
 } from 'lucide-react';
 import { pushJobToBridgeSelect } from '../../services/bridgeSelectService';
 import { ProjectDetailsLeftPanel, ProjectFormData } from './ProjectDetailsLeftPanel';
@@ -53,6 +57,7 @@ export const ProjectEditModal: React.FC<ProjectEditModalProps> = ({
     addProject,
     updateProject,
     updateProjectStatus,
+    deleteProject,
     leads,
     addLeadActivity,
     toggleLeadActivityTask,
@@ -64,6 +69,9 @@ export const ProjectEditModal: React.FC<ProjectEditModalProps> = ({
 
   const isLight = themeMode === 'corporate-slate';
   const isEditing = Boolean(project);
+  const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
+  const [isFetchingFromDb, setIsFetchingFromDb] = useState(false);
+  const [dbSynced, setDbSynced] = useState(false);
 
   // BridgeSelect STC Connector Integration State
   const [bridgeselectSyncStatus, setBridgeselectSyncStatus] = useState<string>(
@@ -84,6 +92,7 @@ export const ProjectEditModal: React.FC<ProjectEditModalProps> = ({
     amount: '0.00',
     projectCreatedDate: '',
     projectClosedDate: '',
+    projectStatus: 'Active',
     projectStage: 'Site Survey',
 
     // Section 1: Customer & Sales
@@ -219,174 +228,251 @@ export const ProjectEditModal: React.FC<ProjectEditModalProps> = ({
   const [xeroInvoiceNumber, setXeroInvoiceNumber] = useState<string>('');
   const [xeroReceiptNumber, setXeroReceiptNumber] = useState<string>('');
   const [xeroNotice, setXeroNotice] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
+  const [saveErrorMsg, setSaveErrorMsg] = useState<string | null>(null);
 
   // Synchronize when project opens or changes
+  const applyProjectToState = (targetProject: Project) => {
+    // Find corresponding lead if any
+    const matchingLead = leads.find(l => 
+      l.id === targetProject.id || 
+      l.id === (targetProject as any).leadId || 
+      (targetProject.leadId && (l.id === targetProject.leadId || (l as any).originalId === targetProject.leadId)) ||
+      (targetProject.projectNumber && l.projectNumber === targetProject.projectNumber) ||
+      (targetProject.projectCode && l.projectNumber === targetProject.projectCode) ||
+      (targetProject.customerEmail && l.email && targetProject.customerEmail.toLowerCase() === l.email.toLowerCase())
+    );
+
+    const resolvedSellingPrice = targetProject.sellingPrice !== undefined
+      ? (typeof targetProject.sellingPrice === 'number' ? formatAudNumber(targetProject.sellingPrice) : stripDollarSign(String(targetProject.sellingPrice)))
+      : targetProject.contractValueAud !== undefined
+      ? formatAudNumber(targetProject.contractValueAud)
+      : matchingLead?.sellingPrice
+      ? formatAudNumber(matchingLead.sellingPrice)
+      : '10,500.00';
+
+    const resolvedSystemPrice = targetProject.systemPrice !== undefined
+      ? (typeof targetProject.systemPrice === 'number' ? formatAudNumber(targetProject.systemPrice) : stripDollarSign(String(targetProject.systemPrice)))
+      : matchingLead?.systemPrice
+      ? formatAudNumber(matchingLead.systemPrice)
+      : '14,500.00';
+
+    const resolvedDeposit = targetProject.deposit !== undefined
+      ? (typeof targetProject.deposit === 'number' ? formatAudNumber(targetProject.deposit) : stripDollarSign(String(targetProject.deposit)))
+      : matchingLead?.deposit
+      ? formatAudNumber(matchingLead.deposit)
+      : '1,000.00';
+
+    const calcBal = Math.max(0, parseAudAccounts(resolvedSellingPrice) - parseAudAccounts(resolvedDeposit));
+    const resolvedBalancePayable = targetProject.balancePayable ? stripDollarSign(targetProject.balancePayable) : formatAudNumber(calcBal);
+
+    setFormData({
+      // Top section
+      projectNumber: targetProject.projectNumber || targetProject.projectCode || matchingLead?.projectNumber || 'PRJ-2026-001',
+      amount: resolvedSellingPrice, // Locked, auto-populated from Selling Price AUD
+      projectCreatedDate: targetProject.projectCreatedDate || (targetProject as any).createdAt?.split('T')[0] || new Date().toISOString().split('T')[0],
+      projectClosedDate: targetProject.projectClosedDate || (targetProject.installationStatus === 'Closed' ? new Date().toISOString().split('T')[0] : ''),
+      projectStatus: targetProject.projectStatus || 'Active',
+      projectStage: targetProject.projectStage || targetProject.status || 'Site Survey',
+
+      // Section 1: Customer & Sales
+      salesPersonName: targetProject.salesPersonName || matchingLead?.salesPersonName || 'Mitchell Barnes',
+      state: targetProject.state || matchingLead?.state || 'NSW',
+      postcode: targetProject.postcode || matchingLead?.postcode || '2000',
+      area: targetProject.area || matchingLead?.area || 'Metro',
+      nearestBigCity: targetProject.nearestBigCity || matchingLead?.nearestBigCity || 'Sydney',
+      saleDate: targetProject.saleDate || matchingLead?.saleDate || '',
+      firstName: targetProject.firstName || matchingLead?.firstName || targetProject.customerName?.split(' ')[0] || '',
+      lastName: targetProject.lastName || matchingLead?.lastName || targetProject.customerName?.split(' ').slice(1).join(' ') || '',
+      managerRenteeFirstName: targetProject.managerRenteeFirstName || matchingLead?.managerRenteeFirstName || '',
+      managerRenteeLastName: targetProject.managerRenteeLastName || matchingLead?.managerRenteeLastName || '',
+      address: targetProject.address || matchingLead?.address || '',
+      suburb: targetProject.suburb || matchingLead?.suburb || 'Sydney',
+      primaryMobile: targetProject.primaryMobile || targetProject.customerPhone || matchingLead?.primaryMobile || '',
+      secondaryMobile: targetProject.secondaryMobile || matchingLead?.secondaryMobile || '',
+      email: targetProject.email || targetProject.customerEmail || matchingLead?.email || '',
+      salesTeamNotes: targetProject.salesTeamNotes || matchingLead?.salesTeamNotes || '',
+      systemPrice: resolvedSystemPrice,
+      sellingPrice: resolvedSellingPrice,
+      deposit: resolvedDeposit,
+      depositReceivedDate: targetProject.depositReceivedDate || matchingLead?.depositReceivedDate || '',
+
+      // Section 2: Technical Specs & Hardware
+      systemSizeKw: (() => {
+        const raw = targetProject.systemSizeKw ?? (targetProject as any).system_size ?? (targetProject as any).system_size_kw ?? matchingLead?.systemSizeKw ?? (matchingLead as any)?.system_size ?? (matchingLead as any)?.system_size_kw;
+        if (raw !== undefined && raw !== null && raw !== '') {
+          const num = typeof raw === 'number' ? raw : parseFloat(String(raw).replace(/[^0-9.]/g, ''));
+          if (!isNaN(num) && num > 0) return num;
+        }
+        const pCount = Number(targetProject.noOfPanels || matchingLead?.noOfPanels) || 0;
+        const pSize = Number(targetProject.panelSizeW || matchingLead?.panelSizeW) || 0;
+        if (pCount > 0 && pSize > 0) {
+          return Math.round((pCount * pSize / 1000) * 100) / 100;
+        }
+        return 6.65;
+      })(),
+      noOfPanels: String(targetProject.noOfPanels || matchingLead?.noOfPanels || '14'),
+      panelManufacturer: targetProject.panelManufacturer || (targetProject as any).panelsBrand || targetProject.panelBrand || matchingLead?.panelManufacturer || 'LONGi Green Energy Technology Co Ltd',
+      panelSizeW: String(targetProject.panelSizeW || matchingLead?.panelSizeW || '475'),
+      panelSeries: targetProject.panelSeries || matchingLead?.panelSeries || 'LR7',
+      panelModel: targetProject.panelModel || matchingLead?.panelModel || 'LR7-54HTH-475M (IEC 61215-2021)',
+      noOfInverters: String(targetProject.noOfInverters || matchingLead?.noOfInverters || '1'),
+      inverterManufacturer: targetProject.inverterManufacturer || (targetProject as any).inverter_manufacturer || targetProject.inverterBrand || matchingLead?.inverterManufacturer || (matchingLead as any)?.inverter_manufacturer || 'SolaX Power Network Technology (Zhe jiang) Co Ltd',
+      inverterSizeKw: (() => {
+        const rawSize = targetProject.inverterSizeKw ?? (targetProject as any).inverter_size_kw ?? matchingLead?.inverterSizeKw ?? (matchingLead as any)?.inverter_size_kw;
+        if (rawSize !== undefined && rawSize !== null && rawSize !== '') {
+          const num = typeof rawSize === 'number' ? rawSize : parseFloat(String(rawSize).replace(/[^0-9.]/g, ''));
+          if (!isNaN(num) && num > 0) return String(num);
+        }
+        const model = targetProject.inverterModel || matchingLead?.inverterModel || '';
+        if (model) {
+          const match = String(model).match(/(?:-|\b|_)([0-9]+(?:\.[0-9]+)?)\s*(?:k|kw|rt|rs|ktl)?\b/i);
+          if (match && match[1]) {
+            const val = parseFloat(match[1]);
+            if (!isNaN(val) && val >= 1 && val <= 250) return String(val);
+          }
+        }
+        return '5';
+      })(),
+      inverterSeries: (targetProject as any).inverterSeries || (targetProject as any).inverter_series || matchingLead?.inverterSeries || (matchingLead as any)?.inverter_series || 'X1-BOOST G4',
+      inverterModel: targetProject.inverterModel || (targetProject as any).inverter_model || matchingLead?.inverterModel || (matchingLead as any)?.inverter_model || 'X1-BOOST-5K-G4 (AS4777-2 2020)',
+      noOfBatteries: String(targetProject.noOfBatteries || matchingLead?.noOfBatteries || (targetProject.batteryBrand ? '1' : '0')),
+      batteryManufacturer: targetProject.batteryManufacturer || targetProject.batteryBrand || matchingLead?.batteryManufacturer || '',
+      usableCapacity: String(targetProject.usableCapacity || ''),
+      batteryModel: targetProject.batteryModel || '',
+      batterySize: targetProject.batterySize || '',
+      houseStorey: targetProject.houseStorey || matchingLead?.houseStorey || 'Single Storey',
+      roofType: targetProject.roofType || matchingLead?.roofType || 'Colorbond / Metal Sheet',
+      phase: targetProject.phase || matchingLead?.phase || 'Single Phase',
+      existingSystemDetails: targetProject.existingSystemDetails || matchingLead?.existingSystemDetails || 'No existing solar installed (Brand new installation)',
+      docsReceived: targetProject.docsReceived || 'Yes',
+      docsReceivedDate: targetProject.docsReceivedDate || '',
+
+      // Section 3: EB & Meter Checklist
+      q1CustomerNameMatch: targetProject.q1CustomerNameMatch || 'Yes',
+      q2AddressMatch: targetProject.q2AddressMatch || 'Yes',
+      q3MeterMatch: targetProject.q3MeterMatch || 'Yes',
+      q4MeterPhase: targetProject.q4MeterPhase || 'Single Phase',
+      q5OpenSolarSystemMatch: targetProject.q5OpenSolarSystemMatch || 'Yes',
+      q6OpenSolarPricingMatch: targetProject.q6OpenSolarPricingMatch || 'Yes',
+
+      // Section 4: Grid Application
+      nmi: targetProject.nmi || '41020000001',
+      electricityDistributor: targetProject.electricityDistributor || targetProject.dnsp || 'Ausgrid',
+      gridAppRef: targetProject.gridAppRef || 'DNSP-APP-001',
+      energyRetailer: targetProject.energyRetailer || 'Origin Energy',
+      retailerRef: targetProject.retailerRef || 'RET-001',
+      gridAppStatus: targetProject.gridAppStatus || 'Grid App Approved',
+      gridAppliedDate: targetProject.gridAppliedDate || '',
+      gridRejectedDate: targetProject.gridRejectedDate || '',
+      gridApprovalDate: targetProject.gridApprovalDate || '',
+
+      // Section 5: Installation Details
+      installationDate: targetProject.installationDate || '',
+      installationStatus: targetProject.installationStatus || 'Booked / Scheduled',
+      installationBookingDate: targetProject.installationBookingDate || '',
+      installationBookedBy: targetProject.installationBookedBy || 'Operations Manager',
+      installationCompletedMonth: targetProject.installationCompletedMonth || 'March 2026',
+      installationDocsStatus: targetProject.installationDocsStatus || 'Pending',
+      installationDocsReceivedDate: targetProject.installationDocsReceivedDate || '',
+      installerName: targetProject.installerName || 'Direct Solar Contractors NSW',
+      installerInvoiceDate: targetProject.installerInvoiceDate || '',
+      installerInvoiceNumber: targetProject.installerInvoiceNumber || 'INST-INV-101',
+      installerInvoiceAmount: targetProject.installerInvoiceAmount ? formatAudAccounts(targetProject.installerInvoiceAmount) : '$1,850.00',
+      installerInvoiceStatus: targetProject.installerInvoiceStatus || 'Pending Approval',
+      customerInvoiceNumber: targetProject.customerInvoiceNumber || targetProject.xeroInvoiceNumber || 'INV-2026-081',
+
+      // Section 6: Warehouse Details
+      warehouse: targetProject.warehouse || 'Sydney Central DC (Alexandria)',
+      salesOrderNo: targetProject.salesOrderNo || 'SO-99214',
+      warehouseInvoiceDate: targetProject.warehouseInvoiceDate || '',
+      warehouseInvoiceNumber: targetProject.warehouseInvoiceNumber || 'WH-INV-4410',
+      warehouseInvoiceAmount: targetProject.warehouseInvoiceAmount ? formatAudAccounts(targetProject.warehouseInvoiceAmount) : '$5,400.00',
+      warehouseInvoiceStatus: targetProject.warehouseInvoiceStatus || 'Invoiced',
+      stockStatus: targetProject.stockStatus || 'Allocated to Job',
+      stockUsedProject: targetProject.stockUsedProject || targetProject.projectCode || '',
+      warehouseInvoicePaidDate: targetProject.warehouseInvoicePaidDate || '',
+
+      // Section 7: Financials
+      balancePayable: resolvedBalancePayable,
+      balancePayableDate: targetProject.balancePayableDate || '',
+      remainingPayment: targetProject.remainingPayment ? formatAudAccounts(targetProject.remainingPayment) : resolvedBalancePayable,
+      isOnFinance: targetProject.isOnFinance || 'No (Cash / Direct Payment)',
+      financeCompanyName: targetProject.financeCompanyName || 'Brighte',
+      financeAppliedDate: targetProject.financeAppliedDate || '',
+      financeApprovedDate: targetProject.financeApprovedDate || '',
+      financeApprovedAmount: targetProject.financeApprovedAmount ? formatAudAccounts(targetProject.financeApprovedAmount) : resolvedSellingPrice,
+      financeStatus: targetProject.financeStatus || 'Not Applicable',
+
+      // Section 8: STC Details
+      stcTradedPortal: targetProject.stcTradedPortal || 'BridgeSelect',
+      stcJobNo: targetProject.stcJobNo || 'STC-2026-081',
+      solarStcs: String(targetProject.solarStcs || '66'),
+      solarStcsAmount: targetProject.solarStcsAmount ? formatAudAccounts(targetProject.solarStcsAmount) : '$2,376.00',
+      solarStcReceivedDate: targetProject.solarStcReceivedDate || '',
+      batteryStcs: String(targetProject.batteryStcs || '0'),
+      batteryStcsAmount: targetProject.batteryStcsAmount ? formatAudAccounts(targetProject.batteryStcsAmount) : '$0.00',
+      batteryStcReceivedDate: targetProject.batteryStcReceivedDate || '',
+      totalStcAmountReceived: targetProject.totalStcAmountReceived ? formatAudAccounts(targetProject.totalStcAmountReceived) : '$2,376.00',
+      adminCharges: targetProject.adminCharges || '$150.00',
+      stcStatus: targetProject.stcStatus || 'Approved & Traded',
+      stcSubmittedDate: targetProject.stcSubmittedDate || '',
+
+      // Company
+      hasCompany: targetProject.hasCompany ?? matchingLead?.hasCompany ?? false,
+      companyName: targetProject.companyName || matchingLead?.companyName || '',
+      companyOwner: targetProject.companyOwner || matchingLead?.companyOwner || 'Mitchell Barnes',
+      companyAbn: targetProject.companyAbn || matchingLead?.companyAbn || '',
+      companyPhone: targetProject.companyPhone || matchingLead?.companyPhone || '',
+      companyCity: targetProject.companyCity || matchingLead?.companyCity || 'Sydney',
+      companyCountry: targetProject.companyCountry || 'Australia',
+      companyType: targetProject.companyType || 'Company / Pty Ltd'
+    });
+  };
+
+  const fetchFreshProjectFromDb = async () => {
+    if (!project || !project.id) return;
+    setIsFetchingFromDb(true);
+    try {
+      const res = await fetch(`/api/projects/${encodeURIComponent(project.id)}`);
+      const data = await res.json();
+      if (data && data.success && data.project) {
+        applyProjectToState(data.project);
+        setDbSynced(true);
+      }
+    } catch (err) {
+      console.warn('[ProjectEditModal] Failed to fetch project from Supabase table:', err);
+    } finally {
+      setIsFetchingFromDb(false);
+    }
+  };
+
+  // Populate state on project edit or create, and fetch fresh database data
   useEffect(() => {
+    setIsConfirmingDelete(false);
+    setDbSynced(false);
+    if (!isOpen) return;
+
     if (project) {
-      // Find corresponding lead if any
-      const matchingLead = leads.find(l => l.id === project.leadId || l.projectNumber === project.projectNumber);
+      applyProjectToState(project);
 
-      const resolvedSellingPrice = project.sellingPrice !== undefined
-        ? (typeof project.sellingPrice === 'number' ? formatAudNumber(project.sellingPrice) : stripDollarSign(String(project.sellingPrice)))
-        : project.contractValueAud !== undefined
-        ? formatAudNumber(project.contractValueAud)
-        : matchingLead?.sellingPrice
-        ? formatAudNumber(matchingLead.sellingPrice)
-        : '10,500.00';
-
-      const resolvedSystemPrice = project.systemPrice !== undefined
-        ? (typeof project.systemPrice === 'number' ? formatAudNumber(project.systemPrice) : stripDollarSign(String(project.systemPrice)))
-        : matchingLead?.systemPrice
-        ? formatAudNumber(matchingLead.systemPrice)
-        : '14,500.00';
-
-      const resolvedDeposit = project.deposit !== undefined
-        ? (typeof project.deposit === 'number' ? formatAudNumber(project.deposit) : stripDollarSign(String(project.deposit)))
-        : matchingLead?.deposit
-        ? formatAudNumber(matchingLead.deposit)
-        : '1,000.00';
-
-      const calcBal = Math.max(0, parseAudAccounts(resolvedSellingPrice) - parseAudAccounts(resolvedDeposit));
-      const resolvedBalancePayable = project.balancePayable ? stripDollarSign(project.balancePayable) : formatAudNumber(calcBal);
-
-      setFormData({
-        // Top section
-        projectNumber: project.projectNumber || project.projectCode || matchingLead?.projectNumber || 'PRJ-2026-001',
-        amount: resolvedSellingPrice, // Locked, auto-populated from Selling Price AUD
-        projectCreatedDate: project.projectCreatedDate || project.createdAt?.split('T')[0] || new Date().toISOString().split('T')[0],
-        projectClosedDate: project.projectClosedDate || (project.installationStatus === 'Closed' ? new Date().toISOString().split('T')[0] : ''),
-        projectStage: project.projectStage || project.status || 'Site Survey',
-
-        // Section 1: Customer & Sales
-        salesPersonName: project.salesPersonName || matchingLead?.salesPersonName || 'Mitchell Barnes',
-        state: project.state || matchingLead?.state || 'NSW',
-        postcode: project.postcode || matchingLead?.postcode || '2000',
-        area: project.area || matchingLead?.area || 'Metro',
-        nearestBigCity: project.nearestBigCity || matchingLead?.nearestBigCity || 'Sydney',
-        saleDate: project.saleDate || matchingLead?.saleDate || '',
-        firstName: project.firstName || matchingLead?.firstName || project.customerName?.split(' ')[0] || '',
-        lastName: project.lastName || matchingLead?.lastName || project.customerName?.split(' ').slice(1).join(' ') || '',
-        managerRenteeFirstName: project.managerRenteeFirstName || matchingLead?.managerRenteeFirstName || '',
-        managerRenteeLastName: project.managerRenteeLastName || matchingLead?.managerRenteeLastName || '',
-        address: project.address || matchingLead?.address || '',
-        suburb: project.suburb || matchingLead?.suburb || 'Sydney',
-        primaryMobile: project.primaryMobile || project.customerPhone || matchingLead?.primaryMobile || '',
-        secondaryMobile: project.secondaryMobile || matchingLead?.secondaryMobile || '',
-        email: project.email || project.customerEmail || matchingLead?.email || '',
-        salesTeamNotes: project.salesTeamNotes || matchingLead?.salesTeamNotes || '',
-        systemPrice: resolvedSystemPrice,
-        sellingPrice: resolvedSellingPrice,
-        deposit: resolvedDeposit,
-        depositReceivedDate: project.depositReceivedDate || matchingLead?.depositReceivedDate || '',
-
-        // Section 2: Technical Specs & Hardware
-        systemSizeKw: project.systemSizeKw || matchingLead?.systemSizeKw || 6.6,
-        noOfPanels: String(project.noOfPanels || matchingLead?.noOfPanels || '15'),
-        panelManufacturer: project.panelManufacturer || project.panelsBrand || matchingLead?.panelManufacturer || 'AIKO Solar',
-        panelSizeW: String(project.panelSizeW || '440'),
-        panelSeries: project.panelSeries || 'Neostar 2S+',
-        panelModel: project.panelModel || 'AIKO-A440-MAH54Mb',
-        noOfInverters: String(project.noOfInverters || matchingLead?.noOfInverters || '1'),
-        inverterManufacturer: project.inverterManufacturer || project.inverterBrand || matchingLead?.inverterManufacturer || 'Sungrow',
-        inverterSizeKw: String(project.inverterSizeKw || '5.0'),
-        inverterModel: project.inverterModel || 'SG5.0RS-ADA Single Phase',
-        noOfBatteries: String(project.noOfBatteries || matchingLead?.noOfBatteries || (project.batteryBrand ? '1' : '0')),
-        batteryManufacturer: project.batteryManufacturer || project.batteryBrand || matchingLead?.batteryManufacturer || '',
-        usableCapacity: String(project.usableCapacity || ''),
-        batteryModel: project.batteryModel || '',
-        batterySize: project.batterySize || '',
-        houseStorey: project.houseStorey || matchingLead?.houseStorey || 'Single Storey',
-        roofType: project.roofType || matchingLead?.roofType || 'Colorbond / Metal Sheet',
-        phase: project.phase || matchingLead?.phase || 'Single Phase',
-        existingSystemDetails: project.existingSystemDetails || matchingLead?.existingSystemDetails || 'No existing solar installed (Brand new installation)',
-        docsReceived: project.docsReceived || 'Yes',
-        docsReceivedDate: project.docsReceivedDate || '',
-
-        // Section 3: EB & Meter Checklist
-        q1CustomerNameMatch: project.q1CustomerNameMatch || 'Yes',
-        q2AddressMatch: project.q2AddressMatch || 'Yes',
-        q3MeterMatch: project.q3MeterMatch || 'Yes',
-        q4MeterPhase: project.q4MeterPhase || 'Single Phase',
-        q5OpenSolarSystemMatch: project.q5OpenSolarSystemMatch || 'Yes',
-        q6OpenSolarPricingMatch: project.q6OpenSolarPricingMatch || 'Yes',
-
-        // Section 4: Grid Application
-        nmi: project.nmi || '41020000001',
-        electricityDistributor: project.electricityDistributor || project.dnsp || 'Ausgrid',
-        gridAppRef: project.gridAppRef || 'DNSP-APP-001',
-        energyRetailer: project.energyRetailer || 'Origin Energy',
-        retailerRef: project.retailerRef || 'RET-001',
-        gridAppStatus: project.gridAppStatus || 'Grid App Approved',
-        gridAppliedDate: project.gridAppliedDate || '',
-        gridRejectedDate: project.gridRejectedDate || '',
-        gridApprovalDate: project.gridApprovalDate || '',
-
-        // Section 5: Installation Details
-        installationDate: project.installationDate || '',
-        installationStatus: project.installationStatus || 'Booked / Scheduled',
-        installationBookingDate: project.installationBookingDate || '',
-        installationBookedBy: project.installationBookedBy || 'Operations Manager',
-        installationCompletedMonth: project.installationCompletedMonth || 'March 2026',
-        installationDocsStatus: project.installationDocsStatus || 'Pending',
-        installationDocsReceivedDate: project.installationDocsReceivedDate || '',
-        installerName: project.installerName || 'Direct Solar Contractors NSW',
-        installerInvoiceDate: project.installerInvoiceDate || '',
-        installerInvoiceNumber: project.installerInvoiceNumber || 'INST-INV-101',
-        installerInvoiceAmount: project.installerInvoiceAmount ? formatAudAccounts(project.installerInvoiceAmount) : '$1,850.00',
-        installerInvoiceStatus: project.installerInvoiceStatus || 'Pending Approval',
-        customerInvoiceNumber: project.customerInvoiceNumber || project.xeroInvoiceNumber || 'INV-2026-081',
-
-        // Section 6: Warehouse Details
-        warehouse: project.warehouse || 'Sydney Central DC (Alexandria)',
-        salesOrderNo: project.salesOrderNo || 'SO-99214',
-        warehouseInvoiceDate: project.warehouseInvoiceDate || '',
-        warehouseInvoiceNumber: project.warehouseInvoiceNumber || 'WH-INV-4410',
-        warehouseInvoiceAmount: project.warehouseInvoiceAmount ? formatAudAccounts(project.warehouseInvoiceAmount) : '$5,400.00',
-        warehouseInvoiceStatus: project.warehouseInvoiceStatus || 'Invoiced',
-        stockStatus: project.stockStatus || 'Allocated to Job',
-        stockUsedProject: project.stockUsedProject || project.projectCode || '',
-        warehouseInvoicePaidDate: project.warehouseInvoicePaidDate || '',
-
-        // Section 7: Financials
-        balancePayable: resolvedBalancePayable,
-        balancePayableDate: project.balancePayableDate || '',
-        remainingPayment: project.remainingPayment ? formatAudAccounts(project.remainingPayment) : resolvedBalancePayable,
-        isOnFinance: project.isOnFinance || 'No (Cash / Direct Payment)',
-        financeCompanyName: project.financeCompanyName || 'Brighte',
-        financeAppliedDate: project.financeAppliedDate || '',
-        financeApprovedDate: project.financeApprovedDate || '',
-        financeApprovedAmount: project.financeApprovedAmount ? formatAudAccounts(project.financeApprovedAmount) : resolvedSellingPrice,
-        financeStatus: project.financeStatus || 'Not Applicable',
-
-        // Section 8: STC Details
-        stcTradedPortal: project.stcTradedPortal || 'BridgeSelect',
-        stcJobNo: project.stcJobNo || 'STC-2026-081',
-        solarStcs: String(project.solarStcs || '66'),
-        solarStcsAmount: project.solarStcsAmount ? formatAudAccounts(project.solarStcsAmount) : '$2,376.00',
-        solarStcReceivedDate: project.solarStcReceivedDate || '',
-        batteryStcs: String(project.batteryStcs || '0'),
-        batteryStcsAmount: project.batteryStcsAmount ? formatAudAccounts(project.batteryStcsAmount) : '$0.00',
-        batteryStcReceivedDate: project.batteryStcReceivedDate || '',
-        totalStcAmountReceived: project.totalStcAmountReceived ? formatAudAccounts(project.totalStcAmountReceived) : '$2,376.00',
-        adminCharges: project.adminCharges || '$150.00',
-        stcStatus: project.stcStatus || 'Approved & Traded',
-        stcSubmittedDate: project.stcSubmittedDate || '',
-
-        // Company
-        hasCompany: project.hasCompany ?? matchingLead?.hasCompany ?? false,
-        companyName: project.companyName || matchingLead?.companyName || '',
-        companyOwner: project.companyOwner || matchingLead?.companyOwner || 'Mitchell Barnes',
-        companyAbn: project.companyAbn || matchingLead?.companyAbn || '',
-        companyPhone: project.companyPhone || matchingLead?.companyPhone || '',
-        companyCity: project.companyCity || matchingLead?.companyCity || 'Sydney',
-        companyCountry: project.companyCountry || 'Australia',
-        companyType: project.companyType || 'Company / Pty Ltd'
-      });
-
-      // Populate default attachments if none
+      if (project.id) {
+        setIsFetchingFromDb(true);
+        fetch(`/api/projects/${encodeURIComponent(project.id)}`)
+          .then(res => res.json())
+          .then(data => {
+            if (data && data.success && data.project) {
+              applyProjectToState(data.project);
+              setDbSynced(true);
+            }
+          })
+          .catch(err => console.warn('[ProjectEditModal] Notice querying Supabase table:', err))
+          .finally(() => setIsFetchingFromDb(false));
+      }
       setAttachments(
-        matchingLead?.attachments?.length
-          ? matchingLead.attachments
+        leads.find(l => l.id === project.id)?.attachments?.length
+          ? leads.find(l => l.id === project.id)!.attachments!
           : [
               {
                 id: 'att-sld-01',
@@ -411,17 +497,16 @@ export const ProjectEditModal: React.FC<ProjectEditModalProps> = ({
             ]
       );
 
-      // Populate default activities
       setActivities(
-        matchingLead?.activities?.length
-          ? matchingLead.activities
+        leads.find(l => l.id === project.id)?.activities?.length
+          ? leads.find(l => l.id === project.id)!.activities!
           : [
               {
                 id: 'act-proj-01',
                 leadId: project.id,
                 type: 'Note',
                 title: 'Project Created from Signed Lead',
-                description: `Project created with ${project.systemSizeKw}kW capacity. Selling Price ${resolvedSellingPrice}.`,
+                description: `Project created with ${project.systemSizeKw}kW capacity. Selling Price ${project.sellingPrice || '$10,500.00'}.`,
                 createdAt: project.createdAt || new Date().toISOString(),
                 createdBy: 'System Conversion'
               },
@@ -451,6 +536,7 @@ export const ProjectEditModal: React.FC<ProjectEditModalProps> = ({
         amount: '10,500.00',
         projectCreatedDate: todayDate,
         projectClosedDate: '',
+        projectStatus: 'Active',
         projectStage: 'Site Survey'
       }));
       setAttachments([]);
@@ -650,12 +736,13 @@ export const ProjectEditModal: React.FC<ProjectEditModalProps> = ({
   // Top Stage Change Handler
   const handleStageChange = (newStage: string) => {
     const todayDate = new Date().toISOString().split('T')[0];
+    const norm = normalizeProjectStatus(newStage);
     setFormData(prev => {
       const next = { ...prev, projectStage: newStage };
-      if (newStage === 'Installation Completed' || newStage === 'Completed') {
+      if (newStage === 'Installation Completed' || newStage === 'Completed' || norm === 'Installation Completed' || norm === 'Completed') {
         if (!next.installationDate) next.installationDate = todayDate;
       }
-      if (newStage === 'Closed' && !next.projectClosedDate) {
+      if ((newStage === 'Closed' || norm === 'Completed') && !next.projectClosedDate) {
         next.projectClosedDate = todayDate;
       }
       return next;
@@ -664,19 +751,25 @@ export const ProjectEditModal: React.FC<ProjectEditModalProps> = ({
     handleAddActivity({
       leadId: project?.id || 'proj-active',
       type: 'Status Change',
-      title: `Project Stage Changed to ${newStage}`,
-      description: `Project stage advanced to ${newStage}.`,
+      title: `Project Status Changed to ${newStage}`,
+      description: `Project status changed to ${newStage}.`,
       createdBy: formData.salesPersonName || 'Mitchell Barnes'
     });
   };
 
   // Save changes
-  const handleSubmit = (e?: React.FormEvent) => {
+  const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
+    if (isSaving) return;
+
+    setIsSaving(true);
+    setSaveSuccessMsg(null);
+    setSaveErrorMsg(null);
 
     const fullName = `${formData.firstName.trim()} ${formData.lastName.trim()}`.trim() || project?.customerName || 'Customer';
     const cleanPrimary = formatAustralianMobile(formData.primaryMobile);
     const cleanSecondary = formData.secondaryMobile ? formatAustralianMobile(formData.secondaryMobile) : '';
+    const resolvedStatus = normalizeProjectStatus(formData.projectStage || project?.status);
 
     const payload: Partial<Project> = {
       projectCode: formData.projectNumber || project?.projectCode || `SOL-${formData.state}-001`,
@@ -684,8 +777,10 @@ export const ProjectEditModal: React.FC<ProjectEditModalProps> = ({
       amount: formData.amount || formData.sellingPrice,
       projectCreatedDate: formData.projectCreatedDate,
       projectClosedDate: formData.projectClosedDate,
+      projectStatus: formData.projectStatus || 'Active',
       projectStage: formData.projectStage,
-      status: (formData.projectStage as ProjectStatus) || project?.status || 'Site Survey',
+      installationStatus: formData.projectStage,
+      status: resolvedStatus,
 
       // Customer & Sales
       salesPersonName: formData.salesPersonName,
@@ -699,6 +794,7 @@ export const ProjectEditModal: React.FC<ProjectEditModalProps> = ({
       customerName: fullName,
       managerRenteeFirstName: formData.managerRenteeFirstName.trim(),
       managerRenteeLastName: formData.managerRenteeLastName.trim(),
+      streetAddress: formData.address.trim(),
       address: formData.address.trim(),
       suburb: formData.suburb.trim(),
       primaryMobile: cleanPrimary,
@@ -725,6 +821,7 @@ export const ProjectEditModal: React.FC<ProjectEditModalProps> = ({
       inverterManufacturer: formData.inverterManufacturer,
       inverterBrand: formData.inverterManufacturer,
       inverterSizeKw: parseFloat(formData.inverterSizeKw) || 5.0,
+      inverterSeries: formData.inverterSeries,
       inverterModel: formData.inverterModel,
       noOfBatteries: parseInt(formData.noOfBatteries) || 0,
       batteryManufacturer: formData.batteryManufacturer,
@@ -761,7 +858,6 @@ export const ProjectEditModal: React.FC<ProjectEditModalProps> = ({
 
       // Installation
       installationDate: formData.installationDate,
-      installationStatus: formData.installationStatus,
       installationBookingDate: formData.installationBookingDate,
       installationBookedBy: formData.installationBookedBy,
       installationCompletedMonth: formData.installationCompletedMonth,
@@ -821,16 +917,41 @@ export const ProjectEditModal: React.FC<ProjectEditModalProps> = ({
       companyType: formData.companyType
     };
 
-    if (isEditing && project?.id) {
-      updateProject(project.id, payload);
-    } else {
-      addProject({
-        ...payload,
-        customerId: `cust-${Date.now()}`,
-        status: (formData.projectStage as ProjectStatus) || 'Site Survey'
-      } as any);
+    try {
+      if (isEditing && project?.id) {
+        await updateProject(project.id, payload);
+      } else {
+        const added = addProject({
+          ...payload,
+          customerId: `cust-${Date.now()}`,
+          status: (formData.projectStage as ProjectStatus) || 'Site Survey'
+        } as any);
+        const res = await fetch('/api/projects', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(added)
+        });
+        const data = await res.json();
+        if (!data.success) {
+          throw new Error(data.error || 'Failed to save project to database');
+        }
+      }
+      setSaveSuccessMsg('Project details saved and synced to database successfully!');
+      setTimeout(() => {
+        onClose();
+      }, 400);
+    } catch (err: any) {
+      console.error('[ProjectEditModal] Error saving project:', err);
+      setSaveErrorMsg(err.message || 'Failed to save project to database');
+    } finally {
+      setIsSaving(false);
     }
+  };
 
+  const handleExecuteDelete = () => {
+    if (!project?.id) return;
+    deleteProject(project.id);
+    setIsConfirmingDelete(false);
     onClose();
   };
 
@@ -889,6 +1010,25 @@ export const ProjectEditModal: React.FC<ProjectEditModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+            {isEditing && (
+              <button
+                type="button"
+                onClick={fetchFreshProjectFromDb}
+                disabled={isFetchingFromDb}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${
+                  isFetchingFromDb
+                    ? 'bg-amber-950/40 text-amber-300 border-amber-800 animate-pulse'
+                    : isLight
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100'
+                    : 'bg-emerald-950/40 text-emerald-300 border-emerald-800 hover:bg-emerald-900/50'
+                }`}
+                title="Fetch latest data from Supabase database table"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isFetchingFromDb ? 'animate-spin text-amber-400' : 'text-emerald-400'}`} />
+                <span className="hidden sm:inline">{isFetchingFromDb ? 'Fetching DB...' : 'Fetch from DB'}</span>
+              </button>
+            )}
+
             {/* BridgeSelect STC Status Indicator Badge */}
             <div className="flex items-center">
               <span
@@ -942,13 +1082,57 @@ export const ProjectEditModal: React.FC<ProjectEditModalProps> = ({
               <span>{isPushingBridgeSelect ? 'Pushing to BridgeSelect...' : 'Push to BridgeSelect'}</span>
             </button>
 
+            {isEditing && project?.id && (
+              isConfirmingDelete ? (
+                <div className="flex items-center gap-1.5 bg-rose-950/70 border border-rose-500/50 rounded-lg px-2 py-1 shadow-xs">
+                  <span className="text-[11px] text-rose-200 font-semibold hidden sm:inline">Delete project?</span>
+                  <button
+                    type="button"
+                    onClick={handleExecuteDelete}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-all shadow-xs cursor-pointer"
+                    title="Permanently Delete Project"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Yes, Delete</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsConfirmingDelete(false)}
+                    className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-gray-300 text-xs font-medium transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setIsConfirmingDelete(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 transition-all cursor-pointer"
+                  title="Delete this project permanently"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Delete Project</span>
+                </button>
+              )
+            )}
+
             <button
               type="button"
               onClick={() => handleSubmit()}
-              className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 hover:shadow-solar-soft cursor-pointer"
+              disabled={isSaving}
+              className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 hover:shadow-solar-soft cursor-pointer disabled:opacity-50"
             >
-              <Save className="w-3.5 h-3.5 text-slate-950" />
-              <span>{isEditing ? 'Save Changes' : 'Create Project'}</span>
+              {isSaving ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-slate-950" />
+                  <span>Saving...</span>
+                </>
+              ) : (
+                <>
+                  <Save className="w-3.5 h-3.5 text-slate-950" />
+                  <span>{isEditing ? 'Save Changes' : 'Create Project'}</span>
+                </>
+              )}
             </button>
 
             <button
@@ -964,6 +1148,20 @@ export const ProjectEditModal: React.FC<ProjectEditModalProps> = ({
             </button>
           </div>
         </header>
+
+        {/* Save feedback banner */}
+        {saveSuccessMsg && (
+          <div className="px-5 py-2.5 bg-emerald-500/15 border-b border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span className="font-semibold">{saveSuccessMsg}</span>
+          </div>
+        )}
+        {saveErrorMsg && (
+          <div className="px-5 py-2.5 bg-rose-500/15 border-b border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+            <span className="font-semibold">{saveErrorMsg}</span>
+          </div>
+        )}
 
         {/* BridgeSelect Push Feedback Banner (if triggered) */}
         {pushFeedback && (
@@ -1115,35 +1313,86 @@ export const ProjectEditModal: React.FC<ProjectEditModalProps> = ({
                 />
               </div>
 
-              {/* Field 5: Project Stage (Dropdown managed from Settings) */}
+              {/* Field 5: Project Status (Dropdown managed from Settings -> Project Status) */}
               <div className="flex flex-col">
                 <div className="flex items-center gap-1 mb-1">
                   <Activity className={`w-3.5 h-3.5 ${isLight ? 'text-amber-600' : 'text-amber-400'}`} />
                   <label className={`text-[11px] font-bold uppercase tracking-wider ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                    Project Stage
+                    Project Status
                   </label>
+                  <span className={`text-[9px] font-mono px-1 py-0.2 rounded border ${
+                    isLight ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                  }`}>
+                    Details
+                  </span>
+                </div>
+                <select
+                  value={formData.projectStatus || 'Active'}
+                  onChange={e => setFormData(prev => ({ ...prev, projectStatus: e.target.value }))}
+                  className={`w-44 sm:w-48 px-3 py-1.5 rounded-lg text-xs font-semibold focus:outline-none transition-colors cursor-pointer shadow-xs ${
+                    isLight
+                      ? 'bg-white border border-slate-300 hover:border-slate-400 text-slate-900 focus:border-amber-500'
+                      : 'bg-slate-900 border border-slate-700 hover:border-slate-600 text-slate-100 focus:border-amber-500'
+                  }`}
+                >
+                  {Array.from(new Set([
+                    ...(dropdowns?.projectStatuses || [
+                      'Active',
+                      'In Progress',
+                      'On Hold',
+                      'Pre-Installation',
+                      'Installation Completed',
+                      'Completed',
+                      'Closed',
+                      'Cancelled'
+                    ]),
+                    ...(formData.projectStatus ? [formData.projectStatus] : [])
+                  ])).map((st: string) => (
+                    <option key={st} value={st}>
+                      {st}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Field 6: Project Stage/ Installation Status (Dropdown managed from Settings -> Project Stage/ Installation Status) */}
+              <div className="flex flex-col">
+                <div className="flex items-center gap-1 mb-1">
+                  <SlidersHorizontal className={`w-3.5 h-3.5 ${isLight ? 'text-blue-600' : 'text-blue-400'}`} />
+                  <label className={`text-[11px] font-bold uppercase tracking-wider ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+                    Project Stage/ Installation Status
+                  </label>
+                  <span className={`text-[9px] font-mono px-1 py-0.2 rounded border ${
+                    isLight ? 'bg-blue-50 text-blue-800 border-blue-200' : 'bg-blue-500/10 text-blue-400 border-blue-500/20'
+                  }`}>
+                    Milestone
+                  </span>
                 </div>
                 <select
                   value={formData.projectStage}
                   onChange={e => handleStageChange(e.target.value)}
                   className={`w-48 sm:w-56 px-3 py-1.5 rounded-lg text-xs font-semibold focus:outline-none transition-colors cursor-pointer shadow-xs ${
                     isLight
-                      ? 'bg-white border border-slate-300 hover:border-slate-400 text-slate-900 focus:border-amber-500'
-                      : 'bg-slate-900 border border-slate-700 hover:border-slate-600 text-slate-100 focus:border-amber-500'
+                      ? 'bg-white border border-slate-300 hover:border-slate-400 text-slate-900 focus:border-blue-500'
+                      : 'bg-slate-900 border border-slate-700 hover:border-slate-600 text-slate-100 focus:border-blue-500'
                   }`}
                 >
-                  {(dropdowns?.projectStages || [
-                    'Site Survey',
-                    'DNSP Application Submitted',
-                    'DNSP Approved',
-                    'Stock Allocated',
-                    'Installation Scheduled',
-                    'Installation Completed',
-                    'BridgeSelect STC Claimed',
-                    'Grid Meter Connected',
-                    'Completed',
-                    'Closed'
-                  ]).map((st: string) => (
+                  {Array.from(new Set([
+                    ...(dropdowns?.projectStages || [
+                      'Site Survey',
+                      'Engineering & DNSP Approval',
+                      'Sales Order Dispatched',
+                      'RFQ Sent to Installers',
+                      'Install Scheduled',
+                      'Installation in Progress',
+                      'Installation Completed',
+                      'BridgeSelect STC Claimed',
+                      'Grid Meter Connected',
+                      'Completed',
+                      'Closed'
+                    ]),
+                    ...(formData.projectStage ? [formData.projectStage] : [])
+                  ])).map((st: string) => (
                     <option key={st} value={st}>
                       {st}
                     </option>
@@ -1158,13 +1407,16 @@ export const ProjectEditModal: React.FC<ProjectEditModalProps> = ({
             }`}>
               {[
                 'Site Survey',
-                'DNSP Approved',
-                'Stock Allocated',
-                'Installation Scheduled',
+                'Engineering & DNSP Approval',
+                'Sales Order Dispatched',
+                'Install Scheduled',
+                'Installation in Progress',
                 'Installation Completed',
                 'Completed'
               ].map(stageName => {
-                const isActive = formData.projectStage === stageName;
+                const isActive =
+                  formData.projectStage === stageName ||
+                  normalizeProjectStatus(formData.projectStage) === normalizeProjectStatus(stageName);
                 return (
                   <button
                     key={stageName}

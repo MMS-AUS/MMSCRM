@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS public.contacts (
   primary_company TEXT,
   city TEXT,
   address TEXT,
+  addresses JSONB DEFAULT '[]'::jsonb,
   type TEXT DEFAULT 'Residential',
   company_id UUID REFERENCES public.companies(id) ON DELETE SET NULL,
   company_name TEXT,
@@ -75,6 +76,7 @@ CREATE TABLE IF NOT EXISTS public.contacts (
 
 CREATE TABLE IF NOT EXISTS public.leads (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  contact_id UUID REFERENCES public.contacts(id) ON DELETE SET NULL,
   project_number TEXT,
   lead_date DATE DEFAULT CURRENT_DATE,
   platform TEXT DEFAULT 'Website',
@@ -83,24 +85,70 @@ CREATE TABLE IF NOT EXISTS public.leads (
   first_name TEXT,
   last_name TEXT,
   full_name TEXT,
+  customer_name TEXT,
   email TEXT,
   phone TEXT,
   phone_number TEXT,
+  primary_mobile TEXT,
+  secondary_mobile TEXT,
   address TEXT,
   suburb TEXT,
   postcode TEXT,
+  area TEXT,
+  nearest_big_city TEXT,
+  address_verified BOOLEAN DEFAULT false,
+  manager_rentee_first_name TEXT,
+  manager_rentee_last_name TEXT,
+  sales_team_notes TEXT,
+  selling_price NUMERIC(12,2),
+  system_price_aud NUMERIC(12,2),
+  deposit NUMERIC(12,2),
+  deposit_aud NUMERIC(12,2),
+  deposit_received_date DATE,
+  sale_date DATE,
+  property_type TEXT DEFAULT 'Residential',
+  roof_type TEXT,
+  electrical_phase TEXT,
+  phase TEXT,
+  phase_type TEXT,
+  house_storey TEXT,
   system_size_kw NUMERIC(8,2),
   panel_count INTEGER,
+  no_of_panels INTEGER,
+  panel_manufacturer TEXT,
+  panel_model TEXT,
+  panel_size NUMERIC(8,2),
+  panel_size_w TEXT,
+  panel_series TEXT,
   inverter_size_kw NUMERIC(8,2),
+  no_of_inverters INTEGER,
+  inverter_manufacturer TEXT,
+  inverter_model TEXT,
+  inverter_series TEXT,
   battery_storage_kwh NUMERIC(8,2),
+  battery_required BOOLEAN DEFAULT false,
+  no_of_batteries INTEGER,
+  battery_manufacturer TEXT,
+  battery_model TEXT,
+  battery_usable_capacity_kwh NUMERIC(8,2),
+  battery_size TEXT,
+  quarterly_bill_aud NUMERIC(10,2),
   budget_aud NUMERIC(12,2),
   quoted_price_aud NUMERIC(12,2),
   status TEXT DEFAULT 'New',
   stage TEXT DEFAULT 'Inquiry',
   source TEXT DEFAULT 'Organic',
   notes TEXT,
+  docs_received TEXT,
+  docs_received_date DATE,
+  existing_system_details TEXT,
+  sheet_sync_row_id TEXT,
   os_id TEXT,
   assigned_to TEXT,
+  xero_invoice_id TEXT,
+  xero_invoice_number TEXT,
+  xero_invoice_total NUMERIC(12,2),
+  xero_invoice_status TEXT,
   metadata JSONB DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
@@ -155,7 +203,13 @@ CREATE TABLE IF NOT EXISTS public.projects (
   status TEXT DEFAULT 'Quote Sent',
   stage TEXT DEFAULT 'Design',
   total_price NUMERIC(12,2) DEFAULT 0,
+  system_price NUMERIC(12,2) DEFAULT 0,
+  system_price_aud NUMERIC(12,2) DEFAULT 0,
+  budget_aud NUMERIC(12,2) DEFAULT 0,
   deposit_paid NUMERIC(12,2) DEFAULT 0,
+  deposit NUMERIC(12,2) DEFAULT 0,
+  deposit_aud NUMERIC(12,2) DEFAULT 0,
+  deposit_received_date DATE,
   os_id TEXT,
   bridgeselect_sync_status TEXT DEFAULT 'pending',
   bridgeselect_synced_at TIMESTAMPTZ,
@@ -433,6 +487,174 @@ CREATE TABLE IF NOT EXISTS public.meta_page_connections (
 );
 
 -- ==============================================================================
+-- 5B. SETTINGS & INTEGRATIONS PERSISTENCE
+-- ==============================================================================
+
+-- Global System Settings (Key-Value JSONB store for dropdowns, rules, features, profile, RBAC)
+CREATE TABLE IF NOT EXISTS public.app_settings (
+  key TEXT PRIMARY KEY,
+  value JSONB NOT NULL,
+  category TEXT DEFAULT 'general',
+  description TEXT,
+  updated_by TEXT DEFAULT 'crm_admin',
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Centralized Integrations Configuration
+CREATE TABLE IF NOT EXISTS public.integrations_config (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  category TEXT DEFAULT 'general',
+  enabled BOOLEAN DEFAULT false,
+  status TEXT DEFAULT 'disconnected',
+  config JSONB DEFAULT '{}'::jsonb,
+  last_synced_at TIMESTAMPTZ,
+  sync_frequency TEXT,
+  error_message TEXT,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Dedicated Dropdown Options Table
+CREATE TABLE IF NOT EXISTS public.dropdown_options (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  category TEXT NOT NULL,
+  label TEXT NOT NULL,
+  value TEXT NOT NULL,
+  display_order INTEGER DEFAULT 0,
+  is_active BOOLEAN DEFAULT true,
+  metadata JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE (category, value)
+);
+
+-- ==============================================================================
+-- 5B. DYNAMIC HARDWARE CATALOG & GENERAL SYSTEM DROPDOWNS
+-- ==============================================================================
+
+-- 1. solar_panels (Watts only stores clean numeric values)
+CREATE TABLE IF NOT EXISTS public.solar_panels (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  brand TEXT NOT NULL,
+  watts NUMERIC(8,2) NOT NULL,
+  series TEXT,
+  model TEXT,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- 2. solar_inverters (Rated kW only stores clean numeric values)
+CREATE TABLE IF NOT EXISTS public.solar_inverters (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  brand TEXT NOT NULL,
+  rated_kw NUMERIC(8,2) NOT NULL,
+  series TEXT,
+  model TEXT,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- 3. battery_storage (Capacity only stores clean numeric values)
+CREATE TABLE IF NOT EXISTS public.battery_storage (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  brand TEXT NOT NULL,
+  capacity NUMERIC(8,2) NOT NULL,
+  series TEXT,
+  model TEXT,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- 4. system_dropdowns (General presets by category)
+CREATE TABLE IF NOT EXISTS public.system_dropdowns (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  category TEXT UNIQUE NOT NULL,
+  data JSONB NOT NULL DEFAULT '[]'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- 5. customer_support_tickets (Complete Warranty, Hardware & Resolution Support)
+CREATE TABLE IF NOT EXISTS public.customer_support_tickets (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  ticket_id VARCHAR(100) NOT NULL,
+  installation_project_no VARCHAR(100) NOT NULL,
+  project_id UUID REFERENCES public.projects(id) ON DELETE SET NULL,
+  installation_date DATE,
+  first_name TEXT,
+  last_name TEXT,
+  contact_number VARCHAR(50),
+  email_id TEXT,
+  address TEXT,
+  suburb VARCHAR(150),
+  post_code VARCHAR(20),
+  state VARCHAR(20) DEFAULT 'NSW',
+  phase VARCHAR(50) DEFAULT 'Single Phase',
+  storey_type VARCHAR(50) DEFAULT 'Single Storey',
+  issue_recorded TEXT,
+  initial_check TEXT,
+  work_required TEXT,
+  issue_resolution_status VARCHAR(50) DEFAULT 'Open',
+  no_of_existing_inverters INTEGER DEFAULT 1,
+  existing_inverter_brand TEXT,
+  existing_inverter_model TEXT,
+  existing_inverter_size TEXT,
+  existing_inverter_serials TEXT,
+  no_of_existing_panels INTEGER DEFAULT 0,
+  existing_panel_brand TEXT,
+  existing_panel_model TEXT,
+  existing_panel_size TEXT,
+  affected_panel_serials TEXT,
+  existing_battery_brand TEXT,
+  existing_battery_model TEXT,
+  existing_battery_size_capacity TEXT,
+  affected_battery_serials TEXT,
+  service_issue_notes TEXT,
+  no_of_replaced_inverters INTEGER DEFAULT 0,
+  replaced_inverter_brand TEXT,
+  replaced_inverter_model TEXT,
+  replaced_inverter_size TEXT,
+  replaced_inverter_serials TEXT,
+  no_of_replaced_panels INTEGER DEFAULT 0,
+  replaced_panel_brand TEXT,
+  replaced_panel_model TEXT,
+  replaced_panel_size TEXT,
+  replaced_panel_serials TEXT,
+  replaced_battery_brand TEXT,
+  replaced_battery_model TEXT,
+  replaced_battery_size_capacity TEXT,
+  replaced_battery_serials TEXT,
+  warranty_claim_date DATE,
+  warranty_claim_id VARCHAR(100),
+  warranty_claim_status VARCHAR(50) DEFAULT 'Draft',
+  claim_invoice_number VARCHAR(100),
+  claim_invoice_amount_aud NUMERIC(12, 2) DEFAULT 0.00,
+  claim_invoice_status VARCHAR(50),
+  brand_notes TEXT,
+  installer_name TEXT,
+  installer_contact_number VARCHAR(50),
+  installer_email TEXT,
+  installer_company_name TEXT,
+  installer_invoice_date DATE,
+  installer_invoice_number VARCHAR(100),
+  installer_invoice_amount_aud NUMERIC(12, 2) DEFAULT 0.00,
+  installer_invoice_status VARCHAR(50),
+  installer_notes TEXT,
+  resolution_status VARCHAR(50) DEFAULT 'Pending',
+  issue_resolution_date DATE,
+  service_handler TEXT,
+  service_charge_aud NUMERIC(12, 2) DEFAULT 0.00,
+  total_amount_aud NUMERIC(12, 2) DEFAULT 0.00,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- ==============================================================================
 -- 6. INDEXES FOR HIGH-THROUGHPUT PERFORMANCE
 -- ==============================================================================
 
@@ -450,6 +672,9 @@ CREATE INDEX IF NOT EXISTS idx_sync_queue_status ON public.sync_queue(status, ne
 CREATE INDEX IF NOT EXISTS idx_emails_message_id ON public.emails(message_id);
 CREATE INDEX IF NOT EXISTS idx_call_logs_timestamp ON public.call_logs(timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_sms_logs_dest ON public.sms_logs(destination_number);
+CREATE INDEX IF NOT EXISTS idx_app_settings_category ON public.app_settings(category);
+CREATE INDEX IF NOT EXISTS idx_integrations_config_category ON public.integrations_config(category);
+CREATE INDEX IF NOT EXISTS idx_dropdown_options_category ON public.dropdown_options(category);
 
 -- ==============================================================================
 -- 7. ENABLE ROW LEVEL SECURITY & PERMISSIVE POLICIES
@@ -469,7 +694,10 @@ BEGIN
       'bridgeselect_credentials', 'messagemedia_credentials', 'sms_logs',
       'voipline_settings', 'user_phone_numbers', 'call_logs', 'inbound_sms_logs',
       'opensolar_credentials', 'whatsapp_settings', 'whatsapp_messages',
-      'teams_webhooks', 'teams_integration_settings', 'meta_page_connections'
+      'teams_webhooks', 'teams_integration_settings', 'meta_page_connections',
+      'app_settings', 'integrations_config', 'dropdown_options',
+      'solar_panels', 'solar_inverters', 'battery_storage', 'system_dropdowns',
+      'customer_support_tickets'
     )
   LOOP
     EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY;', tbl);

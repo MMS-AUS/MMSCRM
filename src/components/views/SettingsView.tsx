@@ -32,7 +32,9 @@ import {
   Database,
   Copy,
   ExternalLink,
-  Sun
+  Sun,
+  SlidersHorizontal,
+  ChevronRight
 } from 'lucide-react';
 import { UserProfile, UserRole, RoleAccessConfig } from '../../types';
 import { FeaturesSettingsTab } from '../settings/FeaturesSettingsTab';
@@ -44,6 +46,9 @@ import { ApiKeysSettingsTab } from '../settings/ApiKeysSettingsTab';
 import { UserInviteModal } from '../modals/UserInviteModal';
 import { DropdownExcelSyncModal } from '../modals/DropdownExcelSyncModal';
 import { HardwareCatalogManager } from '../hardware/HardwareCatalogManager';
+import { DropdownMappingsTab } from '../settings/DropdownMappingsTab';
+import { ALL_DROPDOWN_FIELDS } from '../../utils/dropdownMappingConfig';
+import { SupabaseSettingsSyncBanner } from '../settings/SupabaseSettingsSyncBanner';
 import {
   exportDropdownsToExcel,
   exportDropdownTemplate
@@ -55,6 +60,8 @@ export const SettingsView: React.FC = () => {
     addDropdownOption,
     removeDropdownOption,
     batchImportDropdowns,
+    openMappingModal,
+    dropdownMappings,
     systemUsers,
     addSystemUser,
     updateSystemUser,
@@ -98,7 +105,7 @@ export const SettingsView: React.FC = () => {
   const [excelSyncInitialTab, setExcelSyncInitialTab] = useState<'import' | 'export' | 'guide'>('import');
   const [categorySearchQuery, setCategorySearchQuery] = useState('');
   const [editingOption, setEditingOption] = useState<{ original: string; current: string } | null>(null);
-  const [dropdownsSubTab, setDropdownsSubTab] = useState<'hardware' | 'dropdowns'>('hardware');
+  const [dropdownsSubTab, setDropdownsSubTab] = useState<'hardware' | 'dropdowns' | 'mappings'>('hardware');
 
   // Domain Management State
   const [newDomainInput, setNewDomainInput] = useState('');
@@ -243,6 +250,9 @@ export const SettingsView: React.FC = () => {
           </p>
         </div>
       </div>
+
+      {/* Supabase Database Cloud Persistence Banner */}
+      <SupabaseSettingsSyncBanner />
 
       {feedback && (
         <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-xs text-emerald-300 font-medium flex items-center gap-2">
@@ -504,10 +514,39 @@ export const SettingsView: React.FC = () => {
                 {safeConfigs.length} Categories
               </span>
             </button>
+
+            <button
+              type="button"
+              onClick={() => setDropdownsSubTab('mappings')}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-lg font-bold transition-all whitespace-nowrap ${
+                dropdownsSubTab === 'mappings'
+                  ? 'bg-[#bef264] text-slate-950 shadow-xs'
+                  : 'text-gray-400 hover:text-white hover:bg-[#1f1f1f]'
+              }`}
+            >
+              <SlidersHorizontal className="w-4 h-4" />
+              <span>Dropdown Field Mappings</span>
+              <span
+                className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${
+                  dropdownsSubTab === 'mappings'
+                    ? 'bg-black/20 text-slate-950 font-bold'
+                    : 'bg-[#222] text-cyan-300'
+                }`}
+              >
+                Map Every Section
+              </span>
+            </button>
           </div>
 
           {dropdownsSubTab === 'hardware' ? (
             <HardwareCatalogManager />
+          ) : dropdownsSubTab === 'mappings' ? (
+            <DropdownMappingsTab
+              onJumpToCategory={catKey => {
+                setDropdownsSubTab('dropdowns');
+                setSelectedCategoryKey(catKey);
+              }}
+            />
           ) : (
             <div className="space-y-6">
               {/* Supabase SQL Migration Script Access Card */}
@@ -518,13 +557,13 @@ export const SettingsView: React.FC = () => {
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <h3 className="font-bold text-sm text-white">Supabase CRM Tables SQL Migration Script</h3>
+                  <h3 className="font-bold text-sm text-white">Supabase CRM Master Tables &amp; Settings Persistence SQL Migration</h3>
                   <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold">
-                    22 Tables &amp; RLS
+                    25 Tables, Settings &amp; RLS
                   </span>
                 </div>
                 <p className="text-xs text-gray-300 mt-0.5">
-                  Looking for the Supabase SQL migration script? Copy the complete schema for leads, projects, jobs, and all CRM integrations to run in your Supabase SQL Editor.
+                  Looking for the Supabase SQL migration script? Copy the complete schema for leads, projects, jobs, app_settings, integrations_config, and all CRM integrations to run in your Supabase SQL Editor.
                 </p>
               </div>
             </div>
@@ -553,11 +592,74 @@ export const SettingsView: React.FC = () => {
 
               <button
                 type="button"
+                onClick={async () => {
+                  try {
+                    const res = await fetch('/api/system/financial-migration-sql');
+                    const data = await res.json();
+                    if (data.success && data.sql) {
+                      await navigator.clipboard.writeText(data.sql);
+                      setFeedback('Copied Deposit (AUD), System Price (AUD) & Deposit Received Date SQL migration to clipboard! Run in Supabase SQL Editor.');
+                      setTimeout(() => setFeedback(null), 4500);
+                    }
+                  } catch {
+                    setFeedback('Error copying migration SQL.');
+                  }
+                }}
+                className="px-3.5 py-2 rounded-lg bg-[#bef264] hover:bg-[#a6db4d] text-slate-950 text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs"
+                title="Copy SQL to add deposit_aud, deposit_received_date and system_price_aud (connected to budget_aud)"
+              >
+                <Copy className="w-3.5 h-3.5" />
+                <span>Copy Deposit &amp; System Price SQL</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => setActiveTab('api-keys')}
                 className="px-3 py-2 rounded-lg bg-[#1a2e24] hover:bg-[#233f31] border border-emerald-500/30 text-emerald-300 hover:text-white text-xs font-semibold flex items-center gap-1.5 transition-colors"
               >
                 <Key className="w-3.5 h-3.5" />
                 <span>Open API Keys &amp; Secrets Tab</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Dropdown Field-to-Category Mappings Card */}
+          <div className="bg-gradient-to-r from-[#111f18] via-[#141d1a] to-[#141414] border border-cyan-500/30 rounded-xl p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4 shadow-sm">
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-2">
+                <div className="p-2.5 rounded-xl bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">
+                  <SlidersHorizontal className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-bold text-sm text-white">Application Dropdown Field-to-Category Mappings</h3>
+                    <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 font-bold">
+                      Full Control
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-300 mt-0.5">
+                    Map any dropdown across every module (Projects Sec 1-7, Leads, Tickets, Referrals, Directory) to any category in Settings.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => setDropdownsSubTab('mappings')}
+                className="px-3.5 py-2 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/40 text-cyan-300 hover:text-white text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5" />
+                <span>Configure Field Mappings</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => openMappingModal()}
+                className="px-3.5 py-2 rounded-lg bg-[#bef264] hover:bg-[#a3e635] text-slate-950 text-xs font-bold flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
+              >
+                <span>Launch Mapping Modal</span>
               </button>
             </div>
           </div>
@@ -730,6 +832,47 @@ export const SettingsView: React.FC = () => {
                   </button>
                 </div>
               </div>
+
+              {/* Connected CRM Fields Indicator */}
+              {(() => {
+                const connectedFields = ALL_DROPDOWN_FIELDS.filter(
+                  f => (dropdownMappings[f.fieldKey] || f.defaultCategoryKey) === activeCategory?.key
+                );
+                if (connectedFields.length === 0) return null;
+                return (
+                  <div className="p-2.5 rounded-lg bg-[#14201b] border border-emerald-500/30 flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <SlidersHorizontal className="w-3.5 h-3.5 text-[#bef264] shrink-0" />
+                      <span className="text-gray-300">
+                        Powers <strong className="text-white">{connectedFields.length} CRM dropdown field{connectedFields.length === 1 ? '' : 's'}</strong>:
+                      </span>
+                      <div className="flex flex-wrap gap-1">
+                        {connectedFields.slice(0, 4).map(f => (
+                          <span
+                            key={f.fieldKey}
+                            className="px-1.5 py-0.5 rounded bg-[#1e2e25] text-[#bef264] text-[10px] font-mono border border-emerald-500/30"
+                          >
+                            {f.fieldLabel}
+                          </span>
+                        ))}
+                        {connectedFields.length > 4 && (
+                          <span className="text-[10px] text-gray-400 font-mono">
+                            +{connectedFields.length - 4} more
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setDropdownsSubTab('mappings')}
+                      className="text-[11px] font-semibold text-[#bef264] hover:underline flex items-center gap-1 shrink-0 cursor-pointer"
+                    >
+                      <span>Re-map Fields</span>
+                      <ChevronRight className="w-3 h-3" />
+                    </button>
+                  </div>
+                );
+              })()}
 
               {/* Add Option Form */}
               <form onSubmit={handleAddOption} className="flex gap-2">

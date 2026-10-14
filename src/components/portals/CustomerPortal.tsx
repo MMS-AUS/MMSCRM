@@ -419,12 +419,12 @@ export const CustomerPortal: React.FC = () => {
             <div className="flex justify-between py-1 border-b border-[#262626]">
               <span className="text-gray-400">Gross Contract System Value:</span>
               <span className="font-semibold text-gray-200">
-                ${grossSystemValue.toLocaleString()} AUD
+                ${(grossSystemValue || 0).toLocaleString()} AUD
               </span>
             </div>
             <div className="flex justify-between py-1 border-b border-[#262626] text-emerald-400">
               <span>Point-of-Sale STC Government Rebate ({activeProject.stcCount} STCs @ ${effectiveCustomerRate.toFixed(2)} AUD/STC):</span>
-              <span className="font-semibold">-${effectiveCustomerStcValue.toLocaleString()} AUD</span>
+              <span className="font-semibold">-${(effectiveCustomerStcValue || 0).toLocaleString()} AUD</span>
             </div>
             <div className="flex justify-between py-1 font-bold text-sm text-white pt-1">
               <span>Total Invoiced Amount Payable:</span>
@@ -756,8 +756,8 @@ export const CustomerPortal: React.FC = () => {
                         </div>
                       </td>
                       <td className="p-3 text-center text-gray-300 font-mono">1.0</td>
-                      <td className="p-3 text-right text-gray-300 font-mono">${grossSystemValue.toLocaleString()}</td>
-                      <td className="p-3 text-right font-bold text-white font-mono">${grossSystemValue.toLocaleString()}</td>
+                      <td className="p-3 text-right text-gray-300 font-mono">${(grossSystemValue || 0).toLocaleString()}</td>
+                      <td className="p-3 text-right font-bold text-white font-mono">${(grossSystemValue || 0).toLocaleString()}</td>
                     </tr>
                     <tr className="bg-emerald-500/5">
                       <td className="p-3">
@@ -770,7 +770,7 @@ export const CustomerPortal: React.FC = () => {
                       </td>
                       <td className="p-3 text-center text-emerald-400 font-mono font-semibold">{activeProject.stcCount} Certs</td>
                       <td className="p-3 text-right text-emerald-400 font-mono">${effectiveCustomerRate.toFixed(2)} AUD</td>
-                      <td className="p-3 text-right font-bold text-emerald-400 font-mono">-${effectiveCustomerStcValue.toLocaleString()}</td>
+                      <td className="p-3 text-right font-bold text-emerald-400 font-mono">-${(effectiveCustomerStcValue || 0).toLocaleString()}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -781,11 +781,11 @@ export const CustomerPortal: React.FC = () => {
                 <div className="w-full sm:w-72 space-y-2 text-xs">
                   <div className="flex justify-between py-1 border-b border-[#262626]">
                     <span className="text-gray-400">Subtotal Gross:</span>
-                    <span className="font-mono text-gray-200">${grossSystemValue.toLocaleString()} AUD</span>
+                    <span className="font-mono text-gray-200">${(grossSystemValue || 0).toLocaleString()} AUD</span>
                   </div>
                   <div className="flex justify-between py-1 border-b border-[#262626] text-emerald-400">
                     <span>STC Rebate Discount:</span>
-                    <span className="font-mono font-bold">-${effectiveCustomerStcValue.toLocaleString()} AUD</span>
+                    <span className="font-mono font-bold">-${(effectiveCustomerStcValue || 0).toLocaleString()} AUD</span>
                   </div>
                   <div className="flex justify-between py-1 border-b border-[#262626]">
                     <span className="text-gray-400">Includes GST (10%):</span>

@@ -1,4 +1,4 @@
-import { Lead } from '../types';
+import { Lead } from '../types/index.ts';
 
 /**
  * Google Sheets Lead Template Specification & Downloader

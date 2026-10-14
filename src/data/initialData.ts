@@ -131,16 +131,14 @@ export const INITIAL_DROPDOWNS: DynamicDropdownConfig = {
   leadSources: ['Meta Ads (NSW High Efficiency)', 'Meta Ads (QLD Battery Rebate)', 'Google Search & PMax', 'OpenSolar Lead Form', 'Customer Referral', 'SolarQuotes.com.au'],
   roofTypes: ['Colorbond / Metal Sheet', 'Concrete Tile', 'Terracotta Tile', 'Klip-lok Metal', 'Slate', 'Commercial Flat Roof'],
   projectStatuses: [
-    'Site Survey',
-    'Engineering & DNSP Approval',
-    'Sales Order Dispatched',
-    'RFQ Sent to Installers',
-    'Install Scheduled',
-    'Installation in Progress',
+    'Active',
+    'In Progress',
+    'On Hold',
+    'Pre-Installation',
     'Installation Completed',
-    'BridgeSelect STC Claimed',
-    'Grid Meter Connected',
-    'Completed'
+    'Completed',
+    'Closed',
+    'Cancelled'
   ],
   ticketCategories: [
     'Inverter Fault / Error Code',
@@ -156,6 +154,7 @@ export const INITIAL_DROPDOWNS: DynamicDropdownConfig = {
   employeeDepartments: ['Management', 'Sales', 'Operations', 'Warehouse', 'Customer Support', 'Engineering'],
   referralPaymentStatuses: ['Pending Review', 'Approved for Payment', 'Paid via EFT', 'On Hold', 'Rejected'],
   states: ['NSW', 'QLD', 'VIC', 'WA', 'SA', 'TAS', 'ACT', 'NT'],
+  areas: ['Metro', 'Regional', 'Rural', 'Remote'],
   contactTypes: ['Residential', 'Commercial', 'Subcontractor', 'Vendor', 'Government / Council', 'Partner'],
   companyTypes: ['Commercial Customer', 'Subcontractor Installer', 'Equipment Vendor', 'Engineering Consultant', 'Wholesaler / Distributor'],
   platforms: [
@@ -229,7 +228,8 @@ export const INITIAL_DROPDOWNS: DynamicDropdownConfig = {
     { id: 'ph-11', manufacturer: 'LONGi Solar', sizeW: 435, series: 'Hi-MO X6 Explorer', model: 'LR5-54HTB-435M (HPBC Black)' },
     { id: 'ph-12', manufacturer: 'LONGi Solar', sizeW: 450, series: 'Hi-MO 7 Bifacial', model: 'LR5-72HGD-450M (Commercial N-Type)' },
     { id: 'ph-13', manufacturer: 'REC Alpha Pure', sizeW: 430, series: 'Alpha Pure-R Series', model: 'REC430AA Pure-R (Heterojunction HJT Lead-Free)' },
-    { id: 'ph-14', manufacturer: 'REC Alpha Pure', sizeW: 470, series: 'Alpha Pure-RX Series', model: 'REC470AA Pure-RX (Premium High Density)' }
+    { id: 'ph-14', manufacturer: 'REC Alpha Pure', sizeW: 470, series: 'Alpha Pure-RX Series', model: 'REC470AA Pure-RX (Premium High Density)' },
+    { id: 'ph-15', manufacturer: 'LONGi Green Energy Technology Co Ltd', sizeW: 475, series: 'LR7', model: 'LR7-54HTH-475M (IEC 61215-2021)' }
   ],
   inverterHierarchy: [
     { id: 'ih-1', manufacturer: 'Fronius (Primo/Symo Gen24)', sizeKw: 5.0, series: 'Primo GEN24 Plus', model: 'Primo GEN24 5.0 Plus (Single Phase Hybrid Ready)' },
@@ -247,7 +247,12 @@ export const INITIAL_DROPDOWNS: DynamicDropdownConfig = {
     { id: 'ih-13', manufacturer: 'Sigenergy (SigenStor)', sizeKw: 5.0, series: 'SigenStor 5.0 TP', model: 'SigenStor 5.0 TP (All-in-One 5kW Single Phase)' },
     { id: 'ih-14', manufacturer: 'Sigenergy (SigenStor)', sizeKw: 10.0, series: 'SigenStor 10.0 TP', model: 'SigenStor 10.0 TP (All-in-One 10kW Three Phase)' },
     { id: 'ih-15', manufacturer: 'GoodWe', sizeKw: 5.0, series: 'DNS Series G3', model: 'DNS Series G3 (GW5000D-NS Single Phase)' },
-    { id: 'ih-16', manufacturer: 'GoodWe', sizeKw: 10.0, series: 'ET Series Three Phase', model: 'ET Series (GW10K-ET Three Phase Storage Hybrid)' }
+    { id: 'ih-16', manufacturer: 'GoodWe', sizeKw: 10.0, series: 'ET Series Three Phase', model: 'ET Series (GW10K-ET Three Phase Storage Hybrid)' },
+    { id: 'ih-17', manufacturer: 'SolaX Power Network Technology (Zhe jiang) Co Ltd', sizeKw: 5.0, series: 'X1-BOOST G4', model: 'X1-BOOST-5K-G4 (AS4777-2 2020)' },
+    { id: 'ih-18', manufacturer: 'SolaX Power Network Technology (Zhe jiang) Co Ltd', sizeKw: 6.0, series: 'X1-BOOST G4', model: 'X1-BOOST-6K-G4 (AS4777-2 2020)' },
+    { id: 'ih-19', manufacturer: 'SolaX Power Network Technology (Zhe jiang) Co Ltd', sizeKw: 8.0, series: 'X1-BOOST G4', model: 'X1-BOOST-8K-G4 (AS4777-2 2020)' },
+    { id: 'ih-20', manufacturer: 'SolaX Power Network Technology (Zhe jiang) Co Ltd', sizeKw: 10.0, series: 'X3-PRO G2', model: 'X3-PRO-10K-G2 (Three Phase)' },
+    { id: 'ih-21', manufacturer: 'SolaX', sizeKw: 5.0, series: 'X1-BOOST G4', model: 'X1-BOOST-5K-G4 (AS4777-2 2020)' }
   ],
   batteryHierarchy: [
     { id: 'bh-1', manufacturer: 'Tesla Powerwall 3 (13.5kWh)', usableCapacityKwh: 13.5, series: 'Powerwall 3', model: 'Tesla Powerwall 3 Integrated Inverter', size: '13.5kWh Wall Mounted Slimline' },
@@ -266,18 +271,19 @@ export const INITIAL_DROPDOWNS: DynamicDropdownConfig = {
     { id: 'bh-14', manufacturer: 'Enphase IQ Battery 5P', usableCapacityKwh: 15.0, series: 'IQ Battery 5P', model: 'Triple IQ Battery 5P System (3 x 5P)', size: '15.0kWh Whole Home Backup' }
   ],
 
-  // Project Management Dropdowns
+  // Project Management Dropdowns (Project Stage/ Installation Status)
   projectStages: [
     'Site Survey',
     'Engineering & DNSP Approval',
-    'Sales Order Created (Warehouse)',
-    'Subcontractor RFQ / Quoting',
+    'Sales Order Dispatched',
+    'RFQ Sent to Installers',
     'Install Scheduled',
     'Installation in Progress',
     'Installation Completed',
-    'Clean Energy Regulator (STC Claim)',
-    'DNSP Grid Inspection & Metering',
-    'Completed'
+    'BridgeSelect STC Claimed',
+    'Grid Meter Connected',
+    'Completed',
+    'Closed'
   ],
   ebCustomerNameMatchOptions: ['Yes', 'No', 'Pending Rectification'],
   ebAddressMatchOptions: ['Yes', 'No', 'Pending Land Title / Sub-lot'],
@@ -319,13 +325,24 @@ export const INITIAL_DROPDOWNS: DynamicDropdownConfig = {
     'Resubmitted'
   ],
   installationStatuses: [
-    'Unscheduled',
-    'Booked / Scheduled',
-    'Installer Dispatched',
-    'In Progress',
+    'Site Survey',
+    'Engineering & DNSP Approval',
+    'Sales Order Dispatched',
+    'RFQ Sent to Installers',
+    'Install Scheduled',
+    'Installation in Progress',
     'Installation Completed',
-    'Closed',
-    'Cancelled'
+    'BridgeSelect STC Claimed',
+    'Grid Meter Connected',
+    'Completed',
+    'Closed'
+  ],
+  installers: [
+    'Apex Solar Electrical (CEC #A19283)',
+    'Sydney Metro Sparkies (CEC #A49102)',
+    'SunRun Contracting (CEC #A77219)',
+    'Direct Solar Contractors NSW',
+    'Brisbane Eco Electrical QLD'
   ],
   installationBookedByOptions: [
     'Operations Manager',

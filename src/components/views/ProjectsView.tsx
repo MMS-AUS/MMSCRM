@@ -23,9 +23,12 @@ import {
   Sun,
   Phone,
   MessageSquare,
-  Home
+  Home,
+  Trash2,
+  SlidersHorizontal
 } from 'lucide-react';
 import { Project, ProjectStatus, ViewMode } from '../../types';
+import { ALL_PROJECT_STATUSES, normalizeProjectStatus } from '../../utils/statusUtils';
 import { ViewModeSwitcher } from '../common/ViewModeSwitcher';
 import { ProjectEditModal } from '../projects/ProjectEditModal';
 
@@ -34,6 +37,8 @@ export const ProjectsView: React.FC<{ onNavigateToSection: (sec: any) => void }>
     projects,
     leads,
     updateProjectStatus,
+    deleteProject,
+    deleteProjects,
     setActiveBridgeSelectProject,
     setSelectedPreviewProposalUrl,
     salesOrders,
@@ -42,14 +47,22 @@ export const ProjectsView: React.FC<{ onNavigateToSection: (sec: any) => void }>
     projectsViewMode: viewMode,
     setProjectsViewMode: setViewMode,
     setIsVoipDialerOpen,
-    setIsQuickSmsOpen
+    setIsQuickSmsOpen,
+    openMappingModal
   } = useApp();
 
   const [searchTerm, setSearchTerm] = useState('');
   const [stateFilter, setStateFilter] = useState<string>('all');
+  const [projectStatusFilter, setProjectStatusFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [selectedProjectForEdit, setSelectedProjectForEdit] = useState<Project | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+
+  // Deletion and Multi-Selection States
+  const [selectedProjectIds, setSelectedProjectIds] = useState<Set<string>>(new Set());
+  const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
+  const [isBulkDeleteConfirmOpen, setIsBulkDeleteConfirmOpen] = useState(false);
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
 
   const handleOpenEditModal = (proj: Project) => {
     setSelectedProjectForEdit(proj);
@@ -61,6 +74,49 @@ export const ProjectsView: React.FC<{ onNavigateToSection: (sec: any) => void }>
     setIsEditModalOpen(true);
   };
 
+  const toggleSelectAll = () => {
+    if (filteredProjects.length === 0) return;
+    if (selectedProjectIds.size === filteredProjects.length) {
+      setSelectedProjectIds(new Set());
+    } else {
+      setSelectedProjectIds(new Set(filteredProjects.map(p => p.id)));
+    }
+  };
+
+  const toggleSelectProject = (id: string) => {
+    setSelectedProjectIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const confirmDeleteSingle = () => {
+    if (!projectToDelete) return;
+    const code = projectToDelete.projectCode || 'Project';
+    const name = projectToDelete.customerName || '';
+    deleteProject(projectToDelete.id);
+    setSelectedProjectIds(prev => {
+      const next = new Set(prev);
+      next.delete(projectToDelete.id);
+      return next;
+    });
+    setProjectToDelete(null);
+    setActionNotice(`Successfully deleted ${code} (${name})`);
+    setTimeout(() => setActionNotice(null), 4000);
+  };
+
+  const confirmDeleteBulk = () => {
+    if (selectedProjectIds.size === 0) return;
+    const count = selectedProjectIds.size;
+    deleteProjects(Array.from(selectedProjectIds));
+    setSelectedProjectIds(new Set());
+    setIsBulkDeleteConfirmOpen(false);
+    setActionNotice(`Successfully deleted ${count} selected project(s)`);
+    setTimeout(() => setActionNotice(null), 4000);
+  };
+
   const filteredProjects = (projects || []).filter(p => {
     if (!p) return false;
     const matchesSearch =
@@ -69,8 +125,16 @@ export const ProjectsView: React.FC<{ onNavigateToSection: (sec: any) => void }>
       (p.suburb || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (p.address || '').toLowerCase().includes(searchTerm.toLowerCase());
     const matchesState = stateFilter === 'all' || p.state === stateFilter;
-    const matchesStatus = statusFilter === 'all' || p?.status === statusFilter;
-    return matchesSearch && matchesState && matchesStatus;
+    const matchesProjectStatus =
+      projectStatusFilter === 'all' ||
+      (p?.projectStatus || 'Active') === projectStatusFilter;
+    const matchesStatus =
+      statusFilter === 'all' ||
+      p?.status === statusFilter ||
+      p?.projectStage === statusFilter ||
+      p?.installationStatus === statusFilter ||
+      normalizeProjectStatus(p?.status) === statusFilter;
+    return matchesSearch && matchesState && matchesProjectStatus && matchesStatus;
   });
 
   const projectStages = [
@@ -125,12 +189,33 @@ export const ProjectsView: React.FC<{ onNavigateToSection: (sec: any) => void }>
         </div>
 
         <div className="flex flex-wrap items-center gap-2 text-xs font-semibold">
+          {selectedProjectIds.size > 0 && (
+            <button
+              onClick={() => setIsBulkDeleteConfirmOpen(true)}
+              className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
+              title="Delete all selected projects"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Delete Selected ({selectedProjectIds.size})</span>
+            </button>
+          )}
+
           <button
             onClick={handleOpenNewProject}
             className="px-3 py-1.5 rounded-lg bg-[#bef264] hover:bg-[#a3e635] text-slate-950 font-bold text-xs flex items-center gap-1.5 transition-colors shadow-xs"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>New Project</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => openMappingModal('projects_overview')}
+            className="px-3 py-1.5 rounded-lg bg-[#1e293b] hover:bg-[#334155] border border-cyan-500/30 text-cyan-300 font-bold text-xs flex items-center gap-1.5 transition-colors shadow-xs"
+            title="Map Projects dropdowns & Pipeline Stages to Settings Dropdowns"
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5" />
+            <span>Map Dropdowns</span>
           </button>
 
           <ViewModeSwitcher currentMode={viewMode} onModeChange={setViewMode} />
@@ -140,6 +225,16 @@ export const ProjectsView: React.FC<{ onNavigateToSection: (sec: any) => void }>
           </span>
         </div>
       </div>
+
+      {actionNotice && (
+        <div className="p-3 bg-emerald-500/10 border border-emerald-500/25 rounded-xl text-xs text-emerald-400 font-medium flex items-center justify-between animate-in fade-in duration-200">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>{actionNotice}</span>
+          </div>
+          <button onClick={() => setActionNotice(null)} className="text-gray-400 hover:text-white font-bold px-1 cursor-pointer">✕</button>
+        </div>
+      )}
 
       {/* Filter and Search Bar */}
       <div className="bg-[#1e1e1e] p-4 rounded-xl border border-[#2d2d2d] shadow-xs flex flex-col sm:flex-row items-center gap-3">
@@ -166,18 +261,36 @@ export const ProjectsView: React.FC<{ onNavigateToSection: (sec: any) => void }>
           </select>
 
           <select
+            value={projectStatusFilter}
+            onChange={e => setProjectStatusFilter(e.target.value)}
+            className="text-xs font-semibold bg-[#121212] border border-[#262626] text-white rounded-lg px-3 py-2 outline-none focus:border-[#bef264]"
+          >
+            <option value="all">All Project Statuses</option>
+            <option value="Active">Active</option>
+            <option value="In Progress">In Progress</option>
+            <option value="On Hold">On Hold</option>
+            <option value="Pre-Installation">Pre-Installation</option>
+            <option value="Installation Completed">Installation Completed</option>
+            <option value="Completed">Completed</option>
+            <option value="Closed">Closed</option>
+            <option value="Cancelled">Cancelled</option>
+          </select>
+
+          <select
             value={statusFilter}
             onChange={e => setStatusFilter(e.target.value)}
             className="text-xs font-semibold bg-[#121212] border border-[#262626] text-white rounded-lg px-3 py-2 outline-none focus:border-[#bef264]"
           >
-            <option value="all">All Stages</option>
+            <option value="all">All Project Stages/ Installation Statuses</option>
+            <option value="Site Survey">Site Survey</option>
             <option value="Engineering & DNSP Approval">Engineering &amp; DNSP Approval</option>
-            <option value="Sales Order Created (Warehouse)">Sales Order Created</option>
-            <option value="Subcontractor RFQ / Quoting">Subcontractor RFQ / Quoting</option>
+            <option value="Sales Order Dispatched">Sales Order Dispatched (Warehouse)</option>
+            <option value="RFQ Sent to Installers">RFQ Sent to Installers</option>
             <option value="Install Scheduled">Install Scheduled</option>
             <option value="Installation in Progress">Installation in Progress</option>
             <option value="Installation Completed">Installation Completed</option>
             <option value="BridgeSelect STC Claimed">BridgeSelect STC Claimed</option>
+            <option value="Grid Meter Connected">Grid Meter Connected</option>
             <option value="Completed">Completed &amp; Handover</option>
           </select>
         </div>
@@ -233,28 +346,44 @@ export const ProjectsView: React.FC<{ onNavigateToSection: (sec: any) => void }>
                             <span className="truncate">{proj.suburb}, {proj.state}</span>
                           </p>
                           <div className="flex justify-between items-center text-[10px] text-gray-400 bg-[#121212] p-1.5 rounded">
-                            <span>Contract: <strong className="text-white">${(proj.contractValueAud / 1000).toFixed(1)}k</strong></span>
-                            <span>Internal CER: <strong className="text-emerald-400 font-mono">+${(proj.internalStcValueAud ?? proj.stcValueAud).toLocaleString()}</strong></span>
+                            <span>Contract: <strong className="text-white">${((proj.contractValueAud || 0) / 1000).toFixed(1)}k</strong></span>
+                            <span>Internal CER: <strong className="text-emerald-400 font-mono">+${((proj.internalStcValueAud ?? proj.stcValueAud) || 0).toLocaleString()}</strong></span>
                           </div>
                         </div>
 
                         {/* Status select in card */}
-                        <div className="pt-1">
+                        <div className="pt-1 flex flex-col gap-1.5">
+                          <div className="flex items-center justify-between text-[10px]">
+                            <span className="text-[9px] font-semibold text-gray-400">Project Status:</span>
+                            <span className="font-bold px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[9px]">
+                              {proj.projectStatus || 'Active'}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-[9px] font-semibold text-gray-400 block mb-0.5">
+                              Project Stage/ Installation Status
+                            </span>
                           <select
                             value={proj.status}
                             onChange={e => updateProjectStatus(proj.id, e.target.value as ProjectStatus)}
                             className="w-full text-[10px] font-bold bg-[#bef2641a] text-[#bef264] border border-[#bef26433] rounded px-2 py-1 outline-none"
+                            title="Project Stage/ Installation Status"
                           >
                             <option value="Site Survey">Site Survey</option>
-                            <option value="Engineering & DNSP Approval">Engineering &amp; DNSP</option>
-                            <option value="Sales Order Created (Warehouse)">Sales Order (Warehouse)</option>
-                            <option value="Subcontractor RFQ / Quoting">Subcontractor RFQ</option>
+                            <option value="Engineering & DNSP Approval">Engineering &amp; DNSP Approval</option>
+                            <option value="Sales Order Dispatched">Sales Order Dispatched</option>
+                            <option value="RFQ Sent to Installers">RFQ Sent to Installers</option>
                             <option value="Install Scheduled">Install Scheduled</option>
-                            <option value="Installation in Progress">Installation Active</option>
+                            <option value="Installation in Progress">Installation in Progress</option>
                             <option value="Installation Completed">Installation Completed</option>
-                            <option value="BridgeSelect STC Claimed">BridgeSelect Claimed</option>
+                            <option value="BridgeSelect STC Claimed">BridgeSelect STC Claimed</option>
+                            <option value="Grid Meter Connected">Grid Meter Connected</option>
                             <option value="Completed">Completed &amp; Handover</option>
+                            {!ALL_PROJECT_STATUSES.includes(proj.status) && (
+                              <option value={proj.status}>{proj.status}</option>
+                            )}
                           </select>
+                          </div>
                         </div>
 
                         {/* Quick modal launchers */}
@@ -303,6 +432,15 @@ export const ProjectsView: React.FC<{ onNavigateToSection: (sec: any) => void }>
                               <ShieldCheck className="w-3 h-3" />
                               <span>STC</span>
                             </button>
+
+                            <button
+                              onClick={() => setProjectToDelete(proj)}
+                              className="text-[10px] text-rose-400 hover:text-rose-300 font-semibold flex items-center gap-1 hover:bg-rose-500/10 px-1 py-0.5 rounded transition-colors cursor-pointer"
+                              title="Delete Project"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                              <span>Delete</span>
+                            </button>
                           </div>
                         </div>
                       </div>
@@ -322,27 +460,44 @@ export const ProjectsView: React.FC<{ onNavigateToSection: (sec: any) => void }>
             <table className="w-full text-left text-xs">
               <thead className="bg-[#161616] text-gray-400 uppercase text-[10px] font-bold border-b border-[#2d2d2d] tracking-wider">
                 <tr>
+                  <th className="px-3 py-3 w-10 text-center">
+                    <input
+                      type="checkbox"
+                      checked={filteredProjects.length > 0 && selectedProjectIds.size === filteredProjects.length}
+                      onChange={toggleSelectAll}
+                      className="w-3.5 h-3.5 rounded bg-[#1e1e1e] border-[#444] text-[#bef264] focus:ring-0 cursor-pointer"
+                      title="Select all projects"
+                    />
+                  </th>
                   <th className="px-4 py-3">Project Code &amp; Title</th>
                   <th className="px-4 py-3">Customer &amp; Location</th>
                   <th className="px-4 py-3">Capacity &amp; Hardware</th>
                   <th className="px-4 py-3">Contract Value</th>
                   <th className="px-4 py-3">Internal CER Claim (Profit)</th>
                   <th className="px-4 py-3">Customer STC Rebate</th>
-                  <th className="px-4 py-3">Stage / Status</th>
+                  <th className="px-4 py-3">Project Stage/ Installation Status</th>
                   <th className="px-4 py-3">Subcontractor</th>
-                  <th className="px-4 py-3 text-right">Integrations</th>
+                  <th className="px-4 py-3 text-right">Integrations &amp; Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#262626]">
                 {filteredProjects.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="px-4 py-8 text-center text-gray-500">
+                    <td colSpan={10} className="px-4 py-8 text-center text-gray-500">
                       No solar projects match your search or filter.
                     </td>
                   </tr>
                 ) : (
                   filteredProjects.map(proj => (
                     <tr key={proj.id} className="hover:bg-[#252525] transition-colors">
+                      <td className="px-3 py-3 w-10 text-center">
+                        <input
+                          type="checkbox"
+                          checked={selectedProjectIds.has(proj.id)}
+                          onChange={() => toggleSelectProject(proj.id)}
+                          className="w-3.5 h-3.5 rounded bg-[#1e1e1e] border-[#444] text-[#bef264] focus:ring-0 cursor-pointer"
+                        />
+                      </td>
                       <td className="px-4 py-3">
                         <button
                           onClick={() => handleOpenEditModal(proj)}
@@ -421,12 +576,12 @@ export const ProjectsView: React.FC<{ onNavigateToSection: (sec: any) => void }>
                         })()}
                       </td>
                       <td className="px-4 py-3 font-mono">
-                        <span className="font-bold text-white block">${proj.contractValueAud.toLocaleString()} AUD</span>
+                        <span className="font-bold text-white block">${(proj.contractValueAud || 0).toLocaleString()} AUD</span>
                         <span className="text-[10px] text-gray-400">Net Invoice</span>
                       </td>
                       <td className="px-4 py-3 font-mono">
-                        <span className="font-bold text-emerald-400 block">+${(proj.internalStcValueAud ?? proj.stcValueAud).toLocaleString()} AUD</span>
-                        <span className="text-[10px] text-gray-400">{proj.stcCount} STCs @ ${(proj.internalStcRateAud ?? systemRules.internalStcRateAud ?? 39.50).toFixed(2)}</span>
+                        <span className="font-bold text-emerald-400 block">+${((proj.internalStcValueAud ?? proj.stcValueAud) || 0).toLocaleString()} AUD</span>
+                        <span className="text-[10px] text-gray-400">{proj.stcCount || 0} STCs @ ${(proj.internalStcRateAud ?? systemRules.internalStcRateAud ?? 39.50).toFixed(2)}</span>
                       </td>
                       {(() => {
                         const globalCustomerStcRate = Number(systemRules?.customerStcRateAud ?? 36.00);
@@ -434,30 +589,40 @@ export const ProjectsView: React.FC<{ onNavigateToSection: (sec: any) => void }>
                         return (
                           <td className="px-4 py-3 font-mono">
                             <span className="font-bold text-blue-400 block">
-                              -${customerStcRebate.toLocaleString()} AUD
+                              -${(customerStcRebate || 0).toLocaleString()} AUD
                             </span>
                             <span className="text-[10px] text-gray-400">
-                              {proj.stcCount} STCs @ ${globalCustomerStcRate.toFixed(2)}
+                              {proj.stcCount || 0} STCs @ ${globalCustomerStcRate.toFixed(2)}
                             </span>
                           </td>
                         );
                       })()}
                       <td className="px-4 py-3">
-                        <select
-                          value={proj.status}
-                          onChange={e => updateProjectStatus(proj.id, e.target.value as ProjectStatus)}
-                          className="text-[11px] font-bold bg-[#bef2641a] text-[#bef264] border border-[#bef26433] rounded-lg px-2 py-1 outline-none shadow-xs"
-                        >
+                        <div className="flex flex-col gap-1 items-start">
+                          <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20" title="Project Status">
+                            {proj.projectStatus || 'Active'}
+                          </span>
+                          <select
+                            value={proj.status}
+                            onChange={e => updateProjectStatus(proj.id, e.target.value as ProjectStatus)}
+                            className="text-[11px] font-bold bg-[#bef2641a] text-[#bef264] border border-[#bef26433] rounded-lg px-2 py-1 outline-none shadow-xs"
+                            title="Project Stage/ Installation Status"
+                          >
                           <option value="Site Survey">Site Survey</option>
-                          <option value="Engineering & DNSP Approval">Engineering &amp; DNSP</option>
-                          <option value="Sales Order Created (Warehouse)">Sales Order (Warehouse)</option>
-                          <option value="Subcontractor RFQ / Quoting">Subcontractor RFQ</option>
+                          <option value="Engineering & DNSP Approval">Engineering &amp; DNSP Approval</option>
+                          <option value="Sales Order Dispatched">Sales Order Dispatched</option>
+                          <option value="RFQ Sent to Installers">RFQ Sent to Installers</option>
                           <option value="Install Scheduled">Install Scheduled</option>
-                          <option value="Installation in Progress">Installation Active</option>
+                          <option value="Installation in Progress">Installation in Progress</option>
                           <option value="Installation Completed">Installation Completed</option>
-                          <option value="BridgeSelect STC Claimed">BridgeSelect Claimed</option>
+                          <option value="BridgeSelect STC Claimed">BridgeSelect STC Claimed</option>
+                          <option value="Grid Meter Connected">Grid Meter Connected</option>
                           <option value="Completed">Completed &amp; Handover</option>
+                          {!ALL_PROJECT_STATUSES.includes(proj.status) && (
+                            <option value={proj.status}>{proj.status}</option>
+                          )}
                         </select>
+                        </div>
                       </td>
                       <td className="px-4 py-3">
                         <span className="text-gray-300 text-[11px] block">
@@ -465,7 +630,7 @@ export const ProjectsView: React.FC<{ onNavigateToSection: (sec: any) => void }>
                         </span>
                         {proj.installerQuotedAud && (
                           <span className="text-[10px] text-gray-500 font-mono">
-                            ${proj.installerQuotedAud.toLocaleString()} quote
+                            ${(proj.installerQuotedAud || 0).toLocaleString()} quote
                           </span>
                         )}
                       </td>
@@ -505,6 +670,13 @@ export const ProjectsView: React.FC<{ onNavigateToSection: (sec: any) => void }>
                             title="BridgeSelect STC"
                           >
                             <ShieldCheck className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => setProjectToDelete(proj)}
+                            className="p-1.5 rounded bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/30 transition-colors cursor-pointer"
+                            title="Delete Project"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>
                       </td>
@@ -555,7 +727,17 @@ export const ProjectsView: React.FC<{ onNavigateToSection: (sec: any) => void }>
                     </div>
 
                     {/* Status Dropdown */}
-                    <div className="flex items-center gap-2 self-start sm:self-auto">
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-2 self-start sm:self-auto">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] font-semibold text-gray-400">Project Status:</span>
+                        <span className="text-xs font-bold px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                          {proj.projectStatus || 'Active'}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] font-semibold text-gray-400">
+                          Project Stage/ Installation Status:
+                        </span>
                       <select
                         value={proj.status}
                         onChange={e => updateProjectStatus(proj.id, e.target.value as ProjectStatus)}
@@ -563,15 +745,19 @@ export const ProjectsView: React.FC<{ onNavigateToSection: (sec: any) => void }>
                       >
                         <option value="Site Survey">Site Survey</option>
                         <option value="Engineering & DNSP Approval">Engineering &amp; DNSP Approval</option>
-                        <option value="Sales Order Created (Warehouse)">Sales Order Created</option>
-                        <option value="Subcontractor RFQ / Quoting">Subcontractor RFQ / Quoting</option>
+                        <option value="Sales Order Dispatched">Sales Order Dispatched</option>
+                        <option value="RFQ Sent to Installers">RFQ Sent to Installers</option>
                         <option value="Install Scheduled">Install Scheduled</option>
                         <option value="Installation in Progress">Installation in Progress</option>
                         <option value="Installation Completed">Installation Completed</option>
                         <option value="BridgeSelect STC Claimed">BridgeSelect STC Claimed</option>
                         <option value="Grid Meter Connected">Grid Meter Connected</option>
                         <option value="Completed">Completed &amp; Handover</option>
+                        {!ALL_PROJECT_STATUSES.includes(proj.status) && (
+                          <option value={proj.status}>{proj.status}</option>
+                        )}
                       </select>
+                      </div>
                     </div>
                   </div>
 
@@ -600,25 +786,25 @@ export const ProjectsView: React.FC<{ onNavigateToSection: (sec: any) => void }>
 
                     <div className="p-2.5 bg-[#161616] rounded-lg border border-[#262626]">
                       <span className="text-[10px] font-bold uppercase text-gray-400 block">Contract Revenue</span>
-                      <p className="font-bold text-white mt-0.5">${proj.contractValueAud.toLocaleString()} AUD</p>
+                      <p className="font-bold text-white mt-0.5">${(proj.contractValueAud || 0).toLocaleString()} AUD</p>
                       <p className="text-gray-400 text-[11px]">Customer Net Invoice</p>
                     </div>
 
                     {(() => {
                       const globalCustomerStcRate = Number(systemRules?.customerStcRateAud ?? 36.00);
                       const customerStcRebate = Math.round((proj.stcCount || 0) * globalCustomerStcRate);
-                      const internalStcVal = proj.internalStcValueAud ?? proj.stcValueAud ?? 0;
+                      const internalStcVal = (proj.internalStcValueAud ?? proj.stcValueAud) || 0;
                       return (
                         <div className="p-2.5 bg-[#161616] rounded-lg border border-[#262626]">
                           <span className="text-[10px] font-bold uppercase text-gray-400 block">Dual STC Values</span>
                           <p className="font-bold text-emerald-400 mt-0.5 text-xs font-mono">
-                            CER Claim: +${internalStcVal.toLocaleString()} AUD
+                            CER Claim: +${(internalStcVal || 0).toLocaleString()} AUD
                           </p>
                           <p className="text-blue-400 text-[11px] font-mono">
-                            Customer Rebate: -${customerStcRebate.toLocaleString()} AUD
+                            Customer Rebate: -${(customerStcRebate || 0).toLocaleString()} AUD
                           </p>
                           <p className="text-gray-400 text-[10px] mt-0.5">
-                            Trading spread: +${(internalStcVal - customerStcRebate).toLocaleString()} AUD
+                            Trading spread: +${((internalStcVal - customerStcRebate) || 0).toLocaleString()} AUD
                           </p>
                         </div>
                       );
@@ -630,7 +816,7 @@ export const ProjectsView: React.FC<{ onNavigateToSection: (sec: any) => void }>
                         {proj.subcontractorName || 'Pending'}
                       </p>
                       <p className="text-gray-400 text-[11px]">
-                        {proj.installerQuotedAud ? `$${proj.installerQuotedAud.toLocaleString()} Quote` : 'Awaiting RFQ'}
+                        {proj.installerQuotedAud ? `$${(proj.installerQuotedAud || 0).toLocaleString()} Quote` : 'Awaiting RFQ'}
                       </p>
                     </div>
                   </div>
@@ -700,6 +886,15 @@ export const ProjectsView: React.FC<{ onNavigateToSection: (sec: any) => void }>
                         <span>IO: {linkedInstallOrder.orderNumber}</span>
                       </button>
                     )}
+
+                    <button
+                      onClick={() => setProjectToDelete(proj)}
+                      className="px-2.5 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/30 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                      title="Delete Project"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                      <span>Delete</span>
+                    </button>
                   </div>
 
                   {proj.installedPhotos && proj.installedPhotos.length > 0 && (
@@ -712,6 +907,89 @@ export const ProjectsView: React.FC<{ onNavigateToSection: (sec: any) => void }>
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Single Project Delete Confirmation Modal */}
+      {projectToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-[#181818] border border-[#2d2d2d] rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400 shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white">Delete Project</h3>
+                <p className="text-xs text-gray-400 font-mono mt-0.5">{projectToDelete.projectCode || 'Project'}</p>
+              </div>
+            </div>
+
+            <div className="p-3 bg-[#121212] rounded-xl border border-[#262626] text-xs text-gray-300 space-y-1.5">
+              <p>
+                Are you sure you want to permanently delete project <strong className="text-white">{projectToDelete.projectCode}</strong> for <strong className="text-[#bef264]">{projectToDelete.customerName}</strong>?
+              </p>
+              <p className="text-gray-400 text-[11px]">
+                This will remove the project from the CRM operations pipeline and backend database. This action cannot be undone.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setProjectToDelete(null)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold bg-[#262626] hover:bg-[#333] text-gray-300 hover:text-white transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteSingle}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white shadow-md flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Delete Project</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Delete Projects Confirmation Modal */}
+      {isBulkDeleteConfirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-[#181818] border border-[#2d2d2d] rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400 shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white">Delete Selected Projects</h3>
+                <p className="text-xs text-rose-400 font-semibold mt-0.5">{selectedProjectIds.size} project(s) selected</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-gray-300 leading-relaxed">
+              Are you sure you want to permanently delete all <strong className="text-white">{selectedProjectIds.size}</strong> selected project(s) from the pipeline? This will remove all their records from the database. This action cannot be undone.
+            </p>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setIsBulkDeleteConfirmOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold bg-[#262626] hover:bg-[#333] text-gray-300 hover:text-white transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteBulk}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white shadow-md flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Delete {selectedProjectIds.size} Projects</span>
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

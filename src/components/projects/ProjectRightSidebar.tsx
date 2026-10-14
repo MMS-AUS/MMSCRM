@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import { formatAudAccounts, parseAudAccounts } from '../../utils/australianPostcodes';
 import { ProjectFormData } from './ProjectDetailsLeftPanel';
+import { useApp } from '../../context/AppContext';
 
 interface ProjectRightSidebarProps {
   project?: Project | null;
@@ -68,6 +69,7 @@ export const ProjectRightSidebar: React.FC<ProjectRightSidebarProps> = ({
   xeroReceiptDate,
   xeroActionNotice
 }) => {
+  const { dropdowns } = useApp();
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [uploadCategory, setUploadCategory] = useState<LeadAttachment['category']>('Electricity Bill');
   const [uploadNotes, setUploadNotes] = useState('');
@@ -228,10 +230,9 @@ export const ProjectRightSidebar: React.FC<ProjectRightSidebarProps> = ({
                   onChange={e => setFormData(prev => ({ ...prev, companyType: e.target.value }))}
                   className="w-full px-2 py-1.5 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
                 >
-                  <option value="Company / Pty Ltd">Pty Ltd</option>
-                  <option value="Sole Trader">Sole Trader</option>
-                  <option value="Trust / Superfund">Trust / SMSF</option>
-                  <option value="Partnership">Partnership</option>
+                  {(dropdowns?.companyTypes || ['Company / Pty Ltd', 'Sole Trader', 'Trust / Superfund', 'Partnership']).map((ct: string) => (
+                    <option key={ct} value={ct}>{ct}</option>
+                  ))}
                 </select>
               </div>
               <div>

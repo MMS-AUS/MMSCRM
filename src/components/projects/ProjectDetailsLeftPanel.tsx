@@ -1,4 +1,31 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
+
+function ensureIsoDate(val: string | undefined | null): string {
+  if (!val) return '';
+  const trimmed = String(val).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+  const slashMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (slashMatch) {
+    const p1 = parseInt(slashMatch[1], 10);
+    const p2 = parseInt(slashMatch[2], 10);
+    const y = slashMatch[3];
+    // If first number > 12, it is definitely DD/MM/YYYY
+    if (p1 > 12) {
+      return `${y}-${String(p2).padStart(2, '0')}-${String(p1).padStart(2, '0')}`;
+    }
+    // If second number > 12, it is definitely MM/DD/YYYY
+    if (p2 > 12) {
+      return `${y}-${String(p1).padStart(2, '0')}-${String(p2).padStart(2, '0')}`;
+    }
+    // Default Australian date format: DD/MM/YYYY
+    return `${y}-${String(p2).padStart(2, '0')}-${String(p1).padStart(2, '0')}`;
+  }
+  const parsed = new Date(trimmed);
+  if (!isNaN(parsed.getTime())) {
+    return parsed.toISOString().split('T')[0];
+  }
+  return trimmed;
+}
 import {
   classifyAustralianPostcode,
   getNearestBigCity,
@@ -39,7 +66,8 @@ import {
   Check,
   PhoneCall,
   MessageSquare,
-  RefreshCw
+  RefreshCw,
+  SlidersHorizontal
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { originateCall } from '../../services/voiplineService';
@@ -50,6 +78,7 @@ export interface ProjectFormData {
   amount: string; // locked
   projectCreatedDate: string;
   projectClosedDate: string;
+  projectStatus: string;
   projectStage: string;
 
   // Section 1: Customer & Sales
@@ -190,7 +219,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
   setFormData,
   dropdowns
 }) => {
-  const { setIsQuickSmsOpen, currentUser } = useApp();
+  const { setIsQuickSmsOpen, currentUser, openMappingModal, getMappedDropdownOptions } = useApp();
   const [callingField, setCallingField] = useState<'primary' | 'secondary' | null>(null);
   const [callNotice, setCallNotice] = useState<string | null>(null);
 
@@ -283,6 +312,13 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
 
       // 9. Installation Status changed to Closed -> auto-populate Project Closed Date
       if (field === 'installationStatus') {
+        next.projectStage = value;
+        if (value === 'Closed' && !prev.projectClosedDate) {
+          next.projectClosedDate = todayDate;
+        }
+      }
+      if (field === 'projectStage') {
+        next.installationStatus = value;
         if (value === 'Closed' && !prev.projectClosedDate) {
           next.projectClosedDate = todayDate;
         }
@@ -323,84 +359,161 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
   const inverterHierarchy = dropdowns?.inverterHierarchy || [];
   const batteryHierarchy = dropdowns?.batteryHierarchy || [];
 
+  const normHw = (v?: string) => (v || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const cleanNumeric = (val: any): number | null => {
+    if (val === null || val === undefined || val === '') return null;
+    if (typeof val === 'number') return isNaN(val) ? null : val;
+    const cleaned = String(val).replace(/[^0-9.-]/g, '');
+    const parsed = parseFloat(cleaned);
+    return isNaN(parsed) ? null : parsed;
+  };
+
   // 1. Panel Manufacturers
-  const panelManufacturers: string[] = Array.from(
-    new Set(panelHierarchy.map((p: any) => p.manufacturer).concat(dropdowns?.panelBrands || []))
-  );
+  const panelManufacturers: string[] = useMemo(() => {
+    const list = Array.from(new Set(panelHierarchy.map((p: any) => p.manufacturer).concat(dropdowns?.panelBrands || [])));
+    if (formData.panelManufacturer && !list.some((m: any) => normHw(String(m)) === normHw(formData.panelManufacturer))) {
+      list.unshift(formData.panelManufacturer);
+    }
+    return list;
+  }, [panelHierarchy, dropdowns?.panelBrands, formData.panelManufacturer]);
 
   // 2. Panel Sizes (Dependent on Panel Manufacturer)
-  const panelSizes: string[] = Array.from(
-    new Set(
-      panelHierarchy
-        .filter((p: any) => !formData.panelManufacturer || p.manufacturer === formData.panelManufacturer)
-        .map((p: any) => String(p.sizeW))
-    )
-  );
+  const panelSizes: string[] = useMemo(() => {
+    const normManuf = normHw(formData.panelManufacturer);
+    const matching = panelHierarchy.filter((p: any) =>
+      !normManuf || normHw(p.manufacturer) === normManuf ||
+      normHw(p.manufacturer).includes(normManuf) ||
+      normManuf.includes(normHw(p.manufacturer))
+    );
+    const list = Array.from(new Set(matching.map((p: any) => String(p.sizeW))));
+    if (formData.panelSizeW && !list.includes(String(formData.panelSizeW))) {
+      list.push(String(formData.panelSizeW));
+    }
+    return list.length > 0 ? list : ['440', '450', '475'];
+  }, [panelHierarchy, formData.panelManufacturer, formData.panelSizeW]);
 
   // 3. Panel Series (Dependent on Panel Size & Manuf)
-  const panelSeriesList: string[] = Array.from(
-    new Set(
-      panelHierarchy
-        .filter((p: any) => {
-          const matchManuf = !formData.panelManufacturer || p.manufacturer === formData.panelManufacturer;
-          const matchSize = !formData.panelSizeW || String(p.sizeW) === String(formData.panelSizeW);
-          return matchManuf && matchSize;
-        })
-        .map((p: any) => p.series)
-    )
-  );
+  const panelSeriesList: string[] = useMemo(() => {
+    const normManuf = normHw(formData.panelManufacturer);
+    let matching = panelHierarchy.filter((p: any) => {
+      const matchManuf = !normManuf || normHw(p.manufacturer) === normManuf ||
+        normHw(p.manufacturer).includes(normManuf) ||
+        normManuf.includes(normHw(p.manufacturer));
+      const matchSize = !formData.panelSizeW || String(p.sizeW) === String(formData.panelSizeW);
+      return matchManuf && matchSize;
+    });
+    if (matching.length === 0 && normManuf) {
+      matching = panelHierarchy.filter((p: any) => normHw(p.manufacturer) === normManuf);
+    }
+    const list = Array.from(new Set(matching.map((p: any) => p.series || '').filter(Boolean)));
+    if (formData.panelSeries && !list.includes(formData.panelSeries)) {
+      list.push(formData.panelSeries);
+    }
+    return list;
+  }, [panelHierarchy, formData.panelManufacturer, formData.panelSizeW, formData.panelSeries]);
 
   // 4. Panel Models (Dependent on Panel Series)
-  const panelModels: string[] = Array.from(
-    new Set(
-      panelHierarchy
-        .filter((p: any) => {
-          const matchManuf = !formData.panelManufacturer || p.manufacturer === formData.panelManufacturer;
-          const matchSize = !formData.panelSizeW || String(p.sizeW) === String(formData.panelSizeW);
-          const matchSeries = !formData.panelSeries || p.series === formData.panelSeries;
-          return matchManuf && matchSize && matchSeries;
-        })
-        .map((p: any) => p.model)
-    )
-  );
+  const panelModels: string[] = useMemo(() => {
+    const normManuf = normHw(formData.panelManufacturer);
+    let matching = panelHierarchy.filter((p: any) => {
+      const matchManuf = !normManuf || normHw(p.manufacturer) === normManuf ||
+        normHw(p.manufacturer).includes(normManuf) ||
+        normManuf.includes(normHw(p.manufacturer));
+      const matchSize = !formData.panelSizeW || String(p.sizeW) === String(formData.panelSizeW);
+      const matchSeries = !formData.panelSeries || p.series === formData.panelSeries;
+      return matchManuf && matchSize && matchSeries;
+    });
+    if (matching.length === 0 && normManuf) {
+      matching = panelHierarchy.filter((p: any) => normHw(p.manufacturer) === normManuf);
+    }
+    const list = Array.from(new Set(matching.map((p: any) => p.model)));
+    if (formData.panelModel && !list.includes(formData.panelModel)) {
+      list.unshift(formData.panelModel);
+    }
+    return list;
+  }, [panelHierarchy, formData.panelManufacturer, formData.panelSizeW, formData.panelSeries, formData.panelModel]);
 
   // Inverter Dependent Dropdowns
-  const inverterManufacturers: string[] = Array.from(
-    new Set(inverterHierarchy.map((i: any) => i.manufacturer).concat(dropdowns?.inverterBrands || []))
-  );
+  const inverterManufacturers: string[] = useMemo(() => {
+    const list = Array.from(new Set(inverterHierarchy.map((i: any) => i.manufacturer).concat(dropdowns?.inverterBrands || [])));
+    if (formData.inverterManufacturer && !list.some((m: any) => normHw(String(m)) === normHw(formData.inverterManufacturer))) {
+      list.unshift(formData.inverterManufacturer);
+    }
+    return list;
+  }, [inverterHierarchy, dropdowns?.inverterBrands, formData.inverterManufacturer]);
 
-  const inverterSizes: string[] = Array.from(
-    new Set(
-      inverterHierarchy
-        .filter((i: any) => !formData.inverterManufacturer || i.manufacturer === formData.inverterManufacturer)
-        .map((i: any) => String(i.sizeKw))
-    )
-  );
+  const inverterSizes: string[] = useMemo(() => {
+    const normManuf = normHw(formData.inverterManufacturer);
+    const matching = inverterHierarchy.filter((i: any) =>
+      !normManuf || normHw(i.manufacturer) === normManuf ||
+      normHw(i.manufacturer).includes(normManuf) ||
+      normManuf.includes(normHw(i.manufacturer))
+    );
+    const list = Array.from(new Set(matching.map((i: any) => String(i.sizeKw))));
+    if (formData.inverterSizeKw && !list.includes(String(formData.inverterSizeKw))) {
+      list.unshift(String(formData.inverterSizeKw));
+    }
+    return list.length > 0 ? list : ['5', '5.0', '6.0', '8.0', '10.0'];
+  }, [inverterHierarchy, formData.inverterManufacturer, formData.inverterSizeKw]);
 
-  const inverterSeriesList: string[] = Array.from(
-    new Set(
-      inverterHierarchy
-        .filter((i: any) => {
-          const matchManuf = !formData.inverterManufacturer || i.manufacturer === formData.inverterManufacturer;
-          const matchSize = !formData.inverterSizeKw || String(i.sizeKw) === String(formData.inverterSizeKw);
-          return matchManuf && matchSize && Boolean(i.series);
-        })
-        .map((i: any) => i.series)
-    )
-  );
+  const inverterSeriesList: string[] = useMemo(() => {
+    const normManuf = normHw(formData.inverterManufacturer);
+    const numSize = cleanNumeric(formData.inverterSizeKw);
+    let matching = inverterHierarchy.filter((i: any) => {
+      const matchM = !normManuf || normHw(i.manufacturer) === normManuf ||
+        normHw(i.manufacturer).includes(normManuf) ||
+        normManuf.includes(normHw(i.manufacturer));
+      const matchS = numSize === null || cleanNumeric(i.sizeKw) === numSize;
+      return matchM && matchS;
+    });
+    if (matching.length === 0 && normManuf) {
+      matching = inverterHierarchy.filter((i: any) => normHw(i.manufacturer) === normManuf);
+    }
+    const list = Array.from(new Set(matching.map((i: any) => i.series || '').filter(Boolean)));
+    if (formData.inverterSeries && !list.includes(formData.inverterSeries)) {
+      list.push(formData.inverterSeries);
+    }
+    return list;
+  }, [inverterHierarchy, formData.inverterManufacturer, formData.inverterSizeKw, formData.inverterSeries]);
 
-  const inverterModels: string[] = Array.from(
-    new Set(
-      inverterHierarchy
-        .filter((i: any) => {
-          const matchManuf = !formData.inverterManufacturer || i.manufacturer === formData.inverterManufacturer;
-          const matchSize = !formData.inverterSizeKw || String(i.sizeKw) === String(formData.inverterSizeKw);
-          const matchSeries = !formData.inverterSeries || !i.series || i.series === formData.inverterSeries;
-          return matchManuf && matchSize && matchSeries;
-        })
-        .map((i: any) => i.model)
-    )
-  );
+  const inverterModels: string[] = useMemo(() => {
+    const normManuf = normHw(formData.inverterManufacturer);
+    const numSize = cleanNumeric(formData.inverterSizeKw);
+    const normSeries = normHw(formData.inverterSeries);
+
+    let matching = inverterHierarchy.filter((i: any) => {
+      const matchM = !normManuf || normHw(i.manufacturer) === normManuf ||
+        normHw(i.manufacturer).includes(normManuf) ||
+        normManuf.includes(normHw(i.manufacturer));
+      const matchS = numSize === null || cleanNumeric(i.sizeKw) === numSize;
+      const matchSer = !normSeries || normHw(i.series) === normSeries;
+      return matchM && matchS && matchSer;
+    });
+
+    if (matching.length === 0 && normSeries) {
+      matching = inverterHierarchy.filter((i: any) => {
+        const matchM = !normManuf || normHw(i.manufacturer) === normManuf ||
+          normHw(i.manufacturer).includes(normManuf) ||
+          normManuf.includes(normHw(i.manufacturer));
+        const matchS = numSize === null || cleanNumeric(i.sizeKw) === numSize;
+        return matchM && matchS;
+      });
+    }
+
+    if (matching.length === 0 && normManuf) {
+      matching = inverterHierarchy.filter((i: any) =>
+        normHw(i.manufacturer) === normManuf ||
+        normHw(i.manufacturer).includes(normManuf) ||
+        normManuf.includes(normHw(i.manufacturer))
+      );
+    }
+
+    const list = Array.from(new Set(matching.map((i: any) => i.model)));
+    if (formData.inverterModel && !list.includes(formData.inverterModel)) {
+      list.unshift(formData.inverterModel);
+    }
+    return list.length > 0 ? list : ['SG5.0RS-ADA', 'SUN2000-5KTL-L1'];
+  }, [inverterHierarchy, formData.inverterManufacturer, formData.inverterSizeKw, formData.inverterSeries, formData.inverterModel]);
 
   // Battery Dependent Dropdowns
   const batteryManufacturers: string[] = Array.from(
@@ -453,112 +566,194 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
               Customer &amp; Sales Details
             </h3>
           </div>
-          <span className="text-[11px] text-gray-400 bg-[#222] px-2 py-0.5 rounded border border-[#333]">
-            Section 1
-          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => openMappingModal('projects_sec1')}
+              className="px-2 py-0.5 rounded text-[10px] font-semibold bg-[#1e293b] text-cyan-300 hover:bg-[#334155] border border-cyan-500/30 flex items-center gap-1 transition-colors"
+              title="Map Section 1 dropdowns to Settings Dropdown Category"
+            >
+              <SlidersHorizontal className="w-3 h-3" />
+              <span>Map Dropdowns</span>
+            </button>
+            <span className="text-[11px] text-gray-400 bg-[#222] px-2 py-0.5 rounded border border-[#333]">
+              Section 1
+            </span>
+          </div>
         </div>
 
-        {/* Sales Person & State */}
-        <div className="grid grid-cols-1 gap-3.5">
+        {/* Sales Person Name */}
+        <div>
+          <label className="block text-xs font-medium text-gray-400 mb-1">
+            Sales Person Name <span className="text-rose-400">*</span>
+          </label>
+          <select
+            value={formData.salesPersonName}
+            onChange={e => handleChange('salesPersonName', e.target.value)}
+            className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
+          >
+            <option value="">Select Sales Person...</option>
+            {getMappedDropdownOptions('projects_salesPersonName', dropdowns?.salesPersons || ['Mitchell Barnes', 'Chloe Gallagher', 'Akash Mohite']).map((sp: string) => (
+              <option key={sp} value={sp}>
+                {sp}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Sale Date */}
+        <div>
+          <label className="block text-xs font-medium text-gray-400 mb-1">
+            Sale Date
+          </label>
+          <div className="relative">
+            <input
+              type="date"
+              value={ensureIsoDate(formData.saleDate)}
+              onChange={e => handleChange('saleDate', e.target.value)}
+              className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
+            />
+          </div>
+        </div>
+
+        {/* 1A. Installation Site Address */}
+        <div className="p-3.5 bg-[#141414] border border-[#282828] rounded-xl space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-[#bef264] flex items-center gap-1.5">
+              <MapPin className="w-3.5 h-3.5" />
+              <span>1A. Installation Site Address</span>
+            </span>
+            <button
+              type="button"
+              onClick={() => setShowAddressDropdown(!showAddressDropdown)}
+              className="text-xs text-[#bef264] hover:underline flex items-center gap-1 font-mono"
+            >
+              <Search className="w-3 h-3" />
+              <span>Quick Lookup Preset</span>
+            </button>
+          </div>
+
+          {showAddressDropdown && (
+            <div className="p-3 bg-[#181818] border border-[#333] rounded-lg space-y-2">
+              <span className="text-[11px] text-gray-400 block">Select Australian Verified Address Preset:</span>
+              <div className="grid grid-cols-1 gap-1.5 max-h-40 overflow-y-auto pr-1 custom-scrollbar">
+                {AUSTRALIAN_ADDRESS_DATABASE.map((preset, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => handleSelectAddress(preset)}
+                    className="text-left p-2 hover:bg-[#252525] rounded text-xs text-gray-200 flex items-center justify-between transition-colors border border-transparent hover:border-[#383838]"
+                  >
+                    <span>{preset.address}, {preset.suburb} {preset.state} {preset.postcode}</span>
+                    <span className="text-[10px] text-[#bef264] font-mono">{preset.area}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div>
             <label className="block text-xs font-medium text-gray-400 mb-1">
-              Sales Person Name <span className="text-rose-400">*</span>
+              Street Address <span className="text-rose-400">*</span>
             </label>
-            <select
-              value={formData.salesPersonName}
-              onChange={e => handleChange('salesPersonName', e.target.value)}
+            <input
+              type="text"
+              placeholder="e.g. 142 George Street"
+              value={formData.address}
+              onChange={e => handleChange('address', e.target.value)}
               className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
-            >
-              <option value="">Select Sales Person...</option>
-              {(dropdowns?.salesPersons || ['Mitchell Barnes', 'Chloe Gallagher', 'Akash Mohite']).map((sp: string) => (
-                <option key={sp} value={sp}>
-                  {sp}
-                </option>
-              ))}
-            </select>
+            />
           </div>
 
           <div>
             <label className="block text-xs font-medium text-gray-400 mb-1">
-              State <span className="text-rose-400">*</span>
+              Suburb <span className="text-rose-400">*</span>
+            </label>
+            <input
+              type="text"
+              placeholder="e.g. Parramatta"
+              value={formData.suburb}
+              onChange={e => handleChange('suburb', e.target.value)}
+              className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-400 mb-1">
+              State
             </label>
             <select
               value={formData.state}
               onChange={e => handleChange('state', e.target.value)}
               className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
             >
-              {(dropdowns?.states || ['NSW', 'QLD', 'VIC', 'SA', 'WA', 'TAS', 'ACT', 'NT']).map((st: string) => (
-                <option key={st} value={st}>
-                  {st}
-                </option>
+              {getMappedDropdownOptions('projects_state', dropdowns?.states || ['NSW', 'QLD', 'VIC', 'SA', 'WA', 'TAS', 'ACT', 'NT']).map((st: string) => (
+                <option key={st} value={st}>{st}</option>
               ))}
             </select>
           </div>
-        </div>
 
-        {/* Postcode, Area, Nearest Big City */}
-        <div className="grid grid-cols-1 gap-3.5">
           <div>
-            <label className="block text-xs font-medium text-gray-400 mb-1">Post Code</label>
+            <label className="block text-xs font-medium text-gray-400 mb-1">
+              Post Code
+            </label>
             <input
               type="text"
-              maxLength={4}
+              placeholder="e.g. 2150"
               value={formData.postcode}
-              onChange={e => handleChange('postcode', e.target.value.replace(/\D/g, ''))}
-              placeholder="e.g. 2000"
+              onChange={e => handleChange('postcode', e.target.value)}
               className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
             />
           </div>
+
           <div>
-            <label className="block text-xs font-medium text-gray-400 mb-1">Area</label>
-            <input
-              type="text"
+            <label className="block text-xs font-medium text-gray-400 mb-1">
+              Area
+            </label>
+            <select
               value={formData.area}
               onChange={e => handleChange('area', e.target.value)}
-              placeholder="Metro / Regional"
               className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
-            />
+            >
+              {getMappedDropdownOptions('projects_area', dropdowns?.areas || ['Metro', 'Regional', 'Rural', 'Remote']).map((ar: string) => (
+                <option key={ar} value={ar}>{ar}</option>
+              ))}
+            </select>
           </div>
+
           <div>
-            <label className="block text-xs font-medium text-gray-400 mb-1">Suburb (Nearest Big city)</label>
+            <label className="block text-xs font-medium text-gray-400 mb-1">
+              Suburb (Nearest Big city)
+            </label>
             <input
               type="text"
+              placeholder="e.g. Sydney"
               value={formData.nearestBigCity}
               onChange={e => handleChange('nearestBigCity', e.target.value)}
-              placeholder="e.g. Sydney, Brisbane"
-              className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
-            />
-          </div>
-        </div>
-
-        {/* Sale Date */}
-        <div className="grid grid-cols-1 gap-3.5">
-          <div>
-            <label className="block text-xs font-medium text-gray-400 mb-1">Sale Date</label>
-            <input
-              type="date"
-              value={formData.saleDate}
-              onChange={e => handleChange('saleDate', e.target.value)}
               className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-400 mb-1">Deposit Received Date</label>
-            <input
-              type="date"
-              value={formData.depositReceivedDate}
-              onChange={e => handleChange('depositReceivedDate', e.target.value)}
-              className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
-            />
+            <label className="block text-xs font-medium text-gray-400 mb-1">
+              Deposit Received Date
+            </label>
+            <div className="relative">
+              <input
+                type="date"
+                value={ensureIsoDate(formData.depositReceivedDate)}
+                onChange={e => handleChange('depositReceivedDate', e.target.value)}
+                className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
+              />
+            </div>
           </div>
         </div>
 
-        {/* Customer & Manager Names */}
+        {/* 1B. Primary Customer & Rentee Details */}
         <div className="p-3.5 bg-[#141414] border border-[#282828] rounded-xl space-y-3">
           <div className="text-xs font-semibold text-[#bef264] flex items-center gap-1.5">
             <User className="w-3.5 h-3.5" />
-            <span>Primary Customer &amp; Rentee Details</span>
+            <span>1B. Primary Customer &amp; Rentee Details</span>
           </div>
 
           <div className="grid grid-cols-1 gap-3.5">
@@ -610,251 +805,130 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
               />
             </div>
           </div>
-        </div>
 
-        {/* Address with Australian Database presets */}
-        <div className="p-3.5 bg-[#141414] border border-[#282828] rounded-xl space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-[#bef264] flex items-center gap-1.5">
-              <MapPin className="w-3.5 h-3.5" />
-              <span>Installation Site Address</span>
-            </span>
-            <button
-              type="button"
-              onClick={() => setShowAddressDropdown(!showAddressDropdown)}
-              className="text-xs text-[#bef264] hover:underline flex items-center gap-1 font-mono"
-            >
-              <Search className="w-3 h-3" />
-              <span>Quick Lookup Preset</span>
-            </button>
-          </div>
-
-          {showAddressDropdown && (
-            <div className="p-3 bg-[#181818] border border-[#333] rounded-lg space-y-2">
-              <span className="text-[11px] text-gray-400 block">Select Australian Verified Address Preset:</span>
-              <div className="grid grid-cols-1 gap-1.5 max-h-40 overflow-y-auto pr-1 custom-scrollbar">
-                {AUSTRALIAN_ADDRESS_DATABASE.map((preset, idx) => (
-                  <button
-                    key={idx}
-                    type="button"
-                    onClick={() => handleSelectAddress(preset)}
-                    className="text-left p-2 hover:bg-[#252525] rounded text-xs text-gray-200 flex items-center justify-between transition-colors border border-transparent hover:border-[#383838]"
-                  >
-                    <span>{preset.address}, {preset.suburb} {preset.state} {preset.postcode}</span>
-                    <span className="text-[10px] text-[#bef264] font-mono">{preset.area}</span>
-                  </button>
-                ))}
-              </div>
+          {/* Notification Banner */}
+          {callNotice && (
+            <div className="p-2.5 bg-cyan-950/40 border border-cyan-500/40 rounded-xl text-xs text-cyan-300 flex items-center gap-2 animate-fadeIn">
+              <PhoneCall className="w-4 h-4 text-cyan-400 shrink-0" />
+              <span>{callNotice}</span>
             </div>
           )}
 
+          {/* Contact info: Mobile, Email */}
           <div className="grid grid-cols-1 gap-3.5">
             <div>
-              <label className="block text-xs font-medium text-gray-400 mb-1">
-                Street Address <span className="text-rose-400">*</span>
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-medium text-gray-400">
+                  Primary Mobile <span className="text-rose-400">*</span>
+                </label>
+                {formData.primaryMobile && (
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => handleCall('primary', formData.primaryMobile)}
+                      disabled={callingField === 'primary'}
+                      title="Click-to-Call via VoIPLine"
+                      className="px-1.5 py-0.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 text-[10px] font-medium flex items-center gap-1 transition-colors disabled:opacity-50"
+                    >
+                      {callingField === 'primary' ? (
+                        <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                      ) : (
+                        <PhoneCall className="w-2.5 h-2.5" />
+                      )}
+                      <span>{callingField === 'primary' ? 'Calling...' : 'Call'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsQuickSmsOpen(true)}
+                      title="Send SMS"
+                      className="px-1.5 py-0.5 rounded bg-sky-500/20 hover:bg-sky-500/30 text-sky-400 text-[10px] font-medium flex items-center gap-1 transition-colors"
+                    >
+                      <MessageSquare className="w-2.5 h-2.5" />
+                      <span>SMS</span>
+                    </button>
+                  </div>
+                )}
+              </div>
               <input
-                type="text"
-                placeholder="e.g. 142 George Street"
-                value={formData.address}
-                onChange={e => handleChange('address', e.target.value)}
-                className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
+                type="tel"
+                placeholder="0400 000 000"
+                value={formData.primaryMobile}
+                onChange={e => handleChange('primaryMobile', e.target.value)}
+                className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white font-mono focus:border-[#bef264] focus:outline-none transition-colors"
+              />
+            </div>
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-medium text-gray-400">Secondary Mobile</label>
+                {formData.secondaryMobile && (
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => handleCall('secondary', formData.secondaryMobile)}
+                      disabled={callingField === 'secondary'}
+                      title="Click-to-Call via VoIPLine"
+                      className="px-1.5 py-0.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 text-[10px] font-medium flex items-center gap-1 transition-colors disabled:opacity-50"
+                    >
+                      {callingField === 'secondary' ? (
+                        <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                      ) : (
+                        <PhoneCall className="w-2.5 h-2.5" />
+                      )}
+                      <span>{callingField === 'secondary' ? 'Calling...' : 'Call'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsQuickSmsOpen(true)}
+                      title="Send SMS"
+                      className="px-1.5 py-0.5 rounded bg-sky-500/20 hover:bg-sky-500/30 text-sky-400 text-[10px] font-medium flex items-center gap-1 transition-colors"
+                    >
+                      <MessageSquare className="w-2.5 h-2.5" />
+                      <span>SMS</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+              <input
+                type="tel"
+                placeholder="0400 000 000"
+                value={formData.secondaryMobile}
+                onChange={e => handleChange('secondaryMobile', e.target.value)}
+                className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white font-mono focus:border-[#bef264] focus:outline-none transition-colors"
               />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-400 mb-1">
-                Suburb <span className="text-rose-400">*</span>
+                Email Address (Multiple Allowed) <span className="text-rose-400">*</span>
               </label>
               <input
                 type="text"
-                placeholder="e.g. Parramatta"
-                value={formData.suburb}
-                onChange={e => handleChange('suburb', e.target.value)}
-                className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
+                placeholder="name@domain.com, opt@domain.com"
+                value={formData.email}
+                onChange={e => handleChange('email', e.target.value)}
+                className={`w-full px-3 py-2 bg-[#121212] border rounded-lg text-xs text-white focus:outline-none transition-colors ${
+                  emailValidation.isValid
+                    ? 'border-[#333] focus:border-[#bef264]'
+                    : 'border-rose-500/70 focus:border-rose-500'
+                }`}
               />
-            </div>
-          </div>
-        </div>
-
-        {/* Notification Banner */}
-        {callNotice && (
-          <div className="p-2.5 bg-cyan-950/40 border border-cyan-500/40 rounded-xl text-xs text-cyan-300 flex items-center gap-2 animate-fadeIn">
-            <PhoneCall className="w-4 h-4 text-cyan-400 shrink-0" />
-            <span>{callNotice}</span>
-          </div>
-        )}
-
-        {/* Contact info: Mobile, Email */}
-        <div className="grid grid-cols-1 gap-3.5">
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="block text-xs font-medium text-gray-400">
-                Primary Mobile <span className="text-rose-400">*</span>
-              </label>
-              {formData.primaryMobile && (
-                <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => handleCall('primary', formData.primaryMobile)}
-                    disabled={callingField === 'primary'}
-                    title="Click-to-Call via VoIPLine"
-                    className="px-1.5 py-0.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 text-[10px] font-medium flex items-center gap-1 transition-colors disabled:opacity-50"
-                  >
-                    {callingField === 'primary' ? (
-                      <RefreshCw className="w-2.5 h-2.5 animate-spin" />
-                    ) : (
-                      <PhoneCall className="w-2.5 h-2.5" />
-                    )}
-                    <span>{callingField === 'primary' ? 'Calling...' : 'Call'}</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setIsQuickSmsOpen(true)}
-                    title="Send SMS"
-                    className="px-1.5 py-0.5 rounded bg-sky-500/20 hover:bg-sky-500/30 text-sky-400 text-[10px] font-medium flex items-center gap-1 transition-colors"
-                  >
-                    <MessageSquare className="w-2.5 h-2.5" />
-                    <span>SMS</span>
-                  </button>
-                </div>
+              {!emailValidation.isValid && (
+                <span className="text-[10px] text-rose-400 mt-1 block">
+                  Invalid format: {emailValidation.invalidEmails.join(', ')}
+                </span>
               )}
             </div>
-            <input
-              type="tel"
-              placeholder="0400 000 000"
-              value={formData.primaryMobile}
-              onChange={e => handleChange('primaryMobile', e.target.value)}
-              className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white font-mono focus:border-[#bef264] focus:outline-none transition-colors"
+          </div>
+
+          {/* Sales Team Notes */}
+          <div>
+            <label className="block text-xs font-medium text-gray-400 mb-1">Sales Team Notes</label>
+            <textarea
+              rows={2}
+              value={formData.salesTeamNotes}
+              onChange={e => handleChange('salesTeamNotes', e.target.value)}
+              placeholder="Enter customer special instructions, access notes..."
+              className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
             />
-          </div>
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="block text-xs font-medium text-gray-400">Secondary Mobile</label>
-              {formData.secondaryMobile && (
-                <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => handleCall('secondary', formData.secondaryMobile)}
-                    disabled={callingField === 'secondary'}
-                    title="Click-to-Call via VoIPLine"
-                    className="px-1.5 py-0.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 text-[10px] font-medium flex items-center gap-1 transition-colors disabled:opacity-50"
-                  >
-                    {callingField === 'secondary' ? (
-                      <RefreshCw className="w-2.5 h-2.5 animate-spin" />
-                    ) : (
-                      <PhoneCall className="w-2.5 h-2.5" />
-                    )}
-                    <span>{callingField === 'secondary' ? 'Calling...' : 'Call'}</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setIsQuickSmsOpen(true)}
-                    title="Send SMS"
-                    className="px-1.5 py-0.5 rounded bg-sky-500/20 hover:bg-sky-500/30 text-sky-400 text-[10px] font-medium flex items-center gap-1 transition-colors"
-                  >
-                    <MessageSquare className="w-2.5 h-2.5" />
-                    <span>SMS</span>
-                  </button>
-                </div>
-              )}
-            </div>
-            <input
-              type="tel"
-              placeholder="0400 000 000"
-              value={formData.secondaryMobile}
-              onChange={e => handleChange('secondaryMobile', e.target.value)}
-              className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white font-mono focus:border-[#bef264] focus:outline-none transition-colors"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-400 mb-1">
-              Email Address (Multiple Allowed) <span className="text-rose-400">*</span>
-            </label>
-            <input
-              type="text"
-              placeholder="name@domain.com, opt@domain.com"
-              value={formData.email}
-              onChange={e => handleChange('email', e.target.value)}
-              className={`w-full px-3 py-2 bg-[#121212] border rounded-lg text-xs text-white focus:outline-none transition-colors ${
-                emailValidation.isValid
-                  ? 'border-[#333] focus:border-[#bef264]'
-                  : 'border-rose-500/70 focus:border-rose-500'
-              }`}
-            />
-            {!emailValidation.isValid && (
-              <span className="text-[10px] text-rose-400 mt-1 block">
-                Invalid format: {emailValidation.invalidEmails.join(', ')}
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* Sales Team Notes */}
-        <div>
-          <label className="block text-xs font-medium text-gray-400 mb-1">Sales Team Notes</label>
-          <textarea
-            rows={2}
-            value={formData.salesTeamNotes}
-            onChange={e => handleChange('salesTeamNotes', e.target.value)}
-            placeholder="Enter customer special instructions, access notes..."
-            className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
-          />
-        </div>
-
-        {/* Pricing Summary */}
-        <div className="grid grid-cols-1 gap-3.5 pt-1">
-          <div>
-            <label className="block text-xs font-medium text-gray-400 mb-1">System Price (AUD)</label>
-            <div className="relative">
-              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-mono font-bold pointer-events-none">$</span>
-              <input
-                type="text"
-                value={stripDollarSign(formData.systemPrice)}
-                onChange={e => handleChange('systemPrice', e.target.value.replace(/^\$/, '').trim())}
-                onBlur={() => {
-                  const parsed = parseAudAccounts(formData.systemPrice);
-                  if (parsed > 0) handleChange('systemPrice', formatAudNumber(parsed));
-                }}
-                placeholder="14,500.00"
-                className="w-full pl-10 pr-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs font-mono font-semibold text-[#bef264] placeholder-gray-600 focus:border-[#bef264] focus:outline-none transition-colors"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-400 mb-1">Selling Price (After Rebates)</label>
-            <div className="relative">
-              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-mono font-bold pointer-events-none">$</span>
-              <input
-                type="text"
-                value={stripDollarSign(formData.sellingPrice)}
-                onChange={e => handleChange('sellingPrice', e.target.value.replace(/^\$/, '').trim())}
-                onBlur={() => {
-                  const parsed = parseAudAccounts(formData.sellingPrice);
-                  if (parsed > 0) handleChange('sellingPrice', formatAudNumber(parsed));
-                }}
-                placeholder="10,500.00"
-                className="w-full pl-10 pr-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs font-mono font-semibold text-[#bef264] placeholder-gray-600 focus:border-[#bef264] focus:outline-none transition-colors"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-400 mb-1">Deposit (AUD)</label>
-            <div className="relative">
-              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-mono font-bold pointer-events-none">$</span>
-              <input
-                type="text"
-                value={stripDollarSign(formData.deposit)}
-                onChange={e => handleChange('deposit', e.target.value.replace(/^\$/, '').trim())}
-                onBlur={() => {
-                  const parsed = parseAudAccounts(formData.deposit);
-                  if (parsed > 0) handleChange('deposit', formatAudNumber(parsed));
-                }}
-                placeholder="1,000.00"
-                className="w-full pl-10 pr-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs font-mono font-semibold text-[#bef264] placeholder-gray-600 focus:border-[#bef264] focus:outline-none transition-colors"
-              />
-            </div>
           </div>
         </div>
       </section>
@@ -866,13 +940,34 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
             <span className="flex items-center justify-center w-6 h-6 rounded-full bg-[#bef26420] text-[#bef264] text-xs font-bold border border-[#bef26440]">
               2
             </span>
-            <h3 className="font-semibold text-white text-sm tracking-wide">
-              Technical Specifications &amp; Hardware
-            </h3>
+            <div className="flex items-center gap-1.5">
+              <Sun className="w-4 h-4 text-[#bef264]" />
+              <h3 className="font-semibold text-white text-sm tracking-wide">
+                Technical Specifications &amp; Hardware
+              </h3>
+            </div>
           </div>
-          <span className="text-[11px] text-gray-400 bg-[#222] px-2 py-0.5 rounded border border-[#333]">
-            Section 2
-          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => openMappingModal('projects_sec2')}
+              className="px-2 py-0.5 rounded text-[10px] font-semibold bg-[#1e293b] text-cyan-300 hover:bg-[#334155] border border-cyan-500/30 flex items-center gap-1 transition-colors"
+              title="Map Section 2 dropdowns to Settings Dropdown Category"
+            >
+              <SlidersHorizontal className="w-3 h-3" />
+              <span>Map Dropdowns</span>
+            </button>
+            <span className="text-[11px] text-[#bef264] font-mono bg-[#bef2641a] px-2 py-0.5 rounded border border-[#bef26430]">
+              System Size: {(() => {
+                const kw = (formData.systemSizeKw && Number(formData.systemSizeKw) > 0)
+                  ? Number(formData.systemSizeKw)
+                  : (Number(formData.noOfPanels) > 0 && Number(formData.panelSizeW) > 0)
+                  ? Math.round((Number(formData.noOfPanels) * Number(formData.panelSizeW) / 1000) * 100) / 100
+                  : null;
+                return kw ? `${kw} kW` : 'Not Set';
+              })()}
+            </span>
+          </div>
         </div>
 
         {/* System Size kW */}
@@ -895,21 +990,32 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
               ))}
             </div>
           </div>
-          <input
-            type="number"
-            step="0.1"
-            value={formData.systemSizeKw}
-            onChange={e => handleChange('systemSizeKw', parseFloat(e.target.value) || '')}
-            placeholder="6.6"
-            className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs font-mono font-bold text-white focus:border-[#bef264] focus:outline-none transition-colors"
-          />
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 flex items-center justify-center px-1.5 py-0.5 rounded bg-[#262626] border border-[#3e3e3e] text-[10px] font-mono font-bold text-[#bef264] pointer-events-none select-none z-10">
+              kW
+            </span>
+            <input
+              type="number"
+              step="0.1"
+              value={
+                formData.systemSizeKw !== undefined && formData.systemSizeKw !== null && formData.systemSizeKw !== '' && Number(formData.systemSizeKw) > 0
+                  ? formData.systemSizeKw
+                  : (Number(formData.noOfPanels) > 0 && Number(formData.panelSizeW) > 0)
+                  ? Math.round((Number(formData.noOfPanels) * Number(formData.panelSizeW) / 1000) * 100) / 100
+                  : ''
+              }
+              onChange={e => handleChange('systemSizeKw', e.target.value === '' ? '' : (parseFloat(e.target.value) || 0))}
+              placeholder="6.6"
+              className="w-full pl-12 pr-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs font-mono font-bold text-white focus:border-[#bef264] focus:outline-none transition-colors"
+            />
+          </div>
         </div>
 
         {/* Panels Specifications */}
         <div className="p-3.5 bg-[#141414] border border-[#282828] rounded-xl space-y-3">
           <div className="text-xs font-semibold text-[#bef264] flex items-center gap-1.5">
             <Layers className="w-3.5 h-3.5" />
-            <span>Solar Panels (PV Modules)</span>
+            <span>2A. Solar Panels (PV Modules)</span>
           </div>
 
           <div className="grid grid-cols-1 gap-3.5">
@@ -940,18 +1046,23 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-400 mb-1">Panel Size (W)</label>
-              <select
-                value={formData.panelSizeW}
-                onChange={e => handleChange('panelSizeW', e.target.value)}
-                className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
-              >
-                <option value="">Select Watts</option>
-                {(panelSizes.length > 0 ? panelSizes : ['440', '475', '500']).map(ps => (
-                  <option key={ps} value={ps}>
-                    {ps}W
-                  </option>
-                ))}
-              </select>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 flex items-center justify-center px-1.5 py-0.5 rounded bg-[#262626] border border-[#3e3e3e] text-[10px] font-mono font-bold text-amber-400 pointer-events-none select-none z-10">
+                  W
+                </span>
+                <select
+                  value={formData.panelSizeW}
+                  onChange={e => handleChange('panelSizeW', e.target.value)}
+                  className="w-full pl-11 pr-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
+                >
+                  <option value="">Select Watts</option>
+                  {(panelSizes.length > 0 ? panelSizes : ['440', '475', '500']).map(ps => (
+                    <option key={ps} value={ps}>
+                      {ps}W
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
           </div>
 
@@ -993,7 +1104,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
         <div className="p-3.5 bg-[#141414] border border-[#282828] rounded-xl space-y-3">
           <div className="text-xs font-semibold text-[#bef264] flex items-center gap-1.5">
             <Zap className="w-3.5 h-3.5" />
-            <span>Solar Inverter</span>
+            <span>2B. Solar Inverter</span>
           </div>
 
           <div className="grid grid-cols-1 gap-3.5">
@@ -1024,18 +1135,23 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-400 mb-1">Inverter Size (kW)</label>
-              <select
-                value={formData.inverterSizeKw}
-                onChange={e => handleChange('inverterSizeKw', e.target.value)}
-                className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
-              >
-                <option value="">Select Size kW</option>
-                {(inverterSizes.length > 0 ? inverterSizes : ['5.0', '6.0', '8.0', '10.0']).map(is => (
-                  <option key={is} value={is}>
-                    {is} kW
-                  </option>
-                ))}
-              </select>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 flex items-center justify-center px-1.5 py-0.5 rounded bg-[#262626] border border-[#3e3e3e] text-[10px] font-mono font-bold text-[#bef264] pointer-events-none select-none z-10">
+                  kW
+                </span>
+                <select
+                  value={formData.inverterSizeKw}
+                  onChange={e => handleChange('inverterSizeKw', e.target.value)}
+                  className="w-full pl-12 pr-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
+                >
+                  <option value="">Select Size kW</option>
+                  {(inverterSizes.length > 0 ? inverterSizes : ['5.0', '6.0', '8.0', '10.0']).map(is => (
+                    <option key={is} value={is}>
+                      {is} kW
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-400 mb-1">Inverter Series</label>
@@ -1074,7 +1190,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
         <div className="p-3.5 bg-[#141414] border border-[#282828] rounded-xl space-y-3">
           <div className="text-xs font-semibold text-[#bef264] flex items-center gap-1.5">
             <Battery className="w-3.5 h-3.5" />
-            <span>Battery Storage System</span>
+            <span>2C. Battery Storage System</span>
           </div>
 
           <div className="grid grid-cols-1 gap-3.5">
@@ -1160,7 +1276,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
               onChange={e => handleChange('roofType', e.target.value)}
               className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
             >
-              {(dropdowns?.roofTypes || ['Tin / Colorbond', 'Tile', 'Kliplok', 'Terracotta', 'Slate', 'Flat Roof / Tilt Frames']).map((rt: string) => (
+              {getMappedDropdownOptions('projects_roofType', dropdowns?.roofTypes || ['Tin / Colorbond', 'Tile', 'Kliplok', 'Terracotta', 'Slate', 'Flat Roof / Tilt Frames']).map((rt: string) => (
                 <option key={rt} value={rt}>
                   {rt}
                 </option>
@@ -1175,7 +1291,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
               onChange={e => handleChange('houseStorey', e.target.value)}
               className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
             >
-              {(dropdowns?.houseStoreys || ['Single Storey', 'Double Storey', 'Triple Storey', 'Multi Storey Commercial']).map((hs: string) => (
+              {getMappedDropdownOptions('projects_houseStorey', dropdowns?.houseStoreys || ['Single Storey', 'Double Storey', 'Triple Storey', 'Multi Storey Commercial']).map((hs: string) => (
                 <option key={hs} value={hs}>
                   {hs}
                 </option>
@@ -1190,7 +1306,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
               onChange={e => handleChange('phase', e.target.value)}
               className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
             >
-              {(dropdowns?.phases || ['Single Phase', 'Three Phase', 'Two Phase Split']).map((ph: string) => (
+              {getMappedDropdownOptions('projects_electricalPhase', dropdowns?.phases || ['Single Phase', 'Three Phase', 'Two Phase Split']).map((ph: string) => (
                 <option key={ph} value={ph}>
                   {ph}
                 </option>
@@ -1218,7 +1334,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
               onChange={e => handleChange('docsReceived', e.target.value)}
               className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
             >
-              {(dropdowns?.docsReceivedOptions || ['No', 'Yes (Complete)', 'Partial', 'Awaiting Meter Photos']).map((dr: string) => (
+              {getMappedDropdownOptions('projects_docsReceived', dropdowns?.docsReceivedOptions || ['No', 'Yes (Complete)', 'Partial', 'Awaiting Meter Photos']).map((dr: string) => (
                 <option key={dr} value={dr}>
                   {dr}
                 </option>
@@ -1249,9 +1365,20 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
               Electricity Bill (EB) &amp; Meter Checklist
             </h3>
           </div>
-          <span className="text-[11px] text-gray-400 bg-[#222] px-2 py-0.5 rounded border border-[#333]">
-            Section 3
-          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => openMappingModal('projects_sec4')}
+              className="px-2 py-0.5 rounded text-[10px] font-semibold bg-[#1e293b] text-cyan-300 hover:bg-[#334155] border border-cyan-500/30 flex items-center gap-1 transition-colors"
+              title="Map EB Checklist dropdowns to Settings Dropdown Category"
+            >
+              <SlidersHorizontal className="w-3 h-3" />
+              <span>Map Dropdowns</span>
+            </button>
+            <span className="text-[11px] text-gray-400 bg-[#222] px-2 py-0.5 rounded border border-[#333]">
+              Section 3
+            </span>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 gap-3.5">
@@ -1264,9 +1391,9 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
               onChange={e => handleChange('q1CustomerNameMatch', e.target.value)}
               className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
             >
-              <option value="Yes">Yes (Matches exactly)</option>
-              <option value="No">No (Different name on bill)</option>
-              <option value="Partial">Partial (Middle initial / maiden name)</option>
+              {getMappedDropdownOptions('projects_q1CustomerNameMatch', ['Yes', 'No', 'Partial', 'Pending Rectification']).map((opt: string) => (
+                <option key={opt} value={opt}>{opt}</option>
+              ))}
             </select>
           </div>
 
@@ -1279,9 +1406,9 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
               onChange={e => handleChange('q2AddressMatch', e.target.value)}
               className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
             >
-              <option value="Yes">Yes (Address verified)</option>
-              <option value="No">No (Mismatch detected)</option>
-              <option value="Pending">Pending verification</option>
+              {getMappedDropdownOptions('projects_q2AddressMatch', ['Yes', 'No', 'Pending', 'Pending Land Title / Sub-lot']).map((opt: string) => (
+                <option key={opt} value={opt}>{opt}</option>
+              ))}
             </select>
           </div>
 
@@ -1294,9 +1421,9 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
               onChange={e => handleChange('q3MeterMatch', e.target.value)}
               className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
             >
-              <option value="Yes">Yes (Meter serial confirmed)</option>
-              <option value="No">No (Photo required)</option>
-              <option value="Awaiting Photo">Awaiting Photo</option>
+              {getMappedDropdownOptions('projects_q3MeterMatch', ['Yes', 'No', 'Awaiting Photo', 'Discrepancy Flagged']).map((opt: string) => (
+                <option key={opt} value={opt}>{opt}</option>
+              ))}
             </select>
           </div>
 
@@ -1309,9 +1436,9 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
               onChange={e => handleChange('q4MeterPhase', e.target.value)}
               className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
             >
-              <option value="Single Phase">Single Phase Confirmed</option>
-              <option value="Three Phase">Three Phase Confirmed</option>
-              <option value="To be verified on site">To be verified on site</option>
+              {getMappedDropdownOptions('projects_q4MeterPhase', ['Single Phase', 'Three Phase', 'Two Phase / Split', 'To be verified on site']).map((opt: string) => (
+                <option key={opt} value={opt}>{opt}</option>
+              ))}
             </select>
           </div>
 
@@ -1324,9 +1451,9 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
               onChange={e => handleChange('q5OpenSolarSystemMatch', e.target.value)}
               className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
             >
-              <option value="Yes">Yes (100% matched)</option>
-              <option value="Modified">Modified (Updated in portal)</option>
-              <option value="Pending Review">Pending Design Review</option>
+              {getMappedDropdownOptions('projects_q5OpenSolarSystemMatch', ['Yes', 'Modified', 'Pending Review', 'Variance Verified']).map((opt: string) => (
+                <option key={opt} value={opt}>{opt}</option>
+              ))}
             </select>
           </div>
 
@@ -1339,9 +1466,9 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
               onChange={e => handleChange('q6OpenSolarPricingMatch', e.target.value)}
               className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
             >
-              <option value="Yes">Yes (Audited &amp; Reconciled)</option>
-              <option value="Price Variance">Price Variance flagged</option>
-              <option value="Pending Final STC Calc">Pending Final STC Calc</option>
+              {getMappedDropdownOptions('projects_q6OpenSolarPricingMatch', ['Yes', 'Price Variance', 'Pending Final STC Calc', 'Discrepancy Adjusted']).map((opt: string) => (
+                <option key={opt} value={opt}>{opt}</option>
+              ))}
             </select>
           </div>
         </div>
@@ -1354,13 +1481,27 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
             <span className="flex items-center justify-center w-6 h-6 rounded-full bg-[#bef26420] text-[#bef264] text-xs font-bold border border-[#bef26440]">
               4
             </span>
-            <h3 className="font-semibold text-white text-sm tracking-wide">
-              Grid Application &amp; DNSP Pre-Approval
-            </h3>
+            <div className="flex items-center gap-1.5">
+              <Zap className="w-4 h-4 text-[#bef264]" />
+              <h3 className="font-semibold text-white text-sm tracking-wide">
+                Grid Application &amp; DNSP Pre-Approval
+              </h3>
+            </div>
           </div>
-          <span className="text-[11px] text-gray-400 bg-[#222] px-2 py-0.5 rounded border border-[#333]">
-            Section 4
-          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => openMappingModal('projects_sec3')}
+              className="px-2 py-0.5 rounded text-[10px] font-semibold bg-[#1e293b] text-cyan-300 hover:bg-[#334155] border border-cyan-500/30 flex items-center gap-1 transition-colors"
+              title="Map DNSP & Grid dropdowns to Settings Dropdown Category"
+            >
+              <SlidersHorizontal className="w-3 h-3" />
+              <span>Map Dropdowns</span>
+            </button>
+            <span className="text-[11px] text-[#bef264] font-mono bg-[#bef2641a] px-2 py-0.5 rounded border border-[#bef26430]">
+              DNSP Approval
+            </span>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 gap-3.5">
@@ -1387,7 +1528,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
               onChange={e => handleChange('electricityDistributor', e.target.value)}
               className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
             >
-              {(dropdowns?.distributors || ['Ausgrid', 'Endeavour Energy', 'Essential Energy', 'Energex', 'Ergon Energy', 'CitiPower', 'Powercor', 'United Energy', 'AusNet', 'SA Power Networks', 'Western Power']).map((dn: string) => (
+              {getMappedDropdownOptions('projects_electricityDistributor', dropdowns?.distributors || ['Ausgrid', 'Endeavour Energy', 'Essential Energy', 'Energex', 'Ergon Energy', 'CitiPower', 'Powercor', 'United Energy', 'AusNet', 'SA Power Networks', 'Western Power']).map((dn: string) => (
                 <option key={dn} value={dn}>
                   {dn}
                 </option>
@@ -1415,7 +1556,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
               onChange={e => handleChange('energyRetailer', e.target.value)}
               className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
             >
-              {(dropdowns?.energyRetailers || ['AGL Energy', 'Origin Energy', 'EnergyAustralia', 'Red Energy', 'Amber Electric', 'Powershop', 'Dodo', 'Ovo Energy', 'Alinta Energy']).map((er: string) => (
+              {getMappedDropdownOptions('projects_energyRetailer', dropdowns?.energyRetailers || ['AGL Energy', 'Origin Energy', 'EnergyAustralia', 'Red Energy', 'Amber Electric', 'Powershop', 'Dodo', 'Ovo Energy', 'Alinta Energy']).map((er: string) => (
                 <option key={er} value={er}>
                   {er}
                 </option>
@@ -1444,7 +1585,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
               onChange={e => handleChange('gridAppStatus', e.target.value)}
               className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
             >
-              {(dropdowns?.gridAppStatuses || ['Not Applied', 'Grid Applied', 'Grid App Approved', 'Grid Rejected', 'Resubmitted', 'Connection Contract Signed']).map((gs: string) => (
+              {getMappedDropdownOptions('projects_gridAppStatus', dropdowns?.gridAppStatuses || ['Not Applied', 'Grid Applied', 'Grid App Approved', 'Grid Rejected', 'Resubmitted', 'Connection Contract Signed']).map((gs: string) => (
                 <option key={gs} value={gs}>
                   {gs}
                 </option>
@@ -1495,9 +1636,20 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
               Installation Details &amp; Installer Scheduling
             </h3>
           </div>
-          <span className="text-[11px] text-gray-400 bg-[#222] px-2 py-0.5 rounded border border-[#333]">
-            Section 5
-          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => openMappingModal('projects_sec5')}
+              className="px-2 py-0.5 rounded text-[10px] font-semibold bg-[#1e293b] text-cyan-300 hover:bg-[#334155] border border-cyan-500/30 flex items-center gap-1 transition-colors"
+              title="Map Installation dropdowns to Settings Dropdown Category"
+            >
+              <SlidersHorizontal className="w-3 h-3" />
+              <span>Map Dropdowns</span>
+            </button>
+            <span className="text-[11px] text-gray-400 bg-[#222] px-2 py-0.5 rounded border border-[#333]">
+              Section 5
+            </span>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 gap-3.5">
@@ -1512,13 +1664,29 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-400 mb-1">Installation Status</label>
+            <label className="block text-xs font-medium text-gray-400 mb-1">Project Stage/ Installation Status</label>
             <select
               value={formData.installationStatus}
               onChange={e => handleChange('installationStatus', e.target.value)}
               className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
             >
-              {(dropdowns?.installationStatuses || ['Unscheduled', 'Installation Booked', 'Job Dispatched', 'In Progress', 'Installed & Tested', 'Rectification Required', 'Closed']).map((is: string) => (
+              {getMappedDropdownOptions('projects_installationStatus', dropdowns?.projectStages || dropdowns?.installationStatuses || [
+                'Site Survey',
+                'Engineering & DNSP Approval',
+                'Sales Order Dispatched',
+                'RFQ Sent to Installers',
+                'Install Scheduled',
+                'Installation in Progress',
+                'Installation Completed',
+                'BridgeSelect STC Claimed',
+                'Grid Meter Connected',
+                'Completed',
+                'Unscheduled',
+                'Booked / Scheduled',
+                'Installer Dispatched',
+                'Rectification Required',
+                'Closed'
+              ]).map((is: string) => (
                 <option key={is} value={is}>
                   {is}
                 </option>
@@ -1544,7 +1712,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
               className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
             >
               <option value="">Select Coordinator</option>
-              {(dropdowns?.coordinators || ['Emma Watson', 'Liam Davis', 'Sarah Jenkins']).map((cd: string) => (
+              {getMappedDropdownOptions('projects_installationBookedBy', dropdowns?.installationBookedByOptions || ['Operations Manager', 'Lead Electrician', 'Mitchell Barnes', 'Chloe Gallagher', 'Akash Mohite']).map((cd: string) => (
                 <option key={cd} value={cd}>
                   {cd}
                 </option>
@@ -1571,7 +1739,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
               onChange={e => handleChange('installationDocsStatus', e.target.value)}
               className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
             >
-              {(dropdowns?.installationDocsStatuses || ['Pending On-Site Form', 'CES Submitted', 'STC Photos Verified', 'Docs Complete']).map((ds: string) => (
+              {getMappedDropdownOptions('projects_installationDocsStatus', dropdowns?.installationDocsStatuses || ['Pending On-Site Form', 'CES Submitted', 'STC Photos Verified', 'Docs Complete']).map((ds: string) => (
                 <option key={ds} value={ds}>
                   {ds}
                 </option>
@@ -1580,7 +1748,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-400 mb-1">Docs Received Date</label>
+            <label className="block text-xs font-medium text-gray-400 mb-1">Install Docs Received Date</label>
             <input
               type="date"
               value={formData.installationDocsReceivedDate}
@@ -1594,7 +1762,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
         <div className="p-3.5 bg-[#141414] border border-[#282828] rounded-xl space-y-3">
           <div className="text-xs font-semibold text-[#bef264] flex items-center gap-1.5">
             <Wrench className="w-3.5 h-3.5" />
-            <span>Accredited Installer &amp; Subcontractor Invoicing</span>
+            <span>5A. Accredited Installer &amp; Subcontractor Invoicing</span>
           </div>
 
           <div className="grid grid-cols-1 gap-3.5">
@@ -1606,7 +1774,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
                 className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
               >
                 <option value="">Select Installer</option>
-                {(dropdowns?.installers || ['Apex Solar Electrical (CEC #A19283)', 'Sydney Metro Sparkies (CEC #A49102)', 'SunRun Contracting (CEC #A77219)']).map((inst: string) => (
+                {getMappedDropdownOptions('projects_installerName', dropdowns?.installers || ['Apex Solar Electrical (CEC #A19283)', 'Sydney Metro Sparkies (CEC #A49102)', 'SunRun Contracting (CEC #A77219)']).map((inst: string) => (
                   <option key={inst} value={inst}>
                     {inst}
                   </option>
@@ -1662,7 +1830,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
                 onChange={e => handleChange('installerInvoiceStatus', e.target.value)}
                 className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
               >
-                {(dropdowns?.installerInvoiceStatuses || ['Pending Review', 'Approved for Payment', 'Paid', 'Disputed']).map((iis: string) => (
+                {getMappedDropdownOptions('projects_installerInvoiceStatus', dropdowns?.installerInvoiceStatuses || ['Pending Review', 'Approved for Payment', 'Paid', 'Disputed']).map((iis: string) => (
                   <option key={iis} value={iis}>
                     {iis}
                   </option>
@@ -1695,9 +1863,20 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
               Warehouse Details &amp; Equipment Dispatch
             </h3>
           </div>
-          <span className="text-[11px] text-gray-400 bg-[#222] px-2 py-0.5 rounded border border-[#333]">
-            Section 6
-          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => openMappingModal('projects_sec5')}
+              className="px-2 py-0.5 rounded text-[10px] font-semibold bg-[#1e293b] text-cyan-300 hover:bg-[#334155] border border-cyan-500/30 flex items-center gap-1 transition-colors"
+              title="Map Warehouse dropdowns to Settings Dropdown Category"
+            >
+              <SlidersHorizontal className="w-3 h-3" />
+              <span>Map Dropdowns</span>
+            </button>
+            <span className="text-[11px] text-gray-400 bg-[#222] px-2 py-0.5 rounded border border-[#333]">
+              Section 6
+            </span>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 gap-3.5">
@@ -1708,7 +1887,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
               onChange={e => handleChange('warehouse', e.target.value)}
               className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
             >
-              {(dropdowns?.warehouses || ['Sydney Central DC', 'Melbourne West Hub', 'Brisbane North DC', 'Adelaide Distribution', 'Perth Logistics']).map((wh: string) => (
+              {getMappedDropdownOptions('projects_warehouse', dropdowns?.warehouses || ['Sydney Central DC', 'Melbourne West Hub', 'Brisbane North DC', 'Adelaide Distribution', 'Perth Logistics']).map((wh: string) => (
                 <option key={wh} value={wh}>
                   {wh}
                 </option>
@@ -1775,7 +1954,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
               onChange={e => handleChange('warehouseInvoiceStatus', e.target.value)}
               className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
             >
-              {(dropdowns?.warehouseInvoiceStatuses || ['Draft', 'Awaiting Dispatch', 'Invoiced', 'Paid', 'Reconciled']).map((wis: string) => (
+              {getMappedDropdownOptions('projects_warehouseInvoiceStatus', dropdowns?.warehouseInvoiceStatuses || ['Draft', 'Awaiting Dispatch', 'Invoiced', 'Paid', 'Reconciled']).map((wis: string) => (
                 <option key={wis} value={wis}>
                   {wis}
                 </option>
@@ -1790,7 +1969,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
               onChange={e => handleChange('stockStatus', e.target.value)}
               className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
             >
-              {(dropdowns?.stockStatuses || ['In Stock', 'Allocated to Job', 'Awaiting Shipment', 'Dispatched to Site', 'Delivered & Installed']).map((ss: string) => (
+              {getMappedDropdownOptions('projects_stockStatus', dropdowns?.stockStatuses || ['In Stock', 'Allocated to Job', 'Awaiting Shipment', 'Dispatched to Site', 'Delivered & Installed']).map((ss: string) => (
                 <option key={ss} value={ss}>
                   {ss}
                 </option>
@@ -1822,9 +2001,20 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
               Financials, Payment &amp; Finance Brokerage
             </h3>
           </div>
-          <span className="text-[11px] text-gray-400 bg-[#222] px-2 py-0.5 rounded border border-[#333]">
-            Section 7
-          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => openMappingModal('projects_sec7')}
+              className="px-2 py-0.5 rounded text-[10px] font-semibold bg-[#1e293b] text-cyan-300 hover:bg-[#334155] border border-cyan-500/30 flex items-center gap-1 transition-colors"
+              title="Map Financials dropdowns to Settings Dropdown Category"
+            >
+              <SlidersHorizontal className="w-3 h-3" />
+              <span>Map Dropdowns</span>
+            </button>
+            <span className="text-[11px] text-gray-400 bg-[#222] px-2 py-0.5 rounded border border-[#333]">
+              Section 7
+            </span>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 gap-3.5">
@@ -1883,13 +2073,17 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-400 mb-1">Deposit Received Date</label>
-            <input
-              type="date"
-              value={formData.depositReceivedDate}
-              onChange={e => handleChange('depositReceivedDate', e.target.value)}
-              className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
-            />
+            <label className="block text-xs font-medium text-gray-400 mb-1">
+              Deposit Received Date
+            </label>
+            <div className="relative">
+              <input
+                type="date"
+                value={ensureIsoDate(formData.depositReceivedDate)}
+                onChange={e => handleChange('depositReceivedDate', e.target.value)}
+                className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
+              />
+            </div>
           </div>
         </div>
 
@@ -1945,7 +2139,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
         <div className="p-3.5 bg-[#141414] border border-[#282828] rounded-xl space-y-3">
           <div className="text-xs font-semibold text-[#bef264] flex items-center gap-1.5">
             <BadgePercent className="w-3.5 h-3.5" />
-            <span>Finance Brokerage &amp; Green Loan Application</span>
+            <span>7A. Finance Brokerage &amp; Green Loan Application</span>
           </div>
 
           <div className="grid grid-cols-1 gap-3.5">
@@ -1956,7 +2150,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
                 onChange={e => handleChange('isOnFinance', e.target.value)}
                 className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
               >
-                {(dropdowns?.isFinanceOptions || ['No (Cash / Direct Payment)', 'Yes (Green Finance)', 'Yes (Interest Free)', 'Conditional Finance']).map((ifo: string) => (
+                {getMappedDropdownOptions('projects_isFinance', dropdowns?.isFinanceOptions || ['No (Cash / Direct Payment)', 'Yes (Green Finance)', 'Yes (Interest Free)', 'Conditional Finance']).map((ifo: string) => (
                   <option key={ifo} value={ifo}>
                     {ifo}
                   </option>
@@ -1972,7 +2166,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
                 className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
               >
                 <option value="">Select Finance Provider</option>
-                {(dropdowns?.financeCompanies || ['Brighte', 'Plenti', 'Community First Credit Union', 'Humm', 'Handepay', 'Parker Lane']).map((fc: string) => (
+                {getMappedDropdownOptions('projects_financeCompany', dropdowns?.financeCompanies || ['Brighte', 'Plenti', 'Community First Credit Union', 'Humm', 'Handepay', 'Parker Lane']).map((fc: string) => (
                   <option key={fc} value={fc}>
                     {fc}
                   </option>
@@ -1987,7 +2181,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
                 onChange={e => handleChange('financeStatus', e.target.value)}
                 className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
               >
-                {(dropdowns?.financeStatuses || ['Not Applicable', 'Application Draft', 'Submitted', 'Conditionally Approved', 'Unconditionally Approved', 'Settled', 'Declined']).map((fs: string) => (
+                {getMappedDropdownOptions('projects_financeStatus', dropdowns?.financeStatuses || ['Not Applicable', 'Application Draft', 'Submitted', 'Conditionally Approved', 'Unconditionally Approved', 'Settled', 'Declined']).map((fs: string) => (
                   <option key={fs} value={fs}>
                     {fs}
                   </option>
@@ -2049,9 +2243,20 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
               STC Details &amp; Clean Energy Regulator (CER)
             </h3>
           </div>
-          <span className="text-[11px] text-gray-400 bg-[#222] px-2 py-0.5 rounded border border-[#333]">
-            Section 8
-          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => openMappingModal('projects_sec6')}
+              className="px-2 py-0.5 rounded text-[10px] font-semibold bg-[#1e293b] text-cyan-300 hover:bg-[#334155] border border-cyan-500/30 flex items-center gap-1 transition-colors"
+              title="Map STC dropdowns to Settings Dropdown Category"
+            >
+              <SlidersHorizontal className="w-3 h-3" />
+              <span>Map Dropdowns</span>
+            </button>
+            <span className="text-[11px] text-gray-400 bg-[#222] px-2 py-0.5 rounded border border-[#333]">
+              Section 8
+            </span>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 gap-3.5">
@@ -2062,7 +2267,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
               onChange={e => handleChange('stcTradedPortal', e.target.value)}
               className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
             >
-              {(dropdowns?.stcPortals || ['BridgeSelect', 'Green Energy Trading (GET)', 'Clean Energy Trading', 'TradeSTCs', 'REC Registry']).map((sp: string) => (
+              {getMappedDropdownOptions('projects_stcPortal', dropdowns?.stcPortals || ['BridgeSelect', 'Green Energy Trading (GET)', 'Clean Energy Trading', 'TradeSTCs', 'REC Registry']).map((sp: string) => (
                 <option key={sp} value={sp}>
                   {sp}
                 </option>
@@ -2086,7 +2291,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
         <div className="p-3.5 bg-[#141414] border border-[#282828] rounded-xl space-y-3">
           <div className="text-xs font-semibold text-[#bef264] flex items-center gap-1.5">
             <Sun className="w-3.5 h-3.5" />
-            <span>Solar STC Trading &amp; Claim</span>
+            <span>8A. Solar STC Trading &amp; Claim</span>
           </div>
 
           <div className="grid grid-cols-1 gap-3.5">
@@ -2135,7 +2340,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
         <div className="p-3.5 bg-[#141414] border border-[#282828] rounded-xl space-y-3">
           <div className="text-xs font-semibold text-[#bef264] flex items-center gap-1.5">
             <Battery className="w-3.5 h-3.5" />
-            <span>Battery STC / Peak Demand Incentive</span>
+            <span>8B. Battery STC / Peak Demand Incentive</span>
           </div>
 
           <div className="grid grid-cols-1 gap-3.5">
@@ -2218,7 +2423,7 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
               onChange={e => handleChange('stcStatus', e.target.value)}
               className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
             >
-              {(dropdowns?.stcStatuses || ['Pending Upload', 'Pre-Validation Passed', 'Submitted to CER', 'Approved & Traded', 'Audit Flagged', 'Paid']).map((stcStat: string) => (
+              {getMappedDropdownOptions('projects_stcStatus', dropdowns?.stcStatuses || ['Pending Upload', 'Pre-Validation Passed', 'Submitted to CER', 'Approved & Traded', 'Audit Flagged', 'Paid']).map((stcStat: string) => (
                 <option key={stcStat} value={stcStat}>
                   {stcStat}
                 </option>

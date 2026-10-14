@@ -20,10 +20,12 @@ import {
   Truck,
   Plus,
   Trash2,
-  ChevronDown
+  ChevronDown,
+  SlidersHorizontal
 } from 'lucide-react';
 import { Project, SubContractor, DynamicDropdownConfig, UserProfile } from '../../types';
 import { formatAudAccounts, parseAudAccounts } from '../../utils/australianPostcodes';
+import { useApp } from '../../context/AppContext';
 
 export interface TicketDetailsFormData {
   ticketId: string;
@@ -128,6 +130,7 @@ export const TicketDetailsLeftPanel: React.FC<TicketDetailsLeftPanelProps> = ({
   onProjectSelect,
   isLight = false
 }) => {
+  const { openMappingModal, getMappedDropdownOptions } = useApp();
   // Local state for combo box suggestions toggle
   const [showWorkRequiredPresets, setShowWorkRequiredPresets] = useState(false);
   const [showServiceNotesPresets, setShowServiceNotesPresets] = useState(false);
@@ -194,9 +197,20 @@ export const TicketDetailsLeftPanel: React.FC<TicketDetailsLeftPanelProps> = ({
     <div className="space-y-6 pb-6 text-xs">
       {/* SECTION 1: TICKET IDENTIFIERS & PROJECT LINKAGE */}
       <div className={`p-3.5 rounded-xl border ${isLight ? 'bg-white border-slate-200 shadow-xs' : 'bg-slate-900/70 border-slate-800'}`}>
-        <div className={sectionHeaderClass}>
-          <Hash className="w-4 h-4 text-amber-500" />
-          <span>Ticket Identification &amp; Project</span>
+        <div className={`${sectionHeaderClass} flex items-center justify-between`}>
+          <div className="flex items-center gap-2">
+            <Hash className="w-4 h-4 text-amber-500" />
+            <span>Ticket Identification &amp; Project</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => openMappingModal('tickets_support')}
+            className="px-2 py-0.5 rounded text-[10px] font-semibold bg-[#1e293b] text-cyan-300 hover:bg-[#334155] border border-cyan-500/30 flex items-center gap-1 transition-colors normal-case"
+            title="Map Tickets dropdowns to Settings Dropdown Category"
+          >
+            <SlidersHorizontal className="w-3 h-3" />
+            <span>Map Dropdowns</span>
+          </button>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -395,9 +409,9 @@ export const TicketDetailsLeftPanel: React.FC<TicketDetailsLeftPanelProps> = ({
                 onChange={e => handleChange('phase', e.target.value)}
                 className={selectClass}
               >
-                <option value="Single Phase">Single Phase</option>
-                <option value="Three Phase">Three Phase</option>
-                <option value="Two Phase">Two Phase</option>
+                {getMappedDropdownOptions('tickets_phase', dropdowns.phases || ['Single Phase', 'Three Phase', 'Two Phase Split']).map((ph: string) => (
+                  <option key={ph} value={ph}>{ph}</option>
+                ))}
               </select>
             </div>
             <div>
@@ -410,11 +424,9 @@ export const TicketDetailsLeftPanel: React.FC<TicketDetailsLeftPanelProps> = ({
                 onChange={e => handleChange('storeyType', e.target.value)}
                 className={selectClass}
               >
-                <option value="Single Storey">Single Storey</option>
-                <option value="Double Storey">Double Storey</option>
-                <option value="Triple Storey">Triple Storey</option>
-                <option value="Split Level">Split Level</option>
-                <option value="Commercial Multi-Level">Commercial Multi-Level</option>
+                {getMappedDropdownOptions('tickets_storeyType', dropdowns.houseStoreys || ['Single Storey', 'Double Storey', 'Triple Storey', 'Split Level', 'Commercial Multi-Level']).map((hs: string) => (
+                  <option key={hs} value={hs}>{hs}</option>
+                ))}
               </select>
             </div>
           </div>
@@ -441,7 +453,7 @@ export const TicketDetailsLeftPanel: React.FC<TicketDetailsLeftPanelProps> = ({
               className={selectClass}
             >
               <option value="">-- Select Recorded Issue --</option>
-              {(dropdowns.ticketIssueRecordedOptions || [
+              {getMappedDropdownOptions('tickets_issueRecorded', dropdowns.ticketIssueRecordedOptions || dropdowns.ticketCategories || [
                 'Inverter Fault / Red Alarm Light',
                 'No Generation / Zero Daily Yield',
                 'Error Code (Ground Fault / Isolation Error)',

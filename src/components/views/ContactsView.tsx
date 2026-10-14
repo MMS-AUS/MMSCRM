@@ -24,7 +24,8 @@ import {
   Play,
   X,
   Clock,
-  ExternalLink
+  ExternalLink,
+  SlidersHorizontal
 } from 'lucide-react';
 import { Contact, AustralianState, ContactAddress, VoIPLineCallLog, VoIPLineInboundSms } from '../../types';
 import { classifyAustralianPostcode } from '../../utils/australianPostcodes';
@@ -42,7 +43,8 @@ export const ContactsView: React.FC = () => {
     systemUsers,
     dropdowns,
     setIsVoipDialerOpen,
-    setIsQuickSmsOpen
+    setIsQuickSmsOpen,
+    openMappingModal
   } = useApp();
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -536,6 +538,16 @@ export const ContactsView: React.FC = () => {
           >
             <RefreshCw className="w-3.5 h-3.5 text-[#bef264]" />
             <span>Sync OpenSolar</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => openMappingModal('contacts_directory')}
+            className="px-3 py-1.5 rounded-lg bg-[#1e293b] hover:bg-[#334155] border border-cyan-500/30 text-cyan-300 font-bold text-xs flex items-center gap-1.5 transition-colors shadow-xs"
+            title="Map Contacts & Directory dropdowns to Settings Dropdowns"
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5" />
+            <span>Map Dropdowns</span>
           </button>
 
           <button

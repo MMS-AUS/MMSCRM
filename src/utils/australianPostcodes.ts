@@ -367,3 +367,59 @@ export const AUSTRALIAN_ADDRESS_DATABASE: AustralianAddressPreset[] = [
   { address: '12 London Circuit', suburb: 'Canberra', state: 'ACT', postcode: '2601', area: 'Metro', nearestBigCity: 'Canberra' }
 ];
 
+const STREET_TYPES = '(?:Street|St|Road|Rd|Avenue|Ave|Drive|Dr|Circuit|Cct|Court|Ct|Place|Pl|Lane|Ln|Boulevard|Blvd|Way|Close|Cl|Parade|Pde|Terrace|Tce|Crescent|Cres|Highway|Hwy|Grove|Gr|Rise|Track|Trk|Esplanade|Esp|Loop|Mews)';
+
+/**
+ * CRITICAL RULE IMPLEMENTATION:
+ * Extracts strictly the street address line from an Australian address string,
+ * removing any concatenated Suburb, State (NSW, QLD, VIC, ACT, SA, WA, TAS, NT),
+ * or Post Code. Ensures the street line is clean and never concatenated.
+ */
+export function extractStreetAddressOnly(
+  rawAddress?: string | null,
+  knownSuburb?: string | null,
+  knownState?: string | null,
+  knownPostcode?: string | null
+): string {
+  if (!rawAddress) return '';
+  let clean = String(rawAddress).trim();
+
+  const parts = clean.split(',').map(p => p.trim()).filter(Boolean);
+
+  if (parts.length > 1) {
+    const streetRegex = new RegExp(`\\b${STREET_TYPES}\\b`, 'i');
+    if (streetRegex.test(parts[0])) {
+      clean = parts[0];
+    } else if (/^(?:unit|apt|apartment|suite|level|lot|flat|shop)\s*[\w/-]+$/i.test(parts[0]) && parts.length > 1) {
+      clean = `${parts[0]}, ${parts[1]}`;
+    } else {
+      clean = parts[0];
+    }
+  } else {
+    clean = clean.replace(/\s+\d{4}\s*$/, '');
+    clean = clean.replace(/\s+(?:NSW|QLD|VIC|ACT|SA|WA|TAS|NT)\s*$/i, '');
+    if (knownSuburb && knownSuburb.trim().length > 1) {
+      const sub = knownSuburb.trim();
+      const subIdx = clean.toLowerCase().lastIndexOf(sub.toLowerCase());
+      if (subIdx > 0) {
+        clean = clean.substring(0, subIdx).trim();
+      }
+    }
+    if (knownPostcode && knownPostcode.trim().length > 0) {
+      const pcIdx = clean.lastIndexOf(knownPostcode.trim());
+      if (pcIdx > 0) {
+        clean = clean.substring(0, pcIdx).trim();
+      }
+    }
+    if (knownState && knownState.trim().length > 0) {
+      const stIdx = clean.toUpperCase().lastIndexOf(knownState.trim().toUpperCase());
+      if (stIdx > 0 && stIdx === clean.length - knownState.trim().length) {
+        clean = clean.substring(0, stIdx).trim();
+      }
+    }
+  }
+
+  clean = clean.replace(/[\s,-]+$/, '').trim();
+  return clean || rawAddress.trim();
+}
+

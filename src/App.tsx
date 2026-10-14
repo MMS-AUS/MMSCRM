@@ -25,6 +25,7 @@ import { MessageMediaSMSModal } from './components/modals/MessageMediaSMSModal';
 import { BridgeSelectModal } from './components/modals/BridgeSelectModal';
 import { OpenSolarModal } from './components/modals/OpenSolarModal';
 import { UserProfileModal } from './components/modals/UserProfileModal';
+import { DropdownMappingModal } from './components/modals/DropdownMappingModal';
 import { PortalQRCodeModal } from './components/common/PortalQRCodeModal';
 import { CRMLoginScreen } from './components/auth/CRMLoginScreen';
 import { JoinERPSetPasswordScreen } from './components/auth/JoinERPSetPasswordScreen';
@@ -59,7 +60,10 @@ const MainLayout: React.FC = () => {
     isFeatureEnabled,
     hasPermission,
     portalAddresses,
-    themeMode
+    themeMode,
+    isMappingModalOpen,
+    mappingModalSectionId,
+    closeMappingModal
   } = useApp();
   const isLight = themeMode === 'corporate-slate';
   const [currentSection, setCurrentSection] = useState<NavSection>('dashboard');
@@ -579,6 +583,16 @@ const MainLayout: React.FC = () => {
       <MessageMediaSMSModal />
       <BridgeSelectModal />
       <OpenSolarModal />
+      {isMappingModalOpen && (
+        <DropdownMappingModal
+          initialSectionId={mappingModalSectionId}
+          onClose={closeMappingModal}
+          onOpenSettingsCategory={() => {
+            closeMappingModal();
+            setCurrentSection('settings');
+          }}
+        />
+      )}
       {isQrModalOpen && currentPortalConfig && (
         <PortalQRCodeModal
           isOpen={isQrModalOpen}

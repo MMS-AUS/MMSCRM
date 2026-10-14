@@ -47,6 +47,7 @@ export const LeadsView: React.FC<{ onNavigateToProjects: () => void }> = ({ onNa
     deleteLeads,
     deleteDummyLeads,
     clearAllLeads,
+    clearAllSystemData,
     leadsViewMode: viewMode,
     setLeadsViewMode: setViewMode,
     googleSheetUrl,
@@ -128,12 +129,20 @@ export const LeadsView: React.FC<{ onNavigateToProjects: () => void }> = ({ onNa
   };
 
   const handleConvert = (leadId: string) => {
+    const targetLead = leads.find(l => l.id === leadId);
+    if (!targetLead) return;
+    if (targetLead.status !== 'Deposit Received') {
+      setFeedback('Convert is only available for leads with status "Deposit Received".');
+      setTimeout(() => setFeedback(null), 5000);
+      return;
+    }
     try {
       const proj = convertLeadToProject(leadId);
-      setFeedback(`Lead successfully converted to Project ${proj.projectCode}! Assigned to pipeline.`);
+      setFeedback(`Lead successfully converted to Project ${proj.projectCode || proj.id}! Assigned to pipeline.`);
       setTimeout(() => setFeedback(null), 6000);
     } catch (err: any) {
-      alert(err.message);
+      setFeedback(err.message || 'Error converting lead to project');
+      setTimeout(() => setFeedback(null), 5000);
     }
   };
 
@@ -201,20 +210,15 @@ export const LeadsView: React.FC<{ onNavigateToProjects: () => void }> = ({ onNa
   };
 
   const handleClearAllLeads = () => {
-    if (leads.length === 0) {
-      setFeedback('There are currently 0 leads in the system.');
-      setTimeout(() => setFeedback(null), 3000);
-      return;
-    }
     setConfirmModal({
       type: 'all',
-      title: 'Clear All Leads in CRM',
-      description: `WARNING: Are you sure you want to permanently delete ALL ${leads.length} lead(s) in the system? This action cannot be undone and will completely wipe all lead records.`,
+      title: 'Reset & Clear Complete Database & Frontend',
+      description: 'WARNING: This will permanently wipe all Leads, Contacts, and Projects across both Supabase and frontend local cache, giving you a 100% clean blank slate to start adding data.',
       count: leads.length
     });
   };
 
-  const handleConfirmAction = () => {
+  const handleConfirmAction = async () => {
     if (!confirmModal) return;
 
     if (confirmModal.type === 'single' && confirmModal.leadId) {
@@ -231,10 +235,9 @@ export const LeadsView: React.FC<{ onNavigateToProjects: () => void }> = ({ onNa
       setSelectedLeadIds([]);
       setFeedback(`Successfully removed ${count || confirmModal.count || 0} sample dummy lead(s).`);
     } else if (confirmModal.type === 'all') {
-      const count = leads.length;
-      clearAllLeads();
+      await clearAllSystemData();
       setSelectedLeadIds([]);
-      setFeedback(`Permanently deleted all ${count} leads.`);
+      setFeedback('Complete database and frontend wiped clean: ready for fresh live data.');
     }
 
     setConfirmModal(null);
@@ -647,15 +650,16 @@ export const LeadsView: React.FC<{ onNavigateToProjects: () => void }> = ({ onNa
                               <span className="text-[10px] font-bold text-emerald-400 flex items-center gap-1">
                                 <CheckCircle2 className="w-3 h-3" /> Converted
                               </span>
-                            ) : (
+                            ) : lead.status === 'Deposit Received' ? (
                               <button
                                 onClick={() => handleConvert(lead.id)}
                                 className="px-2 py-1 rounded bg-[#bef264] hover:bg-[#a3e635] text-black text-[10px] font-bold flex items-center gap-1 shadow-xs transition-colors"
+                                title="Convert Lead to Project (Deposit Received)"
                               >
                                 <span>Convert</span>
                                 <ArrowRight className="w-3 h-3" />
                               </button>
-                            )}
+                            ) : null}
                           </div>
                         </div>
                       );
@@ -866,15 +870,16 @@ export const LeadsView: React.FC<{ onNavigateToProjects: () => void }> = ({ onNa
                       <CheckCircle2 className="w-3.5 h-3.5" />
                       <span>Project Active</span>
                     </span>
-                  ) : (
+                  ) : lead.status === 'Deposit Received' ? (
                     <button
                       onClick={() => handleConvert(lead.id)}
                       className="px-3 py-1.5 rounded-lg bg-[#bef264] hover:bg-[#a3e635] text-black text-xs font-bold flex items-center gap-1 shadow-xs transition-colors"
+                      title="Convert Lead to Project (Deposit Received)"
                     >
                       <span>Convert</span>
                       <ArrowRight className="w-3.5 h-3.5" />
                     </button>
-                  )}
+                  ) : null}
                 </div>
               </div>
             );
@@ -1085,15 +1090,16 @@ export const LeadsView: React.FC<{ onNavigateToProjects: () => void }> = ({ onNa
 
                             {isConverted ? (
                               <span className="text-[11px] font-bold text-emerald-400 px-2">Active</span>
-                            ) : (
+                            ) : lead.status === 'Deposit Received' ? (
                               <button
                                 onClick={() => handleConvert(lead.id)}
                                 className="px-2.5 py-1 rounded bg-[#bef264] hover:bg-[#a3e635] text-black text-xs font-bold shadow-xs transition-colors flex items-center gap-1"
+                                title="Convert to Project (Deposit Received)"
                               >
                                 <span>Convert</span>
                                 <ArrowRight className="w-3 h-3" />
                               </button>
-                            )}
+                            ) : null}
                           </div>
                         </td>
                       </tr>

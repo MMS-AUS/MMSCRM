@@ -289,16 +289,21 @@ export const InstallerPortal: React.FC = () => {
 
                   {/* Status update selector */}
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-semibold text-gray-400">Update Status:</span>
+                    <span className="text-xs font-semibold text-gray-400">Project Stage/ Installation Status:</span>
                     <select
                       value={proj.status}
                       onChange={e => updateProjectStatus(proj.id, e.target.value as ProjectStatus)}
                       className="text-xs font-semibold bg-[#121212] border border-[#262626] rounded-lg px-2.5 py-1.5 text-white shadow-xs focus:border-[#bef264] outline-none"
                     >
+                      <option value="Site Survey">Site Survey</option>
                       <option value="Install Scheduled">Install Scheduled</option>
                       <option value="Installation in Progress">Installation in Progress</option>
                       <option value="Installation Completed">Installation Completed</option>
+                      <option value="BridgeSelect STC Claimed">BridgeSelect STC Claimed</option>
                       <option value="Completed">Completed &amp; Handover</option>
+                      {!['Site Survey', 'Install Scheduled', 'Installation in Progress', 'Installation Completed', 'BridgeSelect STC Claimed', 'Completed'].includes(proj.status) && (
+                        <option value={proj.status}>{proj.status}</option>
+                      )}
                     </select>
                   </div>
                 </div>
@@ -329,7 +334,7 @@ export const InstallerPortal: React.FC = () => {
                       <strong>Installer Payout:</strong> ${proj.installerQuotedAud?.toLocaleString() || '2,850'} AUD
                     </p>
                     <p className="text-gray-200">
-                      <strong>BridgeSelect STC Count:</strong> {proj.stcCount} Certs (${proj.stcValueAud.toLocaleString()} AUD)
+                      <strong>BridgeSelect STC Count:</strong> {proj.stcCount} Certs (${(proj.stcValueAud || 0).toLocaleString()} AUD)
                     </p>
                     <p className="text-gray-200">
                       <strong>Scheduled Date:</strong> {proj.installationDate || 'Next business day'}

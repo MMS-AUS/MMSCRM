@@ -3,6 +3,9 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const isDev = process.env.npm_lifecycle_event === 'dev';
+if (!isDev) {
+  process.env.NODE_ENV = 'production';
+}
 const distBundle = path.join(process.cwd(), 'dist', 'server.cjs');
 
 if (!isDev) {

@@ -60,14 +60,21 @@ export async function getMessageMediaConfig(tenantId?: string): Promise<MessageM
       ? `/api/settings/messagemedia?tenantId=${encodeURIComponent(tenantId)}`
       : '/api/settings/messagemedia';
     const res = await fetch(url);
-    const data = await res.json();
-    return data;
+    if (!res.ok) {
+      return {
+        success: false,
+        configured: false,
+        error: `HTTP ${res.status}`
+      };
+    }
+    const data = await res.json().catch(() => null);
+    return data || { success: false, configured: false };
   } catch (err: any) {
-    console.error('[MessageMedia Service] Error fetching config:', err);
+    console.warn('[MessageMedia Service] Note fetching config:', err?.message || err);
     return {
       success: false,
       configured: false,
-      error: err.message || 'Failed to connect to backend'
+      error: err?.message || 'Failed to connect to backend'
     };
   }
 }
@@ -110,10 +117,11 @@ export async function disconnectMessageMedia(tenantId?: string): Promise<{ succe
       ? `/api/settings/messagemedia?tenantId=${encodeURIComponent(tenantId)}`
       : '/api/settings/messagemedia';
     const res = await fetch(url, { method: 'DELETE' });
-    const data = await res.json();
+    if (!res.ok) return { success: false };
+    const data = await res.json().catch(() => ({ success: false }));
     return data;
   } catch (err: any) {
-    console.error('[MessageMedia Service] Error disconnecting:', err);
+    console.warn('[MessageMedia Service] Note disconnecting:', err);
     return { success: false };
   }
 }
@@ -158,7 +166,7 @@ export async function sendOutboundSms(payload: SendSmsPayload): Promise<SendSmsR
 }
 
 /**
- * Fetch SMS logs from Supabase
+ * Fetch SMS logs from Supabase / Local storage
  */
 export async function fetchSmsLogs(filter?: {
   contact_id?: string;
@@ -174,13 +182,17 @@ export async function fetchSmsLogs(filter?: {
     if (filter?.limit) params.set('limit', String(filter.limit));
 
     const res = await fetch(`/api/sms/logs?${params.toString()}`);
-    const data = await res.json();
-    if (data.success && Array.isArray(data.logs)) {
+    if (!res.ok) {
+      return [];
+    }
+    const data = await res.json().catch(() => null);
+    if (data && data.success && Array.isArray(data.logs)) {
       return data.logs;
     }
     return [];
   } catch (err) {
-    console.error('[MessageMedia Service] Error loading SMS logs:', err);
+    // Graceful offline/network fallback
+    console.warn('[MessageMedia Service] Note: Unable to load SMS logs (network offline or backend busy):', err);
     return [];
   }
 }

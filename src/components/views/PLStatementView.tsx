@@ -37,7 +37,7 @@ export const PLStatementView: React.FC = () => {
   const totalInternalStcClaim = filteredRecords.reduce((acc, r) => acc + (r.internalStcClaimAud || 0), 0);
   const totalStcTradingMargin = filteredRecords.reduce((acc, r) => acc + (r.stcTradingMarginAud || 0), 0);
   const totalRealizedRevenue = filteredRecords.reduce(
-    (acc, r) => acc + (r.totalRealizedRevenueAud || (r.contractRevenueAud + (r.internalStcClaimAud || 0))),
+    (acc, r) => acc + (r.totalRealizedRevenueAud || ((r.contractRevenueAud || 0) + (r.internalStcClaimAud || 0))),
     0
   );
   const totalEquipmentCost = filteredRecords.reduce((acc, r) => acc + (r.equipmentCostAud || 0), 0);
@@ -290,7 +290,7 @@ export const PLStatementView: React.FC = () => {
                         <div className="text-[11px] text-gray-400">{item.state} Operations</div>
                       </td>
                       <td className="p-3 text-right font-mono font-semibold text-white">
-                        ${item.contractRevenueAud.toLocaleString()} AUD
+                        ${(item.contractRevenueAud || 0).toLocaleString()} AUD
                       </td>
                       <td className="p-3 text-right font-mono text-blue-400" title="Deducted on customer invoice">
                         -${(item.customerStcRebateAud || 0).toLocaleString()} AUD
@@ -306,10 +306,10 @@ export const PLStatementView: React.FC = () => {
                         )}
                       </td>
                       <td className="p-3 text-right font-mono font-bold text-white">
-                        ${(item.totalRealizedRevenueAud || (item.contractRevenueAud + (item.internalStcClaimAud || 0))).toLocaleString()} AUD
+                        ${(item.totalRealizedRevenueAud || ((item.contractRevenueAud || 0) + (item.internalStcClaimAud || 0))).toLocaleString()} AUD
                       </td>
                       <td className="p-3 text-right text-rose-400 font-mono">
-                        -${itemDirectCosts.toLocaleString()}
+                        -${(itemDirectCosts || 0).toLocaleString()}
                       </td>
                       <td className="p-3 text-right font-bold text-[#bef264] font-mono">
                         +${(item.grossProfitAud || 0).toLocaleString()} AUD

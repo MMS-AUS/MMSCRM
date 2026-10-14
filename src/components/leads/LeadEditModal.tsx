@@ -23,7 +23,9 @@ import {
   DollarSign,
   Hash,
   Activity,
-  Trash2
+  Trash2,
+  RefreshCw,
+  Loader2
 } from 'lucide-react';
 import { LeadDetailsLeftPanel, LeadDetailsFormData } from './LeadDetailsLeftPanel';
 import { LeadCenterTabs } from './LeadCenterTabs';
@@ -55,6 +57,8 @@ export const LeadEditModal: React.FC<LeadEditModalProps> = ({ isOpen, onClose, l
   const isLight = themeMode === 'corporate-slate';
   const isEditing = Boolean(lead);
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
+  const [isFetchingFromDb, setIsFetchingFromDb] = useState(false);
+  const [dbSynced, setDbSynced] = useState(false);
 
   // Form State encapsulating all Left Panel fields
   const [formData, setFormData] = useState<LeadDetailsFormData>({
@@ -94,7 +98,7 @@ export const LeadEditModal: React.FC<LeadEditModalProps> = ({ isOpen, onClose, l
     email: '',
 
     systemSizeKw: 10.4,
-    batteryRequired: true,
+    batteryRequired: false,
     roofType: 'Colorbond / Metal Sheet',
     noOfPanels: '24',
     panelManufacturer: 'AIKO Solar',
@@ -106,15 +110,15 @@ export const LeadEditModal: React.FC<LeadEditModalProps> = ({ isOpen, onClose, l
     inverterSizeKw: '10',
     inverterSeries: 'SH Series Three Phase',
     inverterModel: 'SH10RT-20 (Three Phase High Voltage Hybrid)',
-    noOfBatteries: '1',
-    batteryManufacturer: 'Tesla Powerwall 3 (13.5kWh)',
-    batteryUsableCapacityKwh: '13.5',
-    batteryModel: 'Tesla Powerwall 3 Integrated Inverter',
-    batterySize: '13.5kWh Wall Mounted Slimline',
+    noOfBatteries: '',
+    batteryManufacturer: '',
+    batteryUsableCapacityKwh: '',
+    batteryModel: '',
+    batterySize: '',
     houseStorey: 'Double Storey',
     phase: 'Three Phase',
     existingSystemDetails: 'No existing solar installed (Brand new installation)',
-    docsReceived: 'Yes',
+    docsReceived: 'No',
     docsReceivedDate: '',
 
     systemPrice: '12,500.00',
@@ -169,33 +173,97 @@ export const LeadEditModal: React.FC<LeadEditModalProps> = ({ isOpen, onClose, l
     return Array.from(new Set(matching.map(p => p.model)));
   }, [panelHierarchy, formData.panelManufacturer, formData.panelSizeW, formData.panelSeries]);
 
+  const normHw = (v?: string) => (v || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const cleanNumeric = (val: any): number | null => {
+    if (val === null || val === undefined || val === '') return null;
+    if (typeof val === 'number') return isNaN(val) ? null : val;
+    const cleaned = String(val).replace(/[^0-9.-]/g, '');
+    const parsed = parseFloat(cleaned);
+    return isNaN(parsed) ? null : parsed;
+  };
+
   const inverterHierarchy = dropdowns.inverterHierarchy || [];
   const inverterManufacturers = useMemo(() => {
     const list = Array.from(new Set(inverterHierarchy.map(i => i.manufacturer)));
-    return list.length > 0 ? list : dropdowns.inverterBrands || ['Sungrow', 'Fronius', 'Enphase', 'GoodWe'];
-  }, [inverterHierarchy, dropdowns.inverterBrands]);
+    const baseList = list.length > 0 ? list : dropdowns.inverterBrands || ['Sungrow', 'Fronius', 'Enphase', 'GoodWe'];
+    if (formData.inverterManufacturer && !baseList.some(m => normHw(m) === normHw(formData.inverterManufacturer))) {
+      baseList.unshift(formData.inverterManufacturer);
+    }
+    return baseList;
+  }, [inverterHierarchy, dropdowns.inverterBrands, formData.inverterManufacturer]);
 
   const inverterSizes = useMemo(() => {
-    const matching = inverterHierarchy.filter(i => i.manufacturer === formData.inverterManufacturer);
-    return Array.from(new Set(matching.map(i => String(i.sizeKw))));
-  }, [inverterHierarchy, formData.inverterManufacturer]);
-
-  const inverterSeriesList = useMemo(() => {
-    const matching = inverterHierarchy.filter(
-      i => i.manufacturer === formData.inverterManufacturer && String(i.sizeKw) === String(formData.inverterSizeKw)
+    const normManuf = normHw(formData.inverterManufacturer);
+    const matching = inverterHierarchy.filter(i => 
+      !normManuf || normHw(i.manufacturer) === normManuf ||
+      normHw(i.manufacturer).includes(normManuf) ||
+      normManuf.includes(normHw(i.manufacturer))
     );
-    return Array.from(new Set(matching.map(i => i.series || '').filter(Boolean)));
+    const list = Array.from(new Set(matching.map(i => String(i.sizeKw))));
+    if (formData.inverterSizeKw && !list.includes(String(formData.inverterSizeKw))) {
+      list.unshift(String(formData.inverterSizeKw));
+    }
+    return list.length > 0 ? list : ['5', '5.0', '6.0', '8.0', '10.0'];
   }, [inverterHierarchy, formData.inverterManufacturer, formData.inverterSizeKw]);
 
-  const inverterModels = useMemo(() => {
-    const matching = inverterHierarchy.filter(
-      i =>
-        i.manufacturer === formData.inverterManufacturer &&
-        String(i.sizeKw) === String(formData.inverterSizeKw) &&
-        (!formData.inverterSeries || !i.series || i.series === formData.inverterSeries)
-    );
-    return Array.from(new Set(matching.map(i => i.model)));
+  const inverterSeriesList = useMemo(() => {
+    const normManuf = normHw(formData.inverterManufacturer);
+    const numSize = cleanNumeric(formData.inverterSizeKw);
+    let matching = inverterHierarchy.filter(i => {
+      const matchM = !normManuf || normHw(i.manufacturer) === normManuf ||
+        normHw(i.manufacturer).includes(normManuf) ||
+        normManuf.includes(normHw(i.manufacturer));
+      const matchS = numSize === null || cleanNumeric(i.sizeKw) === numSize;
+      return matchM && matchS;
+    });
+    if (matching.length === 0 && normManuf) {
+      matching = inverterHierarchy.filter(i => normHw(i.manufacturer) === normManuf);
+    }
+    const list = Array.from(new Set(matching.map(i => i.series || '').filter(Boolean)));
+    if (formData.inverterSeries && !list.includes(formData.inverterSeries)) {
+      list.push(formData.inverterSeries);
+    }
+    return list;
   }, [inverterHierarchy, formData.inverterManufacturer, formData.inverterSizeKw, formData.inverterSeries]);
+
+  const inverterModels = useMemo(() => {
+    const normManuf = normHw(formData.inverterManufacturer);
+    const numSize = cleanNumeric(formData.inverterSizeKw);
+    const normSeries = normHw(formData.inverterSeries);
+
+    let matching = inverterHierarchy.filter(i => {
+      const matchM = !normManuf || normHw(i.manufacturer) === normManuf ||
+        normHw(i.manufacturer).includes(normManuf) ||
+        normManuf.includes(normHw(i.manufacturer));
+      const matchS = numSize === null || cleanNumeric(i.sizeKw) === numSize;
+      const matchSer = !normSeries || normHw(i.series) === normSeries;
+      return matchM && matchS && matchSer;
+    });
+
+    if (matching.length === 0 && normSeries) {
+      matching = inverterHierarchy.filter(i => {
+        const matchM = !normManuf || normHw(i.manufacturer) === normManuf ||
+          normHw(i.manufacturer).includes(normManuf) ||
+          normManuf.includes(normHw(i.manufacturer));
+        const matchS = numSize === null || cleanNumeric(i.sizeKw) === numSize;
+        return matchM && matchS;
+      });
+    }
+
+    if (matching.length === 0 && normManuf) {
+      matching = inverterHierarchy.filter(i => 
+        normHw(i.manufacturer) === normManuf ||
+        normHw(i.manufacturer).includes(normManuf) ||
+        normManuf.includes(normHw(i.manufacturer))
+      );
+    }
+
+    const list = Array.from(new Set(matching.map(i => i.model)));
+    if (formData.inverterModel && !list.includes(formData.inverterModel)) {
+      list.unshift(formData.inverterModel);
+    }
+    return list;
+  }, [inverterHierarchy, formData.inverterManufacturer, formData.inverterSizeKw, formData.inverterSeries, formData.inverterModel]);
 
   const batteryHierarchy = dropdowns.batteryHierarchy || [];
   const batteryManufacturers = useMemo(() => {
@@ -298,7 +366,7 @@ export const LeadEditModal: React.FC<LeadEditModalProps> = ({ isOpen, onClose, l
   };
 
   const handleInverterManufacturerChange = (manuf: string) => {
-    const matching = inverterHierarchy.filter(i => i.manufacturer === manuf);
+    const matching = inverterHierarchy.filter(i => normHw(i.manufacturer) === normHw(manuf));
     setFormData(prev => ({
       ...prev,
       inverterManufacturer: manuf,
@@ -310,7 +378,7 @@ export const LeadEditModal: React.FC<LeadEditModalProps> = ({ isOpen, onClose, l
 
   const handleInverterSizeChange = (size: string) => {
     const matching = inverterHierarchy.filter(
-      i => i.manufacturer === formData.inverterManufacturer && String(i.sizeKw) === size
+      i => normHw(i.manufacturer) === normHw(formData.inverterManufacturer) && cleanNumeric(i.sizeKw) === cleanNumeric(size)
     );
     setFormData(prev => ({
       ...prev,
@@ -323,9 +391,9 @@ export const LeadEditModal: React.FC<LeadEditModalProps> = ({ isOpen, onClose, l
   const handleInverterSeriesChange = (series: string) => {
     const matching = inverterHierarchy.filter(
       i =>
-        i.manufacturer === formData.inverterManufacturer &&
-        String(i.sizeKw) === String(formData.inverterSizeKw) &&
-        (!series || i.series === series)
+        normHw(i.manufacturer) === normHw(formData.inverterManufacturer) &&
+        cleanNumeric(i.sizeKw) === cleanNumeric(formData.inverterSizeKw) &&
+        (!series || normHw(i.series) === normHw(series))
     );
     setFormData(prev => ({
       ...prev,
@@ -357,113 +425,204 @@ export const LeadEditModal: React.FC<LeadEditModalProps> = ({ isOpen, onClose, l
     }));
   };
 
-  // Populate state on lead edit or create
+  // Helper to map any Lead object (initial or freshly fetched from Supabase) to form state
+  const applyLeadToState = (targetLead: Lead) => {
+    const rawSysKwCandidates = [
+      targetLead.systemSizeKw,
+      (targetLead as any).system_size_kw,
+      (targetLead as any).system_size,
+      (targetLead as any).system_kw,
+      (targetLead as any).system_size_kwp,
+      (targetLead as any).metadata?.system_size_kw,
+      (targetLead as any).metadata?.system_size
+    ];
+    let resolvedSysKw: any = '';
+    for (const cand of rawSysKwCandidates) {
+      if (cand !== undefined && cand !== null && cand !== '') {
+        const num = typeof cand === 'number' ? cand : parseFloat(String(cand).replace(/[^0-9.]/g, ''));
+        if (!isNaN(num) && num > 0) {
+          resolvedSysKw = num;
+          break;
+        }
+      }
+    }
+    // Calculate from panels if still empty or 0
+    if (!resolvedSysKw || resolvedSysKw === 0) {
+      const pCount = Number(targetLead.noOfPanels || (targetLead as any).panel_count || (targetLead as any).metadata?.no_of_panels) || 0;
+      const pSize = Number(targetLead.panelSizeW || (targetLead as any).panel_size || (targetLead as any).metadata?.panel_size_w) || 0;
+      if (pCount > 0 && pSize > 0) {
+        resolvedSysKw = Math.round((pCount * pSize / 1000) * 100) / 100;
+      }
+    }
+
+    // Inverter details resolution
+    let resolvedInvManuf = targetLead.inverterManufacturer || (targetLead as any).inverter_manufacturer || (targetLead as any).metadata?.inverter_manufacturer || '';
+    let resolvedInvModel = String(targetLead.inverterModel || (targetLead as any).inverter_model || (targetLead as any).metadata?.inverter_model || '').trim();
+    let resolvedInvSeries = targetLead.inverterSeries || (targetLead as any).inverter_series || (targetLead as any).metadata?.inverter_series || '';
+    let resolvedInvSize = (targetLead.inverterSizeKw !== undefined && targetLead.inverterSizeKw !== null && targetLead.inverterSizeKw !== '')
+      ? String(targetLead.inverterSizeKw)
+      : ((targetLead as any).inverter_size_kw ? String((targetLead as any).inverter_size_kw) : '');
+
+    // Match in inverterHierarchy if model is present to resolve missing fields
+    if (resolvedInvModel && inverterHierarchy.length > 0) {
+      const normModel = normHw(resolvedInvModel);
+      const matchedInv = inverterHierarchy.find(i => {
+        const itemNorm = normHw(i.model);
+        return itemNorm === normModel || itemNorm.includes(normModel) || normModel.includes(itemNorm);
+      });
+      if (matchedInv) {
+        if (!resolvedInvManuf || normHw(resolvedInvManuf) === normHw(matchedInv.manufacturer)) {
+          resolvedInvManuf = matchedInv.manufacturer;
+        }
+        if (!resolvedInvSeries && matchedInv.series) {
+          resolvedInvSeries = matchedInv.series;
+        }
+        if (!resolvedInvSize && matchedInv.sizeKw) {
+          resolvedInvSize = String(matchedInv.sizeKw);
+        }
+      }
+    }
+
+    // Fallback: extract size from model name if still missing
+    if (!resolvedInvSize && resolvedInvModel) {
+      const match = resolvedInvModel.match(/(?:-|\b|_)([0-9]+(?:\.[0-9]+)?)\s*(?:k|kw|rt|rs|ktl)?\b/i);
+      if (match && match[1]) {
+        const val = parseFloat(match[1]);
+        if (!isNaN(val) && val >= 1 && val <= 250) {
+          resolvedInvSize = String(val);
+        }
+      }
+    }
+
+    const isBatReq = Boolean(targetLead.batteryRequired ?? (targetLead as any).battery_required);
+    const rawBatCap = targetLead.batteryUsableCapacityKwh ?? (targetLead as any).battery_storage_kwh ?? (targetLead as any).battery_storage ?? (targetLead as any).battery_usable_capacity_kwh;
+    const parsedBatCap = (isBatReq && rawBatCap !== undefined && rawBatCap !== null && rawBatCap !== '')
+      ? (typeof rawBatCap === 'number' ? String(rawBatCap) : (String(rawBatCap).replace(/[^0-9.]/g, '') || ''))
+      : '';
+
+    setFormData({
+      projectNumber: targetLead.projectNumber || '',
+      leadDate: targetLead.leadDate || '',
+      platform: targetLead.platform || '',
+      salesPersonName: targetLead.salesPersonName || targetLead.assignedTo || '',
+      status: targetLead.status || '',
+      saleDate: targetLead.saleDate || '',
+      depositReceivedDate: targetLead.depositReceivedDate || '',
+
+      firstName: targetLead.firstName || (targetLead.customerName ? targetLead.customerName.split(' ')[0] : ''),
+      lastName: targetLead.lastName || (targetLead.customerName ? targetLead.customerName.split(' ').slice(1).join(' ') : ''),
+      managerRenteeFirstName: targetLead.managerRenteeFirstName || '',
+      managerRenteeLastName: targetLead.managerRenteeLastName || '',
+
+      hasCompany: Boolean(targetLead.hasCompany || targetLead.companyName || targetLead.companyId),
+      companyName: targetLead.companyName || '',
+      companyOwner: targetLead.companyOwner || targetLead.salesPersonName || '',
+      companyCreateDate: targetLead.companyCreateDate || '',
+      companyPhone: targetLead.companyPhone || targetLead.primaryMobile || targetLead.phone || '',
+      companyCity: targetLead.companyCity || targetLead.suburb || '',
+      companyCountry: targetLead.companyCountry || 'Australia',
+      companyType: targetLead.companyType || '',
+      companyAbn: targetLead.companyAbn || '',
+
+      address: targetLead.address || '',
+      suburb: targetLead.suburb || '',
+      state: targetLead.state || '',
+      postcode: targetLead.postcode || '',
+      area: targetLead.area || '',
+      nearestBigCity: targetLead.nearestBigCity || '',
+      addressVerified: targetLead.addressVerified ?? Boolean(targetLead.address && targetLead.postcode),
+
+      primaryMobile: targetLead.primaryMobile || targetLead.phone || '',
+      secondaryMobile: targetLead.secondaryMobile || '',
+      email: targetLead.email || '',
+
+      systemSizeKw: (resolvedSysKw !== '' && resolvedSysKw !== 0 && !isNaN(Number(resolvedSysKw))) ? resolvedSysKw : '',
+      batteryRequired: isBatReq,
+      roofType: targetLead.roofType || '',
+      noOfPanels: targetLead.noOfPanels !== undefined && targetLead.noOfPanels !== null ? String(targetLead.noOfPanels) : '',
+      panelManufacturer: targetLead.panelManufacturer || '',
+      panelSizeW: targetLead.panelSizeW !== undefined && targetLead.panelSizeW !== null ? String(targetLead.panelSizeW) : '',
+      panelSeries: targetLead.panelSeries || '',
+      panelModel: targetLead.panelModel || '',
+      noOfInverters: targetLead.noOfInverters !== undefined && targetLead.noOfInverters !== null ? String(targetLead.noOfInverters) : '1',
+      inverterManufacturer: resolvedInvManuf,
+      inverterSizeKw: resolvedInvSize,
+      inverterSeries: resolvedInvSeries,
+      inverterModel: resolvedInvModel,
+      noOfBatteries: isBatReq && targetLead.noOfBatteries !== undefined && targetLead.noOfBatteries !== null ? String(targetLead.noOfBatteries) : '',
+      batteryManufacturer: isBatReq ? (targetLead.batteryManufacturer || '') : '',
+      batteryUsableCapacityKwh: parsedBatCap,
+      batteryModel: isBatReq ? (targetLead.batteryModel || '') : '',
+      batterySize: isBatReq ? (targetLead.batterySize || '') : '',
+      houseStorey: targetLead.houseStorey || '',
+      phase: targetLead.phase || '',
+      existingSystemDetails: targetLead.existingSystemDetails || '',
+      docsReceived: targetLead.docsReceived || (targetLead as any).docs_received || 'No',
+      docsReceivedDate: targetLead.docsReceivedDate || (targetLead as any).docs_received_date || '',
+
+      systemPrice: targetLead.systemPrice !== undefined && targetLead.systemPrice !== '' ? formatAudNumber(targetLead.systemPrice) : '',
+      sellingPrice: targetLead.sellingPrice !== undefined && targetLead.sellingPrice !== '' ? formatAudNumber(targetLead.sellingPrice) : '',
+      deposit: targetLead.deposit !== undefined && targetLead.deposit !== '' ? formatAudNumber(targetLead.deposit) : '',
+
+      salesTeamNotes: targetLead.salesTeamNotes || ''
+    });
+
+    setAttachments(targetLead.attachments || []);
+    setPortalCredentials(targetLead.portalCredentials);
+    setXeroInvoiceId(targetLead.xeroInvoiceId || '');
+    setXeroInvoiceNumber(targetLead.xeroInvoiceNumber || '');
+    setXeroInvoiceTotal(targetLead.xeroInvoiceTotal || 0);
+    setXeroInvoiceStatus(targetLead.xeroInvoiceStatus || '');
+    setXeroReceiptNumber(targetLead.xeroReceiptNumber || '');
+    setXeroReceiptDate(targetLead.xeroReceiptDate || '');
+    setXeroReceiptAmount(targetLead.xeroReceiptAmount || 0);
+    setXeroReceiptMethod(targetLead.xeroReceiptMethod || '');
+
+    if (targetLead.activities && targetLead.activities.length > 0) {
+      setActivities(targetLead.activities);
+    }
+  };
+
+  const fetchFreshLeadFromDb = async () => {
+    if (!lead || !lead.id) return;
+    setIsFetchingFromDb(true);
+    try {
+      const res = await fetch(`/api/leads/${encodeURIComponent(lead.id)}`);
+      const data = await res.json();
+      if (data && data.success && data.lead) {
+        applyLeadToState(data.lead);
+        setDbSynced(true);
+      }
+    } catch (err) {
+      console.warn('[LeadEditModal] Failed to fetch latest lead data from Supabase:', err);
+    } finally {
+      setIsFetchingFromDb(false);
+    }
+  };
+
+  // Populate state on lead edit or create, and fetch fresh database data
   useEffect(() => {
     setIsConfirmingDelete(false);
+    setDbSynced(false);
+    if (!isOpen) return;
+
     if (lead) {
-      const today = new Date().toISOString().split('T')[0];
-      setFormData({
-        projectNumber: lead.projectNumber || '',
-        leadDate: lead.leadDate || '',
-        platform: lead.platform || '',
-        salesPersonName: lead.salesPersonName || lead.assignedTo || '',
-        status: lead.status || '',
-        saleDate: lead.saleDate || '',
-        depositReceivedDate: lead.depositReceivedDate || '',
+      // 1. Immediately apply the lead in memory so the modal opens with zero delay
+      applyLeadToState(lead);
 
-        firstName: lead.firstName || (lead.customerName ? lead.customerName.split(' ')[0] : ''),
-        lastName: lead.lastName || (lead.customerName ? lead.customerName.split(' ').slice(1).join(' ') : ''),
-        managerRenteeFirstName: lead.managerRenteeFirstName || '',
-        managerRenteeLastName: lead.managerRenteeLastName || '',
-
-        hasCompany: Boolean(lead.hasCompany || lead.companyName || lead.companyId),
-        companyName: lead.companyName || '',
-        companyOwner: lead.companyOwner || lead.salesPersonName || '',
-        companyCreateDate: lead.companyCreateDate || '',
-        companyPhone: lead.companyPhone || lead.primaryMobile || lead.phone || '',
-        companyCity: lead.companyCity || lead.suburb || '',
-        companyCountry: lead.companyCountry || 'Australia',
-        companyType: lead.companyType || '',
-        companyAbn: lead.companyAbn || '',
-
-        address: lead.address || '',
-        suburb: lead.suburb || '',
-        state: lead.state || '',
-        postcode: lead.postcode || '',
-        area: lead.area || '',
-        nearestBigCity: lead.nearestBigCity || '',
-        addressVerified: lead.addressVerified ?? Boolean(lead.address && lead.postcode),
-
-        primaryMobile: lead.primaryMobile || lead.phone || '',
-        secondaryMobile: lead.secondaryMobile || '',
-        email: lead.email || '',
-
-        systemSizeKw: lead.systemSizeKw !== undefined ? lead.systemSizeKw : '',
-        batteryRequired: lead.batteryRequired ?? false,
-        roofType: lead.roofType || '',
-        noOfPanels: lead.noOfPanels !== undefined ? String(lead.noOfPanels) : '',
-        panelManufacturer: lead.panelManufacturer || '',
-        panelSizeW: lead.panelSizeW !== undefined ? String(lead.panelSizeW) : '',
-        panelSeries: lead.panelSeries || '',
-        panelModel: lead.panelModel || '',
-        noOfInverters: lead.noOfInverters !== undefined ? String(lead.noOfInverters) : '',
-        inverterManufacturer: lead.inverterManufacturer || '',
-        inverterSizeKw: lead.inverterSizeKw !== undefined ? String(lead.inverterSizeKw) : '',
-        inverterSeries: lead.inverterSeries || '',
-        inverterModel: lead.inverterModel || '',
-        noOfBatteries: lead.noOfBatteries !== undefined ? String(lead.noOfBatteries) : '',
-        batteryManufacturer: lead.batteryManufacturer || '',
-        batteryUsableCapacityKwh: lead.batteryUsableCapacityKwh !== undefined ? String(lead.batteryUsableCapacityKwh) : '',
-        batteryModel: lead.batteryModel || '',
-        batterySize: lead.batterySize || '',
-        houseStorey: lead.houseStorey || '',
-        phase: lead.phase || '',
-        existingSystemDetails: lead.existingSystemDetails || '',
-        docsReceived: lead.docsReceived || '',
-        docsReceivedDate: lead.docsReceivedDate || '',
-
-        systemPrice: lead.systemPrice !== undefined && lead.systemPrice !== '' ? formatAudNumber(lead.systemPrice) : '',
-        sellingPrice: lead.sellingPrice !== undefined && lead.sellingPrice !== '' ? formatAudNumber(lead.sellingPrice) : '',
-        deposit: lead.deposit !== undefined && lead.deposit !== '' ? formatAudNumber(lead.deposit) : '',
-
-        salesTeamNotes: lead.salesTeamNotes || ''
-      });
-
-      setAttachments(lead.attachments || []);
-      setPortalCredentials(lead.portalCredentials);
-      setXeroInvoiceId(lead.xeroInvoiceId || '');
-      setXeroInvoiceNumber(lead.xeroInvoiceNumber || '');
-      setXeroInvoiceTotal(lead.xeroInvoiceTotal || 0);
-      setXeroInvoiceStatus(lead.xeroInvoiceStatus || '');
-      setXeroReceiptNumber(lead.xeroReceiptNumber || '');
-      setXeroReceiptDate(lead.xeroReceiptDate || '');
-      setXeroReceiptAmount(lead.xeroReceiptAmount || 0);
-      setXeroReceiptMethod(lead.xeroReceiptMethod || '');
-
-      // Seed activities if empty
-      if (lead.activities && lead.activities.length > 0) {
-        setActivities(lead.activities);
-      } else {
-        setActivities([
-          {
-            id: `act-init-1`,
-            leadId: lead.id,
-            type: 'Status Change',
-            title: `Lead Created (${lead.status || 'New'})`,
-            description: `Lead registered via ${lead.platform || 'Inbound'} platform assigned to ${lead.salesPersonName || 'Mitchell Barnes'}.`,
-            createdAt: lead.leadDate || lead.createdAt || new Date().toISOString(),
-            createdBy: 'System Pipeline'
-          },
-          {
-            id: `act-init-2`,
-            leadId: lead.id,
-            type: 'Note',
-            title: 'Customer Requirement Logged',
-            description: `Customer requested ${lead.systemSizeKw || 10.4} kW solar system specifications. Contact entity auto-created.`,
-            createdAt: new Date().toISOString(),
-            createdBy: lead.salesPersonName || 'Mitchell Barnes'
-          }
-        ]);
+      // 2. Fetch fresh record directly from the Supabase database table
+      if (lead.id) {
+        setIsFetchingFromDb(true);
+        fetch(`/api/leads/${encodeURIComponent(lead.id)}`)
+          .then(res => res.json())
+          .then(data => {
+            if (data && data.success && data.lead) {
+              applyLeadToState(data.lead);
+              setDbSynced(true);
+            }
+          })
+          .catch(err => console.warn('[LeadEditModal] Notice fetching lead from Supabase table:', err))
+          .finally(() => setIsFetchingFromDb(false));
       }
     } else {
       // Defaults for brand new lead
@@ -505,7 +664,7 @@ export const LeadEditModal: React.FC<LeadEditModalProps> = ({ isOpen, onClose, l
         email: '',
 
         systemSizeKw: 10.4,
-        batteryRequired: true,
+        batteryRequired: false,
         roofType: 'Colorbond / Metal Sheet',
         noOfPanels: '24',
         panelManufacturer: dropdowns.panelBrands?.[0] || 'AIKO Solar',
@@ -517,15 +676,15 @@ export const LeadEditModal: React.FC<LeadEditModalProps> = ({ isOpen, onClose, l
         inverterSizeKw: '10',
         inverterSeries: 'SH Series Three Phase',
         inverterModel: 'SH10RT-20 (Three Phase High Voltage Hybrid)',
-        noOfBatteries: '1',
-        batteryManufacturer: dropdowns.batteryBrands?.[0] || 'Tesla Powerwall 3 (13.5kWh)',
-        batteryUsableCapacityKwh: '13.5',
-        batteryModel: 'Tesla Powerwall 3 Integrated Inverter',
-        batterySize: '13.5kWh Wall Mounted Slimline',
+        noOfBatteries: '',
+        batteryManufacturer: '',
+        batteryUsableCapacityKwh: '',
+        batteryModel: '',
+        batterySize: '',
         houseStorey: 'Double Storey',
         phase: 'Three Phase',
         existingSystemDetails: 'No existing solar installed (Brand new installation)',
-        docsReceived: 'Yes',
+        docsReceived: 'No',
         docsReceivedDate: '',
 
         systemPrice: '12,500.00',
@@ -803,30 +962,52 @@ export const LeadEditModal: React.FC<LeadEditModalProps> = ({ isOpen, onClose, l
       companyType: formData.hasCompany ? formData.companyType : undefined,
       companyAbn: formData.hasCompany ? formData.companyAbn : undefined,
 
-      // Hardware Specs (Section 4B)
-      systemSizeKw: formData.systemSizeKw,
-      batteryRequired: formData.batteryRequired,
+      // Hardware Specs (Section 6)
+      systemSizeKw: (() => {
+        const raw = formData.systemSizeKw ? (typeof formData.systemSizeKw === 'number' ? formData.systemSizeKw : parseFloat(String(formData.systemSizeKw).replace(/[^0-9.]/g, '')) || 0) : 0;
+        if (raw > 0) return raw;
+        const pCount = Number(formData.noOfPanels) || 0;
+        const pSize = Number(formData.panelSizeW) || 0;
+        if (pCount > 0 && pSize > 0) {
+          return Math.round((pCount * pSize / 1000) * 100) / 100;
+        }
+        return 0;
+      })(),
+      batteryRequired: Boolean(formData.batteryRequired),
       roofType: formData.roofType,
-      noOfPanels: formData.noOfPanels ? Number(formData.noOfPanels) || formData.noOfPanels : 24,
+      noOfPanels: formData.noOfPanels ? Number(formData.noOfPanels) || formData.noOfPanels : undefined,
       panelManufacturer: formData.panelManufacturer,
-      panelSizeW: formData.panelSizeW ? Number(formData.panelSizeW) || formData.panelSizeW : 440,
+      panelSizeW: formData.panelSizeW ? Number(formData.panelSizeW) || formData.panelSizeW : undefined,
       panelSeries: formData.panelSeries,
       panelModel: formData.panelModel,
-      noOfInverters: formData.noOfInverters ? Number(formData.noOfInverters) || formData.noOfInverters : 1,
+      noOfInverters: formData.noOfInverters ? Number(formData.noOfInverters) || formData.noOfInverters : undefined,
       inverterManufacturer: formData.inverterManufacturer,
-      inverterSizeKw: formData.inverterSizeKw ? Number(formData.inverterSizeKw) || formData.inverterSizeKw : 10,
+      inverterSizeKw: (() => {
+        if (formData.inverterSizeKw) {
+          const num = Number(formData.inverterSizeKw);
+          if (!isNaN(num) && num > 0) return num;
+        }
+        if (formData.inverterModel) {
+          const match = String(formData.inverterModel).match(/(?:-|\b|_)([0-9]+(?:\.[0-9]+)?)\s*(?:k|kw|rt|rs|ktl)?\b/i);
+          if (match && match[1]) {
+            const val = parseFloat(match[1]);
+            if (!isNaN(val) && val >= 1 && val <= 250) return val;
+          }
+        }
+        return undefined;
+      })(),
       inverterSeries: formData.inverterSeries,
       inverterModel: formData.inverterModel,
-      noOfBatteries: formData.noOfBatteries ? Number(formData.noOfBatteries) || formData.noOfBatteries : 1,
-      batteryManufacturer: formData.batteryManufacturer,
-      batteryUsableCapacityKwh: formData.batteryUsableCapacityKwh ? Number(formData.batteryUsableCapacityKwh) || formData.batteryUsableCapacityKwh : 13.5,
-      batteryModel: formData.batteryModel,
-      batterySize: formData.batterySize,
+      noOfBatteries: formData.batteryRequired && formData.noOfBatteries ? Number(formData.noOfBatteries) || formData.noOfBatteries : undefined,
+      batteryManufacturer: formData.batteryRequired ? (formData.batteryManufacturer || undefined) : undefined,
+      batteryUsableCapacityKwh: formData.batteryRequired && formData.batteryUsableCapacityKwh ? Number(formData.batteryUsableCapacityKwh) || undefined : undefined,
+      batteryModel: formData.batteryRequired ? (formData.batteryModel || undefined) : undefined,
+      batterySize: formData.batteryRequired ? (formData.batterySize || undefined) : undefined,
       houseStorey: formData.houseStorey,
       phase: formData.phase,
       existingSystemDetails: formData.existingSystemDetails,
-      docsReceived: formData.docsReceived,
-      docsReceivedDate: formData.docsReceivedDate,
+      docsReceived: formData.docsReceived || 'No',
+      docsReceivedDate: formData.docsReceivedDate || undefined,
 
       // Associated records
       attachments,
@@ -906,12 +1087,31 @@ export const LeadEditModal: React.FC<LeadEditModalProps> = ({ isOpen, onClose, l
                 )}
               </div>
               <p className={`text-xs truncate ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                HubSpot CRM Workspace • Source: {formData.platform || 'Direct'} • System: {formData.systemSizeKw} kW
+                HubSpot CRM Workspace • Source: {formData.platform || 'Direct'} • System: {formData.systemSizeKw ? `${formData.systemSizeKw} kW` : 'Not Set'}
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2.5 shrink-0">
+            {isEditing && (
+              <button
+                type="button"
+                onClick={fetchFreshLeadFromDb}
+                disabled={isFetchingFromDb}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${
+                  isFetchingFromDb
+                    ? 'bg-amber-950/40 text-amber-300 border-amber-800 animate-pulse'
+                    : isLight
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100'
+                    : 'bg-emerald-950/40 text-emerald-300 border-emerald-800 hover:bg-emerald-900/50'
+                }`}
+                title="Fetch latest data from Supabase database table"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isFetchingFromDb ? 'animate-spin text-amber-400' : 'text-emerald-400'}`} />
+                <span className="hidden sm:inline">{isFetchingFromDb ? 'Fetching DB...' : 'Fetch from DB'}</span>
+              </button>
+            )}
+
             {/* Prefill button for demo */}
             <button
               type="button"
@@ -1059,9 +1259,32 @@ export const LeadEditModal: React.FC<LeadEditModalProps> = ({ isOpen, onClose, l
               }`}>
                 <span className={`text-[10px] uppercase ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Capacity:</span>
                 <span className={`font-mono font-bold ${isLight ? 'text-amber-600' : 'text-amber-400'}`}>
-                  {formData.systemSizeKw} kW
+                  {formData.systemSizeKw ? `${formData.systemSizeKw} kW` : 'Not Set'}
                 </span>
               </div>
+              {isEditing && (
+                <div className={`hidden xl:flex items-center gap-1.5 px-2 py-1 rounded-md border text-[10px] uppercase font-bold ${
+                  isFetchingFromDb
+                    ? 'bg-amber-950/40 border-amber-800 text-amber-300 animate-pulse'
+                    : dbSynced
+                    ? 'bg-emerald-950/40 border-emerald-800 text-emerald-400'
+                    : isLight
+                    ? 'bg-slate-100 border-slate-300 text-slate-600'
+                    : 'bg-slate-900 border-slate-700 text-slate-400'
+                }`}>
+                  {isFetchingFromDb ? (
+                    <>
+                      <Loader2 className="w-3 h-3 animate-spin text-amber-400" />
+                      <span>Fetching DB...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                      <span>Supabase Live</span>
+                    </>
+                  )}
+                </div>
+              )}
               {formData.hasCompany && (
                 <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md border ${
                   isLight ? 'bg-blue-50 border-blue-200 text-blue-800 shadow-2xs' : 'bg-blue-950/40 border-blue-800/40 text-blue-300'
@@ -1080,7 +1303,7 @@ export const LeadEditModal: React.FC<LeadEditModalProps> = ({ isOpen, onClose, l
         <div className={`flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-4 p-4 overflow-hidden transition-colors ${
           isLight ? 'bg-slate-50/50 divide-slate-200' : 'bg-slate-950/40 divide-slate-800'
         }`}>
-          {/* COLUMN 1: LEFT SIDEBAR (Lead Details Sections 1-8, with System Size (kW) in 4B & Company Checkbox) */}
+          {/* COLUMN 1: LEFT SIDEBAR (Lead Details Sections 1-8, with System Size (kW) in 6 & Company Checkbox) */}
           <div className="lg:col-span-4 xl:col-span-4 overflow-y-auto pr-2 custom-scrollbar">
             <div className="mb-2 flex items-center justify-between pb-1">
               <span className={`text-xs font-bold uppercase tracking-wider ${isLight ? 'text-slate-700' : 'text-slate-400'}`}>
@@ -1167,7 +1390,7 @@ export const LeadEditModal: React.FC<LeadEditModalProps> = ({ isOpen, onClose, l
           <div className="flex flex-wrap items-center gap-4">
             <div className="flex items-center gap-1.5">
               <span className={`uppercase text-[10px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Capacity:</span>
-              <span className={`font-bold font-mono ${isLight ? 'text-slate-900' : 'text-white'}`}>{formData.systemSizeKw} kW</span>
+              <span className={`font-bold font-mono ${isLight ? 'text-slate-900' : 'text-white'}`}>{formData.systemSizeKw ? `${formData.systemSizeKw} kW` : 'Not Set'}</span>
             </div>
             <div className="flex items-center gap-1.5">
               <span className={`uppercase text-[10px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Selling:</span>

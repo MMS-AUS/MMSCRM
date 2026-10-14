@@ -1,5 +1,32 @@
 import React, { useState } from 'react';
 import { AustralianState } from '../../types';
+
+function ensureIsoDate(val: string | undefined | null): string {
+  if (!val) return '';
+  const trimmed = String(val).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+  const slashMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (slashMatch) {
+    const p1 = parseInt(slashMatch[1], 10);
+    const p2 = parseInt(slashMatch[2], 10);
+    const y = slashMatch[3];
+    // If first number > 12, it is definitely DD/MM/YYYY
+    if (p1 > 12) {
+      return `${y}-${String(p2).padStart(2, '0')}-${String(p1).padStart(2, '0')}`;
+    }
+    // If second number > 12, it is definitely MM/DD/YYYY
+    if (p2 > 12) {
+      return `${y}-${String(p1).padStart(2, '0')}-${String(p2).padStart(2, '0')}`;
+    }
+    // Default Australian date format: DD/MM/YYYY
+    return `${y}-${String(p2).padStart(2, '0')}-${String(p1).padStart(2, '0')}`;
+  }
+  const parsed = new Date(trimmed);
+  if (!isNaN(parsed.getTime())) {
+    return parsed.toISOString().split('T')[0];
+  }
+  return trimmed;
+}
 import {
   classifyAustralianPostcode,
   getNearestBigCity,
@@ -35,7 +62,8 @@ import {
   Hash,
   PhoneCall,
   MessageSquare,
-  RefreshCw
+  RefreshCw,
+  SlidersHorizontal
 } from 'lucide-react';
 import { originateCall } from '../../services/voiplineService';
 import { useApp } from '../../context/AppContext';
@@ -81,7 +109,7 @@ export interface LeadDetailsFormData {
   secondaryMobile: string;
   email: string;
 
-  // Hardware & Site Specs (Section 4B)
+  // Hardware & Site Specs (Section 6)
   systemSizeKw: number;
   batteryRequired: boolean;
   roofType: string;
@@ -169,7 +197,7 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
   handleBatteryManufacturerChange,
   handleBatteryCapacityChange
 }) => {
-  const { setIsQuickSmsOpen, currentUser } = useApp();
+  const { setIsQuickSmsOpen, currentUser, openMappingModal, getMappedDropdownOptions } = useApp();
   const [callingField, setCallingField] = useState<'primary' | 'secondary' | null>(null);
   const [callNotice, setCallNotice] = useState<string | null>(null);
 
@@ -321,9 +349,20 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
               Inbound &amp; Pipeline Configuration
             </h3>
           </div>
-          <span className="text-[11px] text-gray-400 bg-[#222] px-2 py-0.5 rounded border border-[#333]">
-            Lead Details
-          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => openMappingModal('leads_details')}
+              className="px-2 py-0.5 rounded text-[10px] font-semibold bg-[#1e293b] text-cyan-300 hover:bg-[#334155] border border-cyan-500/30 flex items-center gap-1 transition-colors"
+              title="Map Leads dropdowns to Settings Dropdown Category"
+            >
+              <SlidersHorizontal className="w-3 h-3" />
+              <span>Map Dropdowns</span>
+            </button>
+            <span className="text-[11px] text-gray-400 bg-[#222] px-2 py-0.5 rounded border border-[#333]">
+              Lead Details
+            </span>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 gap-3.5">
@@ -351,7 +390,7 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
             <div className="relative">
               <input
                 type="date"
-                value={formData.leadDate}
+                value={ensureIsoDate(formData.leadDate)}
                 onChange={e => setFormData(prev => ({ ...prev, leadDate: e.target.value }))}
                 className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
               />
@@ -368,7 +407,7 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
               className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
             >
               <option value="">Select Platform...</option>
-              {dropdowns.platforms?.map((p: string) => (
+              {getMappedDropdownOptions('leads_platform', dropdowns.platforms || [])?.map((p: string) => (
                 <option key={p} value={p}>
                   {p}
                 </option>
@@ -392,7 +431,7 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
               className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
             >
               <option value="">Select Sales Person...</option>
-              {dropdowns.salesPersons?.map((s: string) => (
+              {getMappedDropdownOptions('leads_salesPersonName', dropdowns.salesPersons || [])?.map((s: string) => (
                 <option key={s} value={s}>
                   {s}
                 </option>
@@ -410,18 +449,17 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
               onChange={e => {
                 const newStatus = e.target.value;
                 const today = new Date().toISOString().split('T')[0];
-                const mmddyyyy = `${String(new Date().getMonth() + 1).padStart(2, '0')}/${String(new Date().getDate()).padStart(2, '0')}/${new Date().getFullYear()}`;
                 setFormData(prev => ({
                   ...prev,
                   status: newStatus,
                   saleDate: newStatus === 'Contract Signed' && !prev.saleDate ? today : prev.saleDate,
                   depositReceivedDate:
-                    newStatus === 'Deposit Received' && !prev.depositReceivedDate ? mmddyyyy : prev.depositReceivedDate
+                    newStatus === 'Deposit Received' && !prev.depositReceivedDate ? today : prev.depositReceivedDate
                 }));
               }}
               className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white font-medium focus:border-[#bef264] focus:outline-none transition-colors"
             >
-              {dropdowns.leadStatuses?.map((st: string) => (
+              {getMappedDropdownOptions('leads_status', dropdowns.leadStatuses || [])?.map((st: string) => (
                 <option key={st} value={st}>
                   {st}
                 </option>
@@ -433,25 +471,28 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
             <label className="block text-xs font-medium text-gray-400 mb-1">
               Sale Date
             </label>
-            <input
-              type="date"
-              value={formData.saleDate}
-              onChange={e => setFormData(prev => ({ ...prev, saleDate: e.target.value }))}
-              className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
-            />
+            <div className="relative">
+              <input
+                type="date"
+                value={ensureIsoDate(formData.saleDate)}
+                onChange={e => setFormData(prev => ({ ...prev, saleDate: e.target.value }))}
+                className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
+              />
+            </div>
           </div>
 
           <div>
             <label className="block text-xs font-medium text-gray-400 mb-1">
-              Deposit Received Date (MM/DD/YYYY)
+              Deposit Received Date
             </label>
-            <input
-              type="text"
-              placeholder="e.g. 09/08/2026"
-              value={formData.depositReceivedDate}
-              onChange={e => setFormData(prev => ({ ...prev, depositReceivedDate: e.target.value }))}
-              className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
-            />
+            <div className="relative">
+              <input
+                type="date"
+                value={ensureIsoDate(formData.depositReceivedDate)}
+                onChange={e => setFormData(prev => ({ ...prev, depositReceivedDate: e.target.value }))}
+                className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
+              />
+            </div>
           </div>
         </div>
       </section>
@@ -463,11 +504,14 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
             <span className="flex items-center justify-center w-6 h-6 rounded-full bg-[#bef26420] text-[#bef264] text-xs font-bold border border-[#bef26440]">
               2
             </span>
-            <h3 className="font-semibold text-white text-sm tracking-wide">
-              Customer &amp; Manager / Rentee Details
-            </h3>
+            <div className="flex items-center gap-1.5">
+              <User className="w-4 h-4 text-[#bef264]" />
+              <h3 className="font-semibold text-white text-sm tracking-wide">
+                Customer &amp; Manager / Rentee Details
+              </h3>
+            </div>
           </div>
-          <span className="text-[11px] text-emerald-400 font-mono bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-800/40">
+          <span className="text-[11px] text-[#bef264] font-mono bg-[#bef2641a] px-2 py-0.5 rounded border border-[#bef26430]">
             Auto Contact Sync
           </span>
         </div>
@@ -685,11 +729,17 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
                   onChange={e => setFormData(prev => ({ ...prev, companyType: e.target.value }))}
                   className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
                 >
-                  <option value="Commercial Customer">Commercial Customer</option>
-                  <option value="Subcontractor Installer">Subcontractor Installer</option>
-                  <option value="Equipment Vendor">Equipment Vendor</option>
-                  <option value="Corporate Enterprise">Corporate Enterprise</option>
-                  <option value="Real Estate / Strata">Real Estate / Strata</option>
+                  {getMappedDropdownOptions('leads_companyType', dropdowns.companyTypes || [
+                    'Commercial Customer',
+                    'Subcontractor Installer',
+                    'Equipment Vendor',
+                    'Corporate Enterprise',
+                    'Real Estate / Strata'
+                  ]).map((ct: string) => (
+                    <option key={ct} value={ct}>
+                      {ct}
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -742,9 +792,13 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
               </h3>
             </div>
           </div>
-          {formData.addressVerified && (
-            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-400 border border-emerald-800/40 flex items-center gap-1">
-              <ShieldCheck className="w-3 h-3" /> Verified AUS Address
+          {formData.addressVerified ? (
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#bef2641a] text-[#bef264] border border-[#bef26430] flex items-center gap-1">
+              <ShieldCheck className="w-3 h-3 text-[#bef264]" /> Verified AUS Address
+            </span>
+          ) : (
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#222] text-gray-400 border border-[#333] flex items-center gap-1">
+              Address Verification
             </span>
           )}
         </div>
@@ -821,7 +875,7 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
                 onChange={e => handleStateChange(e.target.value)}
                 className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
               >
-                {dropdowns.states?.map((st: string) => (
+                {getMappedDropdownOptions('leads_state', dropdowns.states || ['NSW', 'QLD', 'VIC', 'WA', 'SA', 'TAS', 'ACT', 'NT']).map((st: string) => (
                   <option key={st} value={st}>
                     {st}
                   </option>
@@ -852,9 +906,11 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
                 onChange={e => setFormData(prev => ({ ...prev, area: e.target.value }))}
                 className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white font-medium focus:border-[#bef264] focus:outline-none transition-colors"
               >
-                <option value="Metro">Metro</option>
-                <option value="Regional">Regional</option>
-                <option value="Remote">Remote</option>
+                {getMappedDropdownOptions('leads_area', dropdowns.areas || ['Metro', 'Regional', 'Rural', 'Remote']).map((ar: string) => (
+                  <option key={ar} value={ar}>
+                    {ar}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
@@ -1024,13 +1080,13 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
         </div>
       </section>
 
-      {/* SECTION 4B: Solar & Electrical Equipment Hardware & Site Specifications */}
+      {/* SECTION 6: Solar & Electrical Equipment Hardware & Site Specifications */}
       {/* Note: As explicitly requested, System Size (kW) is situated here, and field numbers are removed */}
       <section className="bg-[#181818] border border-[#2e2e2e] rounded-xl p-4 sm:p-5 space-y-4">
         <div className="flex items-center justify-between border-b border-[#2a2a2a] pb-3">
           <div className="flex items-center gap-2">
-            <span className="flex items-center justify-center w-8 h-6 rounded-md bg-[#bef26420] text-[#bef264] text-xs font-bold border border-[#bef26440]">
-              4B
+            <span className="flex items-center justify-center w-6 h-6 rounded-full bg-[#bef26420] text-[#bef264] text-xs font-bold border border-[#bef26440]">
+              6
             </span>
             <div className="flex items-center gap-1.5">
               <Sun className="w-4 h-4 text-[#bef264]" />
@@ -1040,32 +1096,55 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
             </div>
           </div>
           <span className="text-[11px] text-[#bef264] font-mono bg-[#bef2641a] px-2 py-0.5 rounded border border-[#bef26430]">
-            System Size: {formData.systemSizeKw} kW
+            System Size: {(() => {
+              const kw = (formData.systemSizeKw && Number(formData.systemSizeKw) > 0)
+                ? Number(formData.systemSizeKw)
+                : (Number(formData.noOfPanels) > 0 && Number(formData.panelSizeW) > 0)
+                ? Math.round((Number(formData.noOfPanels) * Number(formData.panelSizeW) / 1000) * 100) / 100
+                : null;
+              return kw ? `${kw} kW` : 'Not Set';
+            })()}
           </span>
         </div>
 
-        {/* System Size (kW) - Moved to Section 4B */}
+        {/* System Size (kW) - Moved to Section 6 */}
         <div className="p-3.5 bg-[#121212] rounded-xl border border-[#333] space-y-2.5">
           <div className="flex items-center justify-between">
             <label className="block text-xs font-semibold text-white">
               System Size (kW)
             </label>
             <span className="text-xs font-mono text-[#bef264]">
-              {formData.systemSizeKw ? `${formData.systemSizeKw} kW Total Capacity` : 'Custom Size'}
+              {(() => {
+                const kw = (formData.systemSizeKw && Number(formData.systemSizeKw) > 0)
+                  ? Number(formData.systemSizeKw)
+                  : (Number(formData.noOfPanels) > 0 && Number(formData.panelSizeW) > 0)
+                  ? Math.round((Number(formData.noOfPanels) * Number(formData.panelSizeW) / 1000) * 100) / 100
+                  : null;
+                return kw ? `${kw} kW Total Capacity` : 'Custom Size';
+              })()}
             </span>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <div className="relative flex-1 min-w-[140px]">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 flex items-center justify-center px-1.5 py-0.5 rounded bg-[#262626] border border-[#3e3e3e] text-[10px] font-mono font-bold text-[#bef264] pointer-events-none select-none z-10">
+                kW
+              </span>
               <input
                 type="number"
                 step="0.1"
                 min="0.5"
                 max="500"
-                value={formData.systemSizeKw}
-                onChange={e => setFormData(prev => ({ ...prev, systemSizeKw: Number(e.target.value) || 0 }))}
-                className="w-full px-3 py-2 bg-[#1a1a1a] border border-[#3e3e3e] rounded-lg text-xs font-mono text-white focus:border-[#bef264] focus:outline-none transition-colors"
+                value={
+                  formData.systemSizeKw !== undefined && formData.systemSizeKw !== null && formData.systemSizeKw !== '' && Number(formData.systemSizeKw) > 0
+                    ? formData.systemSizeKw
+                    : (Number(formData.noOfPanels) > 0 && Number(formData.panelSizeW) > 0)
+                    ? Math.round((Number(formData.noOfPanels) * Number(formData.panelSizeW) / 1000) * 100) / 100
+                    : ''
+                }
+                onChange={e => setFormData(prev => ({ ...prev, systemSizeKw: e.target.value === '' ? ('' as any) : Number(e.target.value) || 0 }))}
+                placeholder="e.g. 6.6"
+                className="w-full pl-12 pr-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs font-mono text-white focus:border-[#bef264] focus:outline-none transition-colors"
               />
-              <span className="absolute right-3 top-2 text-xs text-gray-500 font-mono">kW</span>
             </div>
             {/* Quick capacity buttons */}
             {[6.6, 10.4, 13.2, 19.8, 30.0].map(preset => (
@@ -1097,7 +1176,7 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
 
           <div className="grid grid-cols-1 gap-3.5">
             <div>
-              <label className="block text-[11px] font-medium text-gray-400 mb-1">
+              <label className="block text-xs font-medium text-gray-400 mb-1">
                 Number of Panels
               </label>
               <input
@@ -1105,18 +1184,18 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
                 min="1"
                 value={formData.noOfPanels}
                 onChange={e => handleNoOfPanelsChange(e.target.value)}
-                className="w-full px-3 py-1.5 bg-[#1a1a1a] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none"
+                className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
               />
             </div>
 
             <div>
-              <label className="block text-[11px] font-medium text-gray-400 mb-1">
+              <label className="block text-xs font-medium text-gray-400 mb-1">
                 Panel Manufacturer
               </label>
               <select
                 value={formData.panelManufacturer}
                 onChange={e => handlePanelManufacturerChange(e.target.value)}
-                className="w-full px-3 py-1.5 bg-[#1a1a1a] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none"
+                className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
               >
                 {panelManufacturers.map(m => (
                   <option key={m} value={m}>
@@ -1127,30 +1206,35 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
             </div>
 
             <div>
-              <label className="block text-[11px] font-medium text-gray-400 mb-1">
+              <label className="block text-xs font-medium text-gray-400 mb-1">
                 Panel Size (W)
               </label>
-              <select
-                value={formData.panelSizeW}
-                onChange={e => handlePanelSizeChange(e.target.value)}
-                className="w-full px-3 py-1.5 bg-[#1a1a1a] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none"
-              >
-                {panelSizes.map(s => (
-                  <option key={s} value={s}>
-                    {s} W
-                  </option>
-                ))}
-              </select>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 flex items-center justify-center px-1.5 py-0.5 rounded bg-[#262626] border border-[#3e3e3e] text-[10px] font-mono font-bold text-amber-400 pointer-events-none select-none z-10">
+                  W
+                </span>
+                <select
+                  value={formData.panelSizeW}
+                  onChange={e => handlePanelSizeChange(e.target.value)}
+                  className="w-full pl-11 pr-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
+                >
+                  {panelSizes.map(s => (
+                    <option key={s} value={s}>
+                      {s} W
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             <div>
-              <label className="block text-[11px] font-medium text-gray-400 mb-1">
+              <label className="block text-xs font-medium text-gray-400 mb-1">
                 Panel Series
               </label>
               <select
                 value={formData.panelSeries}
                 onChange={e => handlePanelSeriesChange(e.target.value)}
-                className="w-full px-3 py-1.5 bg-[#1a1a1a] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none"
+                className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
               >
                 {panelSeriesList.map(s => (
                   <option key={s} value={s}>
@@ -1161,13 +1245,13 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
             </div>
 
             <div className="w-full">
-              <label className="block text-[11px] font-medium text-gray-400 mb-1">
+              <label className="block text-xs font-medium text-gray-400 mb-1">
                 Panel Model
               </label>
               <select
                 value={formData.panelModel}
                 onChange={e => setFormData(prev => ({ ...prev, panelModel: e.target.value }))}
-                className="w-full px-3 py-1.5 bg-[#1a1a1a] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none truncate"
+                className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors truncate"
               >
                 {panelModels.map(m => (
                   <option key={m} value={m}>
@@ -1191,7 +1275,7 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
 
           <div className="grid grid-cols-1 gap-3.5">
             <div>
-              <label className="block text-[11px] font-medium text-gray-400 mb-1">
+              <label className="block text-xs font-medium text-gray-400 mb-1">
                 Number of Inverters
               </label>
               <input
@@ -1199,18 +1283,18 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
                 min="1"
                 value={formData.noOfInverters}
                 onChange={e => setFormData(prev => ({ ...prev, noOfInverters: e.target.value }))}
-                className="w-full px-3 py-1.5 bg-[#1a1a1a] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none"
+                className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
               />
             </div>
 
             <div>
-              <label className="block text-[11px] font-medium text-gray-400 mb-1">
+              <label className="block text-xs font-medium text-gray-400 mb-1">
                 Inverter Manufacturer
               </label>
               <select
                 value={formData.inverterManufacturer}
                 onChange={e => handleInverterManufacturerChange(e.target.value)}
-                className="w-full px-3 py-1.5 bg-[#1a1a1a] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none"
+                className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
               >
                 {inverterManufacturers.map(m => (
                   <option key={m} value={m}>
@@ -1221,30 +1305,35 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
             </div>
 
             <div>
-              <label className="block text-[11px] font-medium text-gray-400 mb-1">
+              <label className="block text-xs font-medium text-gray-400 mb-1">
                 Inverter Size (kW)
               </label>
-              <select
-                value={formData.inverterSizeKw}
-                onChange={e => handleInverterSizeChange(e.target.value)}
-                className="w-full px-3 py-1.5 bg-[#1a1a1a] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none"
-              >
-                {inverterSizes.map(s => (
-                  <option key={s} value={s}>
-                    {s} kW
-                  </option>
-                ))}
-              </select>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 flex items-center justify-center px-1.5 py-0.5 rounded bg-[#262626] border border-[#3e3e3e] text-[10px] font-mono font-bold text-[#bef264] pointer-events-none select-none z-10">
+                  kW
+                </span>
+                <select
+                  value={formData.inverterSizeKw}
+                  onChange={e => handleInverterSizeChange(e.target.value)}
+                  className="w-full pl-12 pr-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
+                >
+                  {inverterSizes.map(s => (
+                    <option key={s} value={s}>
+                      {s} kW
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             <div>
-              <label className="block text-[11px] font-medium text-gray-400 mb-1">
+              <label className="block text-xs font-medium text-gray-400 mb-1">
                 Inverter Series
               </label>
               <select
                 value={formData.inverterSeries || ''}
                 onChange={e => handleInverterSeriesChange?.(e.target.value)}
-                className="w-full px-3 py-1.5 bg-[#1a1a1a] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none"
+                className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
               >
                 <option value="">All Series</option>
                 {inverterSeriesList.map(s => (
@@ -1256,13 +1345,13 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
             </div>
 
             <div>
-              <label className="block text-[11px] font-medium text-gray-400 mb-1">
+              <label className="block text-xs font-medium text-gray-400 mb-1">
                 Inverter Model
               </label>
               <select
                 value={formData.inverterModel}
                 onChange={e => setFormData(prev => ({ ...prev, inverterModel: e.target.value }))}
-                className="w-full px-3 py-1.5 bg-[#1a1a1a] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none truncate"
+                className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors truncate"
               >
                 {inverterModels.map(m => (
                   <option key={m} value={m}>
@@ -1286,7 +1375,22 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
                 <input
                   type="checkbox"
                   checked={formData.batteryRequired}
-                  onChange={e => setFormData(prev => ({ ...prev, batteryRequired: e.target.checked }))}
+                  onChange={e => {
+                    const req = e.target.checked;
+                    setFormData(prev => ({
+                      ...prev,
+                      batteryRequired: req,
+                      ...(!req
+                        ? {
+                            batteryManufacturer: '',
+                            batteryUsableCapacityKwh: '',
+                            batteryModel: '',
+                            batterySize: '',
+                            noOfBatteries: ''
+                          }
+                        : {})
+                    }));
+                  }}
                   className="rounded border-[#444] bg-[#222] text-[#bef264] focus:ring-0 accent-[#bef264]"
                 />
                 <span>Battery Storage Required</span>
@@ -1300,7 +1404,7 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
           {formData.batteryRequired && (
             <div className="grid grid-cols-1 gap-3.5 pt-1">
               <div>
-                <label className="block text-[11px] font-medium text-gray-400 mb-1">
+                <label className="block text-xs font-medium text-gray-400 mb-1">
                   Number of Batteries
                 </label>
                 <input
@@ -1308,18 +1412,18 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
                   min="1"
                   value={formData.noOfBatteries}
                   onChange={e => setFormData(prev => ({ ...prev, noOfBatteries: e.target.value }))}
-                  className="w-full px-3 py-1.5 bg-[#1a1a1a] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none"
+                  className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
                 />
               </div>
 
               <div>
-                <label className="block text-[11px] font-medium text-gray-400 mb-1">
+                <label className="block text-xs font-medium text-gray-400 mb-1">
                   Battery Manufacturer
                 </label>
                 <select
                   value={formData.batteryManufacturer}
                   onChange={e => handleBatteryManufacturerChange(e.target.value)}
-                  className="w-full px-3 py-1.5 bg-[#1a1a1a] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none"
+                  className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
                 >
                   {batteryManufacturers.map(m => (
                     <option key={m} value={m}>
@@ -1330,13 +1434,13 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
               </div>
 
               <div>
-                <label className="block text-[11px] font-medium text-gray-400 mb-1">
+                <label className="block text-xs font-medium text-gray-400 mb-1">
                   Usable Capacity (kWh)
                 </label>
                 <select
                   value={formData.batteryUsableCapacityKwh}
                   onChange={e => handleBatteryCapacityChange(e.target.value)}
-                  className="w-full px-3 py-1.5 bg-[#1a1a1a] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none"
+                  className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
                 >
                   {batteryCapacities.map(c => (
                     <option key={c} value={c}>
@@ -1347,13 +1451,13 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
               </div>
 
               <div>
-                <label className="block text-[11px] font-medium text-gray-400 mb-1">
+                <label className="block text-xs font-medium text-gray-400 mb-1">
                   Battery Model
                 </label>
                 <select
                   value={formData.batteryModel}
                   onChange={e => setFormData(prev => ({ ...prev, batteryModel: e.target.value }))}
-                  className="w-full px-3 py-1.5 bg-[#1a1a1a] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none truncate"
+                  className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors truncate"
                 >
                   {batteryModels.map(m => (
                     <option key={m} value={m}>
@@ -1375,12 +1479,18 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
             <select
               value={formData.houseStorey}
               onChange={e => setFormData(prev => ({ ...prev, houseStorey: e.target.value }))}
-              className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none"
+              className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
             >
-              <option value="Single Storey">Single Storey</option>
-              <option value="Double Storey">Double Storey</option>
-              <option value="Triple Storey">Triple Storey</option>
-              <option value="Multi-Level Commercial">Multi-Level Commercial</option>
+              {getMappedDropdownOptions('leads_houseStorey', dropdowns.houseStoreys || [
+                'Single Storey',
+                'Double Storey',
+                'Triple Storey',
+                'Multi-Level Commercial'
+              ]).map((hs: string) => (
+                <option key={hs} value={hs}>
+                  {hs}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -1391,11 +1501,13 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
             <select
               value={formData.phase}
               onChange={e => setFormData(prev => ({ ...prev, phase: e.target.value }))}
-              className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none"
+              className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
             >
-              <option value="Single Phase">Single Phase</option>
-              <option value="Two Phase">Two Phase</option>
-              <option value="Three Phase">Three Phase</option>
+              {getMappedDropdownOptions('leads_phase', dropdowns.phases || ['Single Phase', 'Two Phase', 'Three Phase']).map((ph: string) => (
+                <option key={ph} value={ph}>
+                  {ph}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -1406,13 +1518,19 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
             <select
               value={formData.roofType}
               onChange={e => setFormData(prev => ({ ...prev, roofType: e.target.value }))}
-              className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none"
+              className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
             >
-              <option value="Colorbond / Metal Sheet">Colorbond / Metal Sheet</option>
-              <option value="Terracotta Tile">Terracotta Tile</option>
-              <option value="Concrete Tile">Concrete Tile</option>
-              <option value="Klip-lok / Industrial Metal">Klip-lok / Industrial Metal</option>
-              <option value="Slate">Slate</option>
+              {getMappedDropdownOptions('leads_roofType', dropdowns.roofTypes || [
+                'Colorbond / Metal Sheet',
+                'Terracotta Tile',
+                'Concrete Tile',
+                'Klip-lok / Industrial Metal',
+                'Slate'
+              ]).map((rt: string) => (
+                <option key={rt} value={rt}>
+                  {rt}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -1422,13 +1540,35 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
             </label>
             <select
               value={formData.docsReceived}
-              onChange={e => setFormData(prev => ({ ...prev, docsReceived: e.target.value }))}
-              className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none"
+              onChange={e => {
+                const val = e.target.value;
+                const today = new Date().toISOString().split('T')[0];
+                setFormData(prev => ({
+                  ...prev,
+                  docsReceived: val,
+                  docsReceivedDate: val === 'Yes' && !prev.docsReceivedDate ? today : prev.docsReceivedDate
+                }));
+              }}
+              className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
             >
-              <option value="Yes">Yes</option>
-              <option value="No">No</option>
-              <option value="Partial">Partial</option>
+              {getMappedDropdownOptions('leads_docsReceived', dropdowns.docsReceivedOptions || ['No', 'Yes', 'Partial', 'Not Required']).map((dr: string) => (
+                <option key={dr} value={dr}>
+                  {dr}
+                </option>
+              ))}
             </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-400 mb-1">
+              Docs Received Date
+            </label>
+            <input
+              type="date"
+              value={ensureIsoDate(formData.docsReceivedDate)}
+              onChange={e => setFormData(prev => ({ ...prev, docsReceivedDate: e.target.value }))}
+              className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
+            />
           </div>
 
           <div className="w-full">
@@ -1440,7 +1580,7 @@ export const LeadDetailsLeftPanel: React.FC<LeadDetailsLeftPanelProps> = ({
               placeholder="e.g. None (Brand new install) OR 3kW inverter with 8 old panels to be removed"
               value={formData.existingSystemDetails}
               onChange={e => setFormData(prev => ({ ...prev, existingSystemDetails: e.target.value }))}
-              className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none"
+              className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
             />
           </div>
         </div>

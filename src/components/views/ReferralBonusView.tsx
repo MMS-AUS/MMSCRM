@@ -26,7 +26,8 @@ import {
   Eye,
   Pencil,
   Save,
-  RefreshCw
+  RefreshCw,
+  SlidersHorizontal
 } from 'lucide-react';
 import { ReferralBonus, ReferralAttachment, Contact, Project, ViewMode } from '../../types';
 import { ViewModeSwitcher } from '../common/ViewModeSwitcher';
@@ -41,7 +42,8 @@ export const ReferralBonusView: React.FC = () => {
     updateReferralBonus,
     deleteReferralBonus,
     addReferralAttachment,
-    removeReferralAttachment
+    removeReferralAttachment,
+    openMappingModal
   } = useApp();
 
   const [viewMode, setViewMode] = useState<ViewMode>('table');
@@ -465,6 +467,15 @@ export const ReferralBonusView: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => openMappingModal('referrals_view')}
+            className="px-3 py-2 rounded-lg bg-[#1e293b] hover:bg-[#334155] border border-cyan-500/30 text-cyan-300 font-bold text-xs flex items-center gap-1.5 transition-colors shadow-xs"
+            title="Map Referral Bonus dropdowns to Settings Dropdown Category"
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5" />
+            <span>Map Dropdowns</span>
+          </button>
           <ViewModeSwitcher currentMode={viewMode} onModeChange={setViewMode} />
           <button
             onClick={() => setIsAddModalOpen(true)}
@@ -571,7 +582,7 @@ export const ReferralBonusView: React.FC = () => {
                   <th className="py-3 px-4">Referral Name &amp; Contact</th>
                   <th className="py-3 px-4">Installation Address</th>
                   <th className="py-3 px-4">Referral Amount</th>
-                  <th className="py-3 px-4">Referral Stage / Status</th>
+                  <th className="py-3 px-4">Referral Stage/ Installation Status</th>
                   <th className="py-3 px-4">Payment Status</th>
                   <th className="py-3 px-4">Attachments</th>
                   <th className="py-3 px-4 text-right">Actions</th>
@@ -742,7 +753,7 @@ export const ReferralBonusView: React.FC = () => {
                   </div>
 
                   <div className="p-2.5 rounded-lg bg-[#141414] border border-[#262626] flex items-center justify-between text-[11px]">
-                    <span className="text-gray-400">Stage / Status:</span>
+                    <span className="text-gray-400">Project Stage/ Installation Status:</span>
                     <span className="font-semibold text-blue-400">{bonus.referralStatus}</span>
                   </div>
                 </div>
@@ -1034,7 +1045,7 @@ export const ReferralBonusView: React.FC = () => {
 
                 <div>
                   <label className="block text-xs font-semibold text-gray-300 mb-1">
-                    Status of Referral (Auto-Populated from Project Stage)
+                    Status of Referral (Auto-Populated from Project Stage/ Installation Status)
                   </label>
                   <input
                     type="text"
@@ -1264,7 +1275,7 @@ export const ReferralBonusView: React.FC = () => {
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-gray-400">Referral Stage / Status:</span>
+                  <span className="text-gray-400">Referral Stage/ Installation Status:</span>
                   <span className="font-semibold text-blue-400">{selectedReferral.referralStatus}</span>
                 </div>
                 <div className="flex items-center justify-between">
@@ -1604,7 +1615,7 @@ export const ReferralBonusView: React.FC = () => {
                 </div>
               </div>
 
-              {/* Row 4: Referral Amount & Referral Status / Project Stage */}
+              {/* Row 4: Referral Amount & Referral Status / Project Stage/ Installation Status */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <div className="flex items-center justify-between mb-1">
@@ -1628,7 +1639,7 @@ export const ReferralBonusView: React.FC = () => {
 
                 <div>
                   <label className="block text-xs font-semibold text-gray-300 mb-1">
-                    Status of Referral / Project Stage
+                    Status of Referral / Project Stage/ Installation Status
                   </label>
                   <div className="flex gap-1.5">
                     <select

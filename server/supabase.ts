@@ -25,14 +25,14 @@ function getStoredAppConfig(): Record<string, string> {
   return {};
 }
 
-function getSupabaseUrl(): string | undefined {
+export function getSupabaseUrl(): string | undefined {
   if (process.env.SUPABASE_URL) return process.env.SUPABASE_URL;
   if (process.env.NEXT_PUBLIC_SUPABASE_URL) return process.env.NEXT_PUBLIC_SUPABASE_URL;
   const cfg = getStoredAppConfig();
   return cfg.SUPABASE_URL || cfg.NEXT_PUBLIC_SUPABASE_URL;
 }
 
-function getSupabaseKey(): string | undefined {
+export function getSupabaseKey(): string | undefined {
   if (process.env.SUPABASE_SERVICE_ROLE_KEY) return process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (process.env.SUPABASE_ANON_KEY) return process.env.SUPABASE_ANON_KEY;
   const cfg = getStoredAppConfig();

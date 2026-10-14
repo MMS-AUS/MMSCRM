@@ -37,7 +37,7 @@ export const DROPDOWN_CATEGORY_LABELS: Record<string, string> = {
   batteryBrands: 'Battery Storage Brands',
   leadSources: 'Lead Sources & Channels',
   roofTypes: 'Roof Types & Mounting Profiles',
-  projectStatuses: 'Project Pipeline Stages',
+  projectStatuses: 'Project Status',
   ticketCategories: 'Support & Post-Install Issue Categories',
   ticketPriorities: 'Ticket Priority Levels',
   dnspsNSW: 'NSW Electricity Distribution Networks (DNSPs)',
@@ -54,11 +54,10 @@ export const DROPDOWN_CATEGORY_LABELS: Record<string, string> = {
   phases: 'Electrical Grid Phase (Single Phase, Three Phase)',
   docsReceivedOptions: 'Documentation Received Status (Docs Received?)',
   existingSystemTemplates: 'Existing System Details Presets',
-  projectStages: 'Project Stages (Project Stage)',
+  projectStages: 'Project Stage/ Installation Status',
   electricityDistributors: 'Electricity Distributors / DNSPs',
   energyRetailers: 'Energy Retailers',
   gridApplicationStatuses: 'Grid Application Statuses',
-  installationStatuses: 'Installation Statuses',
   installationBookedByOptions: 'Installation Booked By Options',
   installationMonths: 'Installation Completed Months',
   installationDocsStatuses: 'Installation Documents Statuses',
@@ -121,7 +120,8 @@ export function normalizeCategoryKey(rawKeyOrLabel: string): string {
   if (lower.includes('inverter')) return 'inverterBrands';
   if (lower.includes('battery') || lower.includes('storage')) return 'batteryBrands';
   if (lower.includes('leadstatus') || lower.includes('leadstage')) return 'leadStatuses';
-  if (lower.includes('projectstatus') || lower.includes('projectstage')) return 'projectStatuses';
+  if (lower.includes('projectstatus')) return 'projectStatuses';
+  if (lower.includes('projectstage') || lower.includes('installationstatus')) return 'projectStages';
   if (lower.includes('dnsp') && lower.includes('qld')) return 'dnspsQLD';
   if (lower.includes('dnsp') || lower.includes('distributor')) return 'dnspsNSW';
   if (lower.includes('state')) return 'states';
@@ -193,7 +193,8 @@ export function exportDropdownsToExcel(
     { key: 'inverterBrands', sheetName: 'Inverters', colHeader: 'Solar Inverter Model / Brand' },
     { key: 'batteryBrands', sheetName: 'Batteries', colHeader: 'Battery Storage Model / Brand' },
     { key: 'leadStatuses', sheetName: 'Lead_Statuses', colHeader: 'Lead Pipeline Status' },
-    { key: 'projectStatuses', sheetName: 'Project_Statuses', colHeader: 'Project Stage' },
+    { key: 'projectStatuses', sheetName: 'Project_Statuses', colHeader: 'Project Status' },
+    { key: 'projectStages', sheetName: 'Project_Stages', colHeader: 'Project Stage/ Installation Status' },
     { key: 'roofTypes', sheetName: 'Roof_Types', colHeader: 'Roof Type / Profile' },
     { key: 'salesPersons', sheetName: 'Sales_Consultants', colHeader: 'Salesperson Name' },
     { key: 'warehouses', sheetName: 'Warehouses', colHeader: 'Warehouse & Logistics Hub' }

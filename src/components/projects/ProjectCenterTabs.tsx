@@ -313,7 +313,7 @@ export const ProjectCenterTabs: React.FC<ProjectCenterTabsProps> = ({
                 Project Highlights &amp; Metrics
               </h3>
               <span className="text-[11px] font-mono text-[#bef264] bg-[#bef26410] px-2 py-0.5 rounded border border-[#bef26425]">
-                Stage: {formData.projectStage}
+                Project Status: {formData.projectStage}
               </span>
             </div>
 
@@ -399,7 +399,7 @@ export const ProjectCenterTabs: React.FC<ProjectCenterTabsProps> = ({
             {/* Quick Status Cards Row */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="p-3 bg-[#141414] border border-[#2a2a2a] rounded-xl">
-                <span className="text-[10px] text-gray-500 uppercase block font-semibold">Installation Status</span>
+                <span className="text-[10px] text-gray-500 uppercase block font-semibold">Project Stage/ Installation Status</span>
                 <span className="text-xs font-bold text-sky-400 mt-0.5 block truncate">
                   {formData.installationStatus || 'Unscheduled'}
                 </span>
