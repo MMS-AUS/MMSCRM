@@ -1,0 +1,200 @@
+[
+  {
+    "id": "a1b2c3d4-1111-4000-8000-000000000001",
+    "tenant_id": "00000000-0000-0000-0000-000000000001",
+    "channel_id": "00000000-0000-0000-0000-000000000001",
+    "channel_type": "cloud_api",
+    "contact_id": "c1-marcus-vance",
+    "recipient_phone": "+61 412 884 910",
+    "sender_phone": "+61 480 019 822",
+    "wa_message_id": "wamid.HBgLMjY5MTI4ODQ5MTAVAgARGBI1N0Q2QTY5MjIzREQ0RTFFMQA=",
+    "direction": "outbound",
+    "message_body": "Hi Marcus, your CEC solar site assessment for 44 Ocean Avenue, Bondi Beach NSW 2026 is confirmed for tomorrow at 10:00 AM. Our accredited technician David Miller will inspect your switchboard.",
+    "message_type": "template",
+    "template_name": "solar_survey_confirmation",
+    "status": "read",
+    "created_at": "2026-09-17T08:15:00Z",
+    "contact_name": "Marcus Aurelius Vance"
+  },
+  {
+    "id": "a1b2c3d4-2222-4000-8000-000000000002",
+    "tenant_id": "00000000-0000-0000-0000-000000000001",
+    "channel_id": "00000000-0000-0000-0000-000000000001",
+    "channel_type": "cloud_api",
+    "contact_id": "c1-marcus-vance",
+    "recipient_phone": "+61 480 019 822",
+    "sender_phone": "+61 412 884 910",
+    "wa_message_id": "wamid.HBgLMjY5MTI4ODQ5MTAVAgASGBIzMzk1RTYzRDgzQjFFRDhGMQA=",
+    "direction": "inbound",
+    "message_body": "Here is the photo of our 3-phase meter box inside the garage.",
+    "message_type": "image",
+    "media_url": "https://images.unsplash.com/photo-1558494949-ef010cbdcc31?w=800&auto=format&fit=crop&q=80",
+    "media_type": "image/jpeg",
+    "media_caption": "3-phase meter box inside garage",
+    "status": "received",
+    "created_at": "2026-10-19T17:24:26.162Z",
+    "contact_name": "Marcus Aurelius Vance"
+  },
+  {
+    "id": "a1b2c3d4-3333-4000-8000-000000000003",
+    "tenant_id": "00000000-0000-0000-0000-000000000001",
+    "channel_id": "00000000-0000-0000-0000-000000000002",
+    "channel_type": "baileys_web",
+    "contact_id": "c1-marcus-vance",
+    "recipient_phone": "+61 412 884 910",
+    "sender_phone": "+61 412 884 910",
+    "wa_message_id": "baileys_99a8b7c6d5e4f3a2b1c0d9e8",
+    "direction": "outbound",
+    "message_body": "G'day Marcus, David here from the install team. I am pulling up to Ocean Ave now in the SolarFlow van. See you shortly!",
+    "message_type": "text",
+    "status": "delivered",
+    "created_at": "2026-10-19T17:59:26.162Z",
+    "contact_name": "Marcus Aurelius Vance"
+  },
+  {
+    "id": "5e7f37a8-2fc9-4647-baca-912e47cc6137",
+    "tenant_id": "00000000-0000-0000-0000-000000000001",
+    "channel_id": "00000000-0000-0000-0000-000000000001",
+    "channel_type": "cloud_api",
+    "contact_id": null,
+    "recipient_phone": "+61412884910",
+    "sender_phone": "+61480019822",
+    "wa_message_id": "wamid.HBgLmFOgTdQjz05AeIjLOHloTA",
+    "direction": "outbound",
+    "message_body": "Testing Unified Message Router through Meta Cloud API / Baileys Hybrid Setup!",
+    "message_type": "text",
+    "media_url": null,
+    "media_type": null,
+    "media_caption": null,
+    "template_name": null,
+    "status": "sent",
+    "raw_payload": {
+      "messaging_product": "whatsapp",
+      "recipient_type": "individual",
+      "to": "61412884910",
+      "type": "text",
+      "text": {
+        "preview_url": true,
+        "body": "Testing Unified Message Router through Meta Cloud API / Baileys Hybrid Setup!"
+      }
+    },
+    "created_at": "2026-10-19T18:09:47.961Z",
+    "contact_name": null
+  },
+  {
+    "id": "55436ef9-ebd3-40f4-b90a-3d42b7bcdb6d",
+    "tenant_id": "00000000-0000-0000-0000-000000000001",
+    "channel_id": "00000000-0000-0000-0000-000000000002",
+    "channel_type": "baileys_web",
+    "contact_id": null,
+    "recipient_phone": "+61412884910",
+    "sender_phone": "+61412884910",
+    "wa_message_id": "baileys_offline_1792433402292",
+    "direction": "outbound",
+    "message_body": "Hello from Baileys Web WebSocket route!",
+    "message_type": "text",
+    "media_url": null,
+    "media_type": null,
+    "media_caption": null,
+    "template_name": null,
+    "status": "failed",
+    "raw_payload": {
+      "to": "+61412884910",
+      "text": "Hello from Baileys Web WebSocket route!",
+      "baileysResult": {
+        "success": false,
+        "messageId": "baileys_offline_1792433402292",
+        "error": "Baileys session for tenant \"00000000-0000-0000-0000-000000000001\" is currently connected. Please scan QR code in the WhatsApp channels tab."
+      }
+    },
+    "created_at": "2026-10-19T18:10:02.292Z",
+    "contact_name": null
+  },
+  {
+    "id": "2367aa15-fff4-419f-ba45-f7d08ef96283",
+    "tenant_id": "00000000-0000-0000-0000-000000000001",
+    "channel_id": "00000000-0000-0000-0000-000000000002",
+    "channel_type": "baileys_web",
+    "contact_id": null,
+    "recipient_phone": "+61412884910",
+    "sender_phone": "+61412884910",
+    "wa_message_id": "baileys_028f5a20ca8423e5e0a53924",
+    "direction": "outbound",
+    "message_body": "Hello from Baileys Web WebSocket route!",
+    "message_type": "text",
+    "media_url": null,
+    "media_type": null,
+    "media_caption": null,
+    "template_name": null,
+    "status": "sent",
+    "raw_payload": {
+      "to": "+61412884910",
+      "text": "Hello from Baileys Web WebSocket route!",
+      "baileysResult": {
+        "success": true,
+        "messageId": "baileys_028f5a20ca8423e5e0a53924"
+      }
+    },
+    "created_at": "2026-10-19T18:10:18.582Z",
+    "contact_name": null
+  },
+  {
+    "id": "2238052a-053e-430c-8cc5-e2920ed47656",
+    "tenant_id": "00000000-0000-0000-0000-000000000001",
+    "channel_id": "00000000-0000-0000-0000-000000000002",
+    "channel_type": "baileys_web",
+    "contact_id": null,
+    "recipient_phone": "+61412000111",
+    "sender_phone": "+61412884910",
+    "wa_message_id": "baileys_offline_1792468530473",
+    "direction": "outbound",
+    "message_body": "Hello from Unified WhatsApp Hybrid Architecture!",
+    "message_type": "text",
+    "media_url": null,
+    "media_type": null,
+    "media_caption": null,
+    "template_name": null,
+    "status": "failed",
+    "raw_payload": {
+      "to": "+61412000111",
+      "text": "Hello from Unified WhatsApp Hybrid Architecture!",
+      "baileysResult": {
+        "success": false,
+        "messageId": "baileys_offline_1792468530473",
+        "error": "Baileys session for tenant \"00000000-0000-0000-0000-000000000001\" is currently disconnected. Please scan QR code in the WhatsApp channels tab."
+      }
+    },
+    "created_at": "2026-10-20T03:55:30.473Z",
+    "contact_name": null
+  },
+  {
+    "id": "8ee89056-e2db-42d5-9620-86e10ca77edb",
+    "tenant_id": "00000000-0000-0000-0000-000000000001",
+    "channel_id": "00000000-0000-0000-0000-000000000001",
+    "channel_type": "cloud_api",
+    "contact_id": null,
+    "recipient_phone": "+61412000111",
+    "sender_phone": "+61480019822",
+    "wa_message_id": "wamid.HBgLQqCFrxPQqTEH2HqkPP4g",
+    "direction": "outbound",
+    "message_body": "Hello from Meta Cloud API!",
+    "message_type": "text",
+    "media_url": null,
+    "media_type": null,
+    "media_caption": null,
+    "template_name": null,
+    "status": "sent",
+    "raw_payload": {
+      "messaging_product": "whatsapp",
+      "recipient_type": "individual",
+      "to": "61412000111",
+      "type": "text",
+      "text": {
+        "preview_url": true,
+        "body": "Hello from Meta Cloud API!"
+      }
+    },
+    "created_at": "2026-10-20T03:55:37.962Z",
+    "contact_name": null
+  }
+]

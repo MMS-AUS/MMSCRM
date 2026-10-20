@@ -492,3 +492,234 @@ export async function simulateWhatsAppInboundWebhook(params: {
     return { success: false, message: err.message };
   }
 }
+
+// ============================================================================
+// HYBRID WHATSAPP ARCHITECTURE (Meta Cloud API + Baileys Web QR)
+// ============================================================================
+
+export interface HybridChannel {
+  id: string;
+  tenant_id: string;
+  channel_name: string;
+  channel_type: 'cloud_api' | 'baileys_web';
+  is_active: boolean;
+  status: 'connected' | 'qr_ready' | 'disconnected' | 'connecting';
+  credentials: {
+    phone_number_id?: string;
+    waba_id?: string;
+    access_token?: string;
+    webhook_verify_token?: string;
+    display_phone_number?: string;
+    verified_name?: string;
+    api_version?: string;
+    session_id?: string;
+    paired_phone?: string;
+    push_name?: string;
+    qr_code_url?: string | null;
+    raw_qr?: string | null;
+    last_connected_at?: string;
+  };
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface UnifiedMessageItem {
+  id: string;
+  tenant_id: string;
+  channel_id: string;
+  channel_type: 'cloud_api' | 'baileys_web';
+  contact_id?: string | null;
+  recipient_phone: string;
+  sender_phone?: string | null;
+  wa_message_id: string;
+  direction: 'inbound' | 'outbound';
+  message_body: string;
+  message_type: 'text' | 'template' | 'image' | 'document' | 'audio' | 'video';
+  media_url?: string | null;
+  media_type?: string | null;
+  media_caption?: string | null;
+  template_name?: string | null;
+  status: 'pending' | 'sent' | 'delivered' | 'read' | 'failed' | 'received';
+  created_at: string;
+  contact_name?: string | null;
+}
+
+export interface BaileysLiveSession {
+  tenantId: string;
+  status: 'disconnected' | 'connecting' | 'qr_ready' | 'connected';
+  qrCodeUrl?: string | null;
+  rawQr?: string | null;
+  pairedPhone?: string | null;
+  pushName?: string | null;
+  lastConnectedAt?: string | null;
+  errorMessage?: string | null;
+}
+
+export async function fetchWhatsAppChannels(): Promise<HybridChannel[]> {
+  try {
+    const res = await fetch('/api/whatsapp/channels');
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data.channels)) return data.channels;
+    }
+  } catch (err) {
+    console.warn('Error fetching whatsapp channels:', err);
+  }
+  return [];
+}
+
+export async function saveWhatsAppChannel(channel: Partial<HybridChannel>): Promise<HybridChannel | null> {
+  try {
+    const res = await fetch('/api/whatsapp/channels', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(channel)
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return data.channel;
+    }
+  } catch (err) {
+    console.error('Error saving whatsapp channel:', err);
+  }
+  return null;
+}
+
+export async function activateWhatsAppChannel(channelId: string): Promise<boolean> {
+  try {
+    const res = await fetch(`/api/whatsapp/channels/${channelId}/activate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    });
+    return res.ok;
+  } catch (err) {
+    console.error('Error activating whatsapp channel:', err);
+    return false;
+  }
+}
+
+export async function startBaileysSession(forceFresh = false): Promise<BaileysLiveSession | null> {
+  try {
+    const res = await fetch('/api/whatsapp/baileys/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ forceFresh })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return data.session;
+    }
+  } catch (err) {
+    console.error('Error starting Baileys session:', err);
+  }
+  return null;
+}
+
+export async function fetchBaileysStatus(): Promise<BaileysLiveSession | null> {
+  try {
+    const res = await fetch('/api/whatsapp/baileys/status');
+    if (res.ok) {
+      const data = await res.json();
+      return data.session;
+    }
+  } catch (err) {
+    console.error('Error fetching Baileys status:', err);
+  }
+  return null;
+}
+
+export async function disconnectBaileysSession(clearAuth = false): Promise<boolean> {
+  try {
+    const res = await fetch('/api/whatsapp/baileys/disconnect', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clearAuth })
+    });
+    return res.ok;
+  } catch (err) {
+    console.error('Error disconnecting Baileys session:', err);
+    return false;
+  }
+}
+
+export async function simulateBaileysPair(phone = '+61 412 884 910', name = 'Dave Miller (Solar Rep)'): Promise<any> {
+  try {
+    const res = await fetch('/api/whatsapp/baileys/simulate-pair', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, name })
+    });
+    return await res.json();
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}
+
+export async function simulateBaileysInbound(fromPhone = '+61 412 884 910', text = 'Hello, can you send the battery quote?', senderName = 'Marcus Vance'): Promise<any> {
+  try {
+    const res = await fetch('/api/whatsapp/baileys/simulate-inbound', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fromPhone, text, senderName })
+    });
+    return await res.json();
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}
+
+export async function sendUnifiedWhatsAppMessage(payload: {
+  channelId?: string;
+  to: string;
+  message: string;
+  type?: 'text' | 'template' | 'image';
+  templateName?: string;
+  templateParams?: string[];
+  contactId?: string;
+  contactName?: string;
+}): Promise<any> {
+  try {
+    const res = await fetch('/api/whatsapp/unified/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    return await res.json();
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}
+
+export async function fetchUnifiedMessages(contactId?: string, channelId?: string): Promise<UnifiedMessageItem[]> {
+  try {
+    let url = '/api/whatsapp/unified/messages';
+    const params = new URLSearchParams();
+    if (contactId) params.append('contact_id', contactId);
+    if (channelId) params.append('channel_id', channelId);
+    const qs = params.toString();
+    if (qs) url += `?${qs}`;
+
+    const res = await fetch(url);
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data.messages)) return data.messages;
+    }
+  } catch (err) {
+    console.warn('Error fetching unified messages:', err);
+  }
+  return [];
+}
+
+export async function fetchSupabaseStatus(): Promise<any> {
+  try {
+    const res = await fetch('/api/supabase/status');
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+  return { success: false };
+}
+

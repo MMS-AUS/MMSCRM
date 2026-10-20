@@ -131,6 +131,8 @@ export async function convertLeadToProjectAction(leadId: string) {
     contact_id: lead.contact_id || null,
     status: 'Site Survey',
     stage: 'Design',
+    project_status: 'Active',
+    project_stage: 'Site Survey',
 
     // Customer & Sales
     sales_person_name: lead.sales_person_name || 'Mitchell Barnes',

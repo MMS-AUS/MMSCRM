@@ -2,36 +2,22 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-const isDev = process.env.npm_lifecycle_event === 'dev';
-if (!isDev) {
-  process.env.NODE_ENV = 'production';
-}
+// Determine if running under tsx (development runtime)
+const isTsxDev = Boolean(
+  process.env.npm_lifecycle_event === 'dev' ||
+  process.argv.some(arg => arg.includes('tsx')) ||
+  process.execPath.includes('tsx') ||
+  process.env.NODE_ENV !== 'production'
+);
+
 const distBundle = path.join(process.cwd(), 'dist', 'server.cjs');
+const isProduction = !isTsxDev && process.env.NODE_ENV === 'production';
 
-if (!isDev) {
-  // Production runtime (Cloud Run / npm start)
-  if (!fs.existsSync(distBundle)) {
-    try {
-      const { buildSync } = await import('esbuild');
-      buildSync({
-        entryPoints: ['server/app.ts'],
-        bundle: true,
-        platform: 'node',
-        format: 'cjs',
-        packages: 'external',
-        outfile: 'dist/server.cjs'
-      });
-    } catch (buildErr) {
-      console.warn('[Server Launcher] On-demand esbuild fallback notice:', buildErr);
-    }
-  }
-
-  if (fs.existsSync(distBundle)) {
-    await import(pathToFileURL(distBundle).href);
-  } else {
-    await import('./server/app.ts');
-  }
+if (isProduction && fs.existsSync(distBundle)) {
+  // In production with prebuilt bundle (npm run build -> npm start)
+  await import(pathToFileURL(distBundle).href);
 } else {
-  // In development (tsx server.ts / npm run dev):
+  // In development (tsx server.ts) or when tsx is executing:
   await import('./server/app.ts');
 }
+

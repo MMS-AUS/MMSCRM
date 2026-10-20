@@ -13,18 +13,18 @@ const OUTBOX_STORAGE_KEY = 'solar_system_outbound_email_ledger';
 
 export const DEFAULT_SYSTEM_EMAIL_CONFIG: SystemEmailConfig = {
   deliveryMode: 'custom_smtp',
-  smtpHost: 'smtp.mailgun.org',
+  smtpHost: '',
   smtpPort: 587,
-  smtpUsername: 'system-relay@apexsolar.com.au',
+  smtpUsername: '',
   smtpPassword: '',
-  smtpSecure: true,
+  smtpSecure: false, // Default to false: Port 587 uses STARTTLS (secure=true causes TLS wrong version error)
   webhookUrl: '',
   webhookApiKey: '',
   webhookPayloadType: 'resend',
-  senderEmail: 'system@apexsolar.com.au',
+  senderEmail: '',
   senderName: 'Apex Solar Operations System',
-  replyToEmail: 'support@apexsolar.com.au',
-  adminAlertEmails: ['admin@apexsolar.com.au'],
+  replyToEmail: '',
+  adminAlertEmails: [],
   triggers: {
     newLeadAlert: true,
     leadProposalSentAlert: true,
@@ -51,9 +51,18 @@ export const getSystemEmailConfig = (): SystemEmailConfig => {
     const raw = localStorage.getItem(SYSTEM_CONFIG_STORAGE_KEY) || localStorage.getItem(LEGACY_CONFIG_STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
+      // If legacy cached config had port 587 with smtpSecure: true, normalize it to false
+      const port = Number(parsed.smtpPort) || 587;
+      const smtpSecure = port === 465 ? true : (port === 587 || port === 25 ? false : Boolean(parsed.smtpSecure));
+      const hasSmtp = Boolean(parsed.smtpHost && parsed.smtpUsername);
+
       return {
         ...DEFAULT_SYSTEM_EMAIL_CONFIG,
         ...parsed,
+        deliveryMode: parsed.deliveryMode || (hasSmtp ? 'custom_smtp' : DEFAULT_SYSTEM_EMAIL_CONFIG.deliveryMode),
+        smtpPort: port,
+        smtpSecure: smtpSecure,
+        adminAlertEmails: Array.isArray(parsed.adminAlertEmails) ? parsed.adminAlertEmails : [],
         triggers: {
           ...DEFAULT_SYSTEM_EMAIL_CONFIG.triggers,
           ...(parsed.triggers || {})
@@ -69,21 +78,104 @@ export const getSystemEmailConfig = (): SystemEmailConfig => {
 export const getPersonalEmailConfig = getSystemEmailConfig;
 
 /**
- * Save system default email configuration
+ * Save system default email configuration asynchronously (with guaranteed server sync)
  */
-export const saveSystemEmailConfig = (config: Partial<SystemEmailConfig>): SystemEmailConfig => {
+export const saveSystemEmailConfigAsync = async (config: Partial<SystemEmailConfig>): Promise<SystemEmailConfig> => {
   try {
     const current = getSystemEmailConfig();
+    const port = config.smtpPort !== undefined ? Number(config.smtpPort) || 587 : current.smtpPort;
+    const smtpSecure = config.smtpSecure !== undefined
+      ? (port === 465 ? true : (port === 587 || port === 25 ? false : Boolean(config.smtpSecure)))
+      : (port === 465 ? true : (port === 587 || port === 25 ? false : current.smtpSecure));
+
+    const host = config.smtpHost !== undefined ? config.smtpHost : current.smtpHost;
+    const user = config.smtpUsername !== undefined ? config.smtpUsername : current.smtpUsername;
+    const hasSmtp = Boolean(host && user);
+    const mode = config.deliveryMode || (hasSmtp ? 'custom_smtp' : current.deliveryMode);
+
     const updated: SystemEmailConfig = {
       ...current,
       ...config,
+      deliveryMode: mode,
+      smtpPort: port,
+      smtpSecure,
+      adminAlertEmails: Array.isArray(config.adminAlertEmails) ? config.adminAlertEmails : (current.adminAlertEmails || []),
       triggers: {
         ...current.triggers,
         ...(config.triggers || {})
       },
       lastUpdated: new Date().toISOString()
     };
-    localStorage.setItem(SYSTEM_CONFIG_STORAGE_KEY, JSON.stringify(updated));
+    try {
+      localStorage.setItem(SYSTEM_CONFIG_STORAGE_KEY, JSON.stringify(updated));
+    } catch {}
+
+    // Synchronize to backend server database
+    try {
+      const res = await fetch('/api/settings/system-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ config: updated })
+      });
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (data && data.config) {
+          return { ...updated, ...data.config };
+        }
+      }
+    } catch (netErr) {
+      console.warn('[SystemEmail] Backend config sync warning:', netErr);
+    }
+
+    return updated;
+  } catch (e) {
+    console.error('Failed to save system email config:', e);
+    return getSystemEmailConfig();
+  }
+};
+
+/**
+ * Save system default email configuration
+ */
+export const saveSystemEmailConfig = (config: Partial<SystemEmailConfig>): SystemEmailConfig => {
+  try {
+    const current = getSystemEmailConfig();
+    const port = config.smtpPort !== undefined ? Number(config.smtpPort) || 587 : current.smtpPort;
+    const smtpSecure = config.smtpSecure !== undefined
+      ? (port === 465 ? true : (port === 587 || port === 25 ? false : Boolean(config.smtpSecure)))
+      : (port === 465 ? true : (port === 587 || port === 25 ? false : current.smtpSecure));
+
+    const host = config.smtpHost !== undefined ? config.smtpHost : current.smtpHost;
+    const user = config.smtpUsername !== undefined ? config.smtpUsername : current.smtpUsername;
+    const hasSmtp = Boolean(host && user);
+    const mode = config.deliveryMode || (hasSmtp ? 'custom_smtp' : current.deliveryMode);
+
+    const updated: SystemEmailConfig = {
+      ...current,
+      ...config,
+      deliveryMode: mode,
+      smtpPort: port,
+      smtpSecure,
+      adminAlertEmails: Array.isArray(config.adminAlertEmails) ? config.adminAlertEmails : (current.adminAlertEmails || []),
+      triggers: {
+        ...current.triggers,
+        ...(config.triggers || {})
+      },
+      lastUpdated: new Date().toISOString()
+    };
+    try {
+      localStorage.setItem(SYSTEM_CONFIG_STORAGE_KEY, JSON.stringify(updated));
+    } catch {}
+
+    // Non-blocking sync to backend server database
+    fetch('/api/settings/system-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ config: updated })
+    }).catch(err => {
+      console.warn('[SystemEmail] Backend config sync warning:', err);
+    });
+
     return updated;
   } catch (e) {
     console.error('Failed to save system email config:', e);
@@ -92,6 +184,67 @@ export const saveSystemEmailConfig = (config: Partial<SystemEmailConfig>): Syste
 };
 
 export const savePersonalEmailConfig = saveSystemEmailConfig;
+
+/**
+ * Fetch and hydrate system email configuration from backend server database
+ */
+export const fetchServerSystemEmailConfig = async (): Promise<SystemEmailConfig> => {
+  try {
+    const res = await fetch(`/api/settings/system-email?_t=${Date.now()}`);
+    if (res.ok) {
+      const data = await res.json();
+      const srvConfig = data?.config || (data?.key === 'system-email' ? data?.value : null);
+      if (srvConfig && typeof srvConfig === 'object' && Object.keys(srvConfig).length > 0) {
+        const local = getSystemEmailConfig();
+        const hasSmtp = Boolean(srvConfig.smtpHost && srvConfig.smtpUsername);
+        const merged: SystemEmailConfig = {
+          ...DEFAULT_SYSTEM_EMAIL_CONFIG,
+          ...local,
+          ...srvConfig,
+          deliveryMode: srvConfig.deliveryMode || (hasSmtp ? 'custom_smtp' : local.deliveryMode),
+          adminAlertEmails: Array.isArray(srvConfig.adminAlertEmails) ? srvConfig.adminAlertEmails : (local.adminAlertEmails || []),
+          triggers: {
+            ...DEFAULT_SYSTEM_EMAIL_CONFIG.triggers,
+            ...(local.triggers || {}),
+            ...(srvConfig.triggers || {})
+          }
+        };
+        try {
+          localStorage.setItem(SYSTEM_CONFIG_STORAGE_KEY, JSON.stringify(merged));
+        } catch {}
+        return merged;
+      }
+    }
+  } catch (err) {
+    console.warn('[SystemEmail] Failed to fetch server email config:', err);
+  }
+  return getSystemEmailConfig();
+};
+
+/**
+ * Verify SMTP connection and credentials against remote mail server
+ */
+export const verifySmtpSettings = async (
+  customConfig?: Partial<SystemEmailConfig>
+): Promise<{ success: boolean; message: string; details?: any }> => {
+  const current = getSystemEmailConfig();
+  const effective = { ...current, ...(customConfig || {}) };
+  try {
+    const res = await fetch('/api/email/verify-smtp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ smtpConfig: effective })
+    });
+    const data = await res.json();
+    return data;
+  } catch (err: any) {
+    return {
+      success: false,
+      message: err.message || 'Failed to communicate with SMTP verification service'
+    };
+  }
+};
+
 
 /**
  * Retrieve Outbound Email Logs
@@ -149,11 +302,23 @@ export async function sendSystemEmail(options: {
   referenceId?: string;
   senderName?: string;
   senderEmail?: string;
+  customConfig?: Partial<SystemEmailConfig>;
 }): Promise<EmailSendResult> {
-  const config = getPersonalEmailConfig();
+  const config = { ...getPersonalEmailConfig(), ...(options.customConfig || {}) };
 
   const fromName = options.senderName || config.senderName || 'Apex Solar Operations';
-  const fromEmail = options.senderEmail || config.senderEmail || 'alerts@apexsolar.com.au';
+  // Sender email resolution: prefer options -> custom user senderEmail -> authenticated username -> fallback
+  let fromEmail = options.senderEmail;
+  if (!fromEmail) {
+    if (config.senderEmail && !config.senderEmail.includes('apexsolar.com.au') && config.senderEmail !== 'default@system') {
+      fromEmail = config.senderEmail;
+    } else if (config.smtpUsername && config.smtpUsername.includes('@')) {
+      fromEmail = config.smtpUsername;
+    } else {
+      fromEmail = config.senderEmail || 'alerts@apexsolar.com.au';
+    }
+  }
+
   const fromHeader = `${fromName} <${fromEmail}>`;
   const toList = Array.isArray(options.to) ? options.to : [options.to];
   const toStr = toList.join(', ');
@@ -256,31 +421,66 @@ export async function sendSystemEmail(options: {
     }
   }
 
-  // 3. Custom SMTP Relay / Google App Password
-  else if (config.deliveryMode === 'custom_smtp') {
-    // In browser sandbox environment, perform authenticated relay validation
-    const hasCredentials = Boolean(config.smtpHost && config.smtpUsername);
-    if (hasCredentials) {
-      result = {
-        success: true,
-        messageId: `smtp-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`,
-        status: 'delivered',
-        channel: 'custom_smtp',
-        timestamp
-      };
-    } else {
+  // 2. Custom SMTP Relay / Google App Password / Corporate Server
+  // If deliveryMode is custom_smtp OR if user has configured SMTP parameters, dispatch via live SMTP server
+  else if (config.deliveryMode === 'custom_smtp' || Boolean(config.smtpHost || config.smtpUsername || options.customConfig?.smtpHost)) {
+    try {
+      const res = await fetch('/api/email/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: toList,
+          cc: options.cc,
+          bcc: options.bcc,
+          subject: options.subject,
+          html: options.bodyHtml,
+          from: fromEmail,
+          replyTo: config.replyToEmail || fromEmail,
+          smtpConfig: {
+            smtpHost: config.smtpHost,
+            smtpPort: config.smtpPort,
+            smtpUsername: config.smtpUsername,
+            smtpPassword: config.smtpPassword,
+            smtpSecure: config.smtpSecure,
+            senderEmail: fromEmail,
+            senderName: fromName,
+            replyToEmail: config.replyToEmail || fromEmail
+          }
+        })
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success) {
+        result = {
+          success: true,
+          messageId: data.messageId || `smtp-${Date.now()}`,
+          status: 'delivered',
+          channel: 'custom_smtp',
+          timestamp
+        };
+      } else {
+        result = {
+          success: false,
+          messageId: `smtp-err-${Date.now()}`,
+          status: 'failed',
+          channel: 'custom_smtp',
+          error: data.error || data.message || `SMTP dispatch returned HTTP ${res.status}`,
+          timestamp
+        };
+      }
+    } catch (sendErr: any) {
       result = {
         success: false,
         messageId: `smtp-err-${Date.now()}`,
         status: 'failed',
         channel: 'custom_smtp',
-        error: 'Missing SMTP Host or Username in personal email configuration',
+        error: sendErr.message || 'Network error communicating with SMTP mail server',
         timestamp
       };
     }
   }
 
-  // 4. Default / Simulation Audit Mode
+  // 3. Simulation Audit Mode (only if explicitly selected without SMTP credentials)
   else {
     result = {
       success: true,
@@ -333,16 +533,17 @@ export async function dispatchSystemAlert(event: SystemAlertEvent): Promise<Emai
   const config = getPersonalEmailConfig();
 
   // Check if this trigger type is enabled
+  const triggers = config.triggers || DEFAULT_SYSTEM_EMAIL_CONFIG.triggers;
   const triggerMap: Record<SystemAlertEvent['type'], boolean> = {
-    new_lead: config.triggers.newLeadAlert,
-    proposal_sent: config.triggers.leadProposalSentAlert,
-    project_milestone: config.triggers.projectStageAlert,
-    install_dispatched: config.triggers.installOrderDispatchedAlert,
-    ticket_created: config.triggers.serviceTicketAlert,
-    invoice_issued: config.triggers.xeroInvoiceAlert,
-    payment_received: config.triggers.xeroInvoiceAlert,
-    staff_invite: config.triggers.staffInviteAlert,
-    portal_access: config.triggers.customerPortalAlert
+    new_lead: triggers?.newLeadAlert ?? true,
+    proposal_sent: triggers?.leadProposalSentAlert ?? true,
+    project_milestone: triggers?.projectStageAlert ?? true,
+    install_dispatched: triggers?.installOrderDispatchedAlert ?? true,
+    ticket_created: triggers?.serviceTicketAlert ?? true,
+    invoice_issued: triggers?.xeroInvoiceAlert ?? true,
+    payment_received: triggers?.xeroInvoiceAlert ?? true,
+    staff_invite: triggers?.staffInviteAlert ?? true,
+    portal_access: triggers?.customerPortalAlert ?? true
   };
 
   if (triggerMap[event.type] === false) {
@@ -352,10 +553,22 @@ export async function dispatchSystemAlert(event: SystemAlertEvent): Promise<Emai
 
   const htmlBody = generateSystemEmailHtml(event);
 
-  // Combine direct recipient with Admin Alert Emails if applicable
-  const recipients = [event.recipientEmail];
-  const adminCc = config.adminAlertEmails.filter(
-    adminEmail => adminEmail && adminEmail.toLowerCase() !== event.recipientEmail.toLowerCase()
+  // Validate and sanitize recipient
+  const recipient = (event.recipientEmail || '').trim();
+  if (!recipient || !recipient.includes('@') || recipient === 'default@system') {
+    console.warn(`[SystemAlert] Skipped alert dispatch: invalid recipient "${event.recipientEmail}"`);
+    return null;
+  }
+
+  // Combine direct recipient with Admin Alert Emails if applicable (safe array filter)
+  const recipients = [recipient];
+  const adminEmails = Array.isArray(config.adminAlertEmails) ? config.adminAlertEmails : [];
+  const adminCc = adminEmails.filter(
+    adminEmail => adminEmail &&
+      adminEmail.trim().length > 3 &&
+      adminEmail.includes('@') &&
+      adminEmail.toLowerCase() !== recipient.toLowerCase() &&
+      adminEmail !== 'default@system'
   );
 
   return await sendSystemEmail({
@@ -482,13 +695,34 @@ export function generateSystemEmailHtml(event: SystemAlertEvent): string {
 
 /**
  * Execute an immediate test email dispatch to verify deliverability.
- * For test emails, sender and receiver are matched to guarantee delivery and loopback confirmation.
+ * FIX: Sender and recipient are segregated so the authenticated SMTP user is NOT spoofed by the target email.
  */
-export async function sendTestEmail(targetEmail: string, customNotes?: string): Promise<EmailSendResult> {
-  const config = getPersonalEmailConfig();
-  const effectiveEmail = (targetEmail && targetEmail.trim()) || config.senderEmail || 'admin@solarinstallers.com.au';
-  
-  const testSubject = `[Live Test Verification] Solar CRM Deliverability Test (${config.deliveryMode.replace('_', ' ').toUpperCase()})`;
+export async function sendTestEmail(
+  targetEmail: string,
+  customNotes?: string,
+  customConfig?: Partial<SystemEmailConfig>
+): Promise<EmailSendResult> {
+  const config = { ...getPersonalEmailConfig(), ...(customConfig || {}) };
+  const effectiveRecipient = (targetEmail && targetEmail.trim()) || config.smtpUsername || config.senderEmail;
+
+  if (!effectiveRecipient) {
+    return {
+      success: false,
+      messageId: `test-err-${Date.now()}`,
+      status: 'failed',
+      channel: 'custom_smtp',
+      error: 'Please enter a valid recipient email address to receive the test dispatch.',
+      timestamp: new Date().toISOString()
+    };
+  }
+
+  // Sender email resolution: do not use the recipient as sender
+  let senderEmail = (config.senderEmail && !config.senderEmail.includes('apexsolar.com.au') ? config.senderEmail : config.smtpUsername) || config.senderEmail;
+  if (!senderEmail || !senderEmail.includes('@')) {
+    senderEmail = config.smtpUsername || effectiveRecipient;
+  }
+
+  const testSubject = `[Live Verification] Solar CRM Deliverability Test (${config.deliveryMode.replace('_', ' ').toUpperCase()})`;
   const bodyHtml = `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background: #ffffff;">
       <div style="border-bottom: 2px solid #bef264; padding-bottom: 12px; margin-bottom: 16px;">
@@ -496,13 +730,13 @@ export async function sendTestEmail(targetEmail: string, customNotes?: string): 
         <span style="font-size: 12px; color: #64748b; font-weight: 600;">Automated System Alerts &amp; Notification Engine</span>
       </div>
       <p style="font-size: 14px; color: #334155; line-height: 1.6;">
-        Success! If you are reading this email, your <strong>${config.deliveryMode.replace('_', ' ').toUpperCase()}</strong> integration has been verified and is ready to dispatch live notifications.
+        Success! If you are reading this email, your <strong>${config.deliveryMode.replace('_', ' ').toUpperCase()}</strong> mail integration is verified and actively dispatching emails.
       </p>
       <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px; margin: 16px 0; font-size: 13px;">
-        <p style="margin: 0 0 6px 0;"><strong>Active Channel:</strong> ${config.deliveryMode}</p>
-        <p style="margin: 0 0 6px 0;"><strong>Sender (From):</strong> ${effectiveEmail}</p>
-        <p style="margin: 0 0 6px 0;"><strong>Recipient (To):</strong> ${effectiveEmail} <span style="color: #16a34a; font-weight: 600;">(Loopback Match)</span></p>
-        <p style="margin: 0 0 6px 0;"><strong>Admin Alert Notification Recipients:</strong> ${config.adminAlertEmails?.join(', ') || effectiveEmail}</p>
+        <p style="margin: 0 0 6px 0;"><strong>Delivery Channel:</strong> ${config.deliveryMode}</p>
+        <p style="margin: 0 0 6px 0;"><strong>Sender (From):</strong> ${senderEmail}</p>
+        <p style="margin: 0 0 6px 0;"><strong>Recipient (To):</strong> ${effectiveRecipient}</p>
+        <p style="margin: 0 0 6px 0;"><strong>SMTP Server:</strong> ${config.smtpHost || 'Standard Relay'}:${config.smtpPort || 587}</p>
         ${customNotes ? `<p style="margin: 0;"><strong>Notes:</strong> ${customNotes}</p>` : ''}
       </div>
       <p style="font-size: 12px; color: #94a3b8; margin: 20px 0 0 0; border-top: 1px solid #f1f5f9; padding-top: 12px;">
@@ -512,12 +746,13 @@ export async function sendTestEmail(targetEmail: string, customNotes?: string): 
   `;
 
   const result = await sendSystemEmail({
-    to: effectiveEmail,
-    senderEmail: effectiveEmail,
+    to: effectiveRecipient,
+    senderEmail: senderEmail,
     senderName: config.senderName || 'Solar Operations',
     subject: testSubject,
     bodyHtml,
-    category: 'Test Dispatch'
+    category: 'Test Dispatch',
+    customConfig
   });
 
   return result;

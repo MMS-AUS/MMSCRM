@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { getSupabase } from './supabase.ts';
+import { getSupabase, isSupabaseQuotaError, markSupabaseRestricted, isSupabaseRestricted } from './supabase.ts';
 
 const SETTINGS_FILE = path.join(process.cwd(), '.app_settings.json');
 const INTEGRATIONS_FILE = path.join(process.cwd(), '.integrations_db.json');
@@ -254,10 +254,18 @@ export async function getDbSettings(key?: string): Promise<Record<string, any>> 
         // Cache to local file
         writeLocalSettings(localMap);
       } else if (error) {
-        console.warn('[SettingsDb] Supabase read app_settings warning (using fallback):', error.message);
+        if (isSupabaseQuotaError(error)) {
+          markSupabaseRestricted(error.message);
+        } else {
+          console.warn('[SettingsDb] Supabase read app_settings warning (using fallback):', error.message);
+        }
       }
-    } catch (err) {
-      console.warn('[SettingsDb] Failed to fetch settings from Supabase:', err);
+    } catch (err: any) {
+      if (isSupabaseQuotaError(err)) {
+        markSupabaseRestricted(err.message);
+      } else {
+        console.warn('[SettingsDb] Failed to fetch settings from Supabase:', err);
+      }
     }
   }
 
@@ -307,11 +315,19 @@ export async function saveDbSetting(
       }, { onConflict: 'key' });
 
       if (error) {
+        if (isSupabaseQuotaError(error)) {
+          markSupabaseRestricted(error.message);
+          return { success: true, source: 'local_fallback' };
+        }
         console.warn(`[SettingsDb] Supabase upsert error for key "${key}":`, error.message);
         return { success: true, source: 'local_fallback', error: error.message };
       }
       return { success: true, source: 'supabase' };
     } catch (err: any) {
+      if (isSupabaseQuotaError(err)) {
+        markSupabaseRestricted(err.message);
+        return { success: true, source: 'local_fallback' };
+      }
       console.warn(`[SettingsDb] Supabase upsert failed for key "${key}":`, err.message);
       return { success: true, source: 'local_fallback', error: err.message };
     }
@@ -355,11 +371,19 @@ export async function saveDbSettingsBatch(
     try {
       const { error } = await supabase.from('app_settings').upsert(supabasePayload, { onConflict: 'key' });
       if (error) {
+        if (isSupabaseQuotaError(error)) {
+          markSupabaseRestricted(error.message);
+          return { success: true, count: entries.length, source: 'local_fallback' };
+        }
         console.warn('[SettingsDb] Supabase batch upsert app_settings warning:', error.message);
         return { success: true, count: entries.length, source: 'local_fallback', error: error.message };
       }
       return { success: true, count: entries.length, source: 'supabase' };
     } catch (err: any) {
+      if (isSupabaseQuotaError(err)) {
+        markSupabaseRestricted(err.message);
+        return { success: true, count: entries.length, source: 'local_fallback' };
+      }
       console.warn('[SettingsDb] Supabase batch upsert failed:', err.message);
       return { success: true, count: entries.length, source: 'local_fallback', error: err.message };
     }
@@ -393,10 +417,18 @@ export async function getDbIntegrations(): Promise<IntegrationRecord[]> {
         }));
         writeLocalIntegrations(list);
       } else if (error) {
-        console.warn('[SettingsDb] Supabase integrations_config read warning (using local fallback):', error.message);
+        if (isSupabaseQuotaError(error)) {
+          markSupabaseRestricted(error.message);
+        } else {
+          console.warn('[SettingsDb] Supabase integrations_config read warning (using local fallback):', error.message);
+        }
       }
-    } catch (err) {
-      console.warn('[SettingsDb] Failed to read integrations_config from Supabase:', err);
+    } catch (err: any) {
+      if (isSupabaseQuotaError(err)) {
+        markSupabaseRestricted(err.message);
+      } else {
+        console.warn('[SettingsDb] Failed to read integrations_config from Supabase:', err);
+      }
     }
   }
 
@@ -445,11 +477,19 @@ export async function saveDbIntegration(
       }, { onConflict: 'id' });
 
       if (error) {
+        if (isSupabaseQuotaError(error)) {
+          markSupabaseRestricted(error.message);
+          return { success: true, source: 'local_fallback' };
+        }
         console.warn(`[SettingsDb] Supabase integrations_config upsert warning for "${integration.id}":`, error.message);
         return { success: true, source: 'local_fallback', error: error.message };
       }
       return { success: true, source: 'supabase' };
     } catch (err: any) {
+      if (isSupabaseQuotaError(err)) {
+        markSupabaseRestricted(err.message);
+        return { success: true, source: 'local_fallback' };
+      }
       console.warn(`[SettingsDb] Failed to upsert integration to Supabase:`, err.message);
       return { success: true, source: 'local_fallback', error: err.message };
     }
@@ -502,11 +542,19 @@ export async function saveDbIntegrationsBatch(
     try {
       const { error } = await supabase.from('integrations_config').upsert(supabasePayload, { onConflict: 'id' });
       if (error) {
+        if (isSupabaseQuotaError(error)) {
+          markSupabaseRestricted(error.message);
+          return { success: true, count: integrations.length, source: 'local_fallback' };
+        }
         console.warn('[SettingsDb] Supabase integrations_config batch upsert warning:', error.message);
         return { success: true, count: integrations.length, source: 'local_fallback', error: error.message };
       }
       return { success: true, count: integrations.length, source: 'supabase' };
     } catch (err: any) {
+      if (isSupabaseQuotaError(err)) {
+        markSupabaseRestricted(err.message);
+        return { success: true, count: integrations.length, source: 'local_fallback' };
+      }
       console.warn('[SettingsDb] Supabase integrations_config batch upsert error:', err.message);
       return { success: true, count: integrations.length, source: 'local_fallback', error: err.message };
     }
@@ -520,12 +568,27 @@ export async function saveDbIntegrationsBatch(
  */
 export async function checkSettingsDatabaseStatus(): Promise<{
   supabaseConfigured: boolean;
+  supabaseRestricted?: boolean;
+  restrictionReason?: string;
   appSettingsTableOk: boolean;
   integrationsConfigTableOk: boolean;
   appSettingsCount: number;
   integrationsCount: number;
   message: string;
 }> {
+  if (isSupabaseRestricted()) {
+    return {
+      supabaseConfigured: true,
+      supabaseRestricted: true,
+      restrictionReason: 'exceed_egress_quota',
+      appSettingsTableOk: false,
+      integrationsConfigTableOk: false,
+      appSettingsCount: 0,
+      integrationsCount: 0,
+      message: 'Supabase cloud egress quota reached. High-speed local database persistence mode is active and protecting all data.'
+    };
+  }
+
   const supabase = getSupabase();
   if (!supabase) {
     return {
@@ -548,16 +611,38 @@ export async function checkSettingsDatabaseStatus(): Promise<{
     if (!error) {
       appSettingsOk = true;
       appSettingsCount = Array.isArray(data) ? data.length : 0;
+    } else if (isSupabaseQuotaError(error)) {
+      markSupabaseRestricted(error.message);
+      return {
+        supabaseConfigured: true,
+        supabaseRestricted: true,
+        restrictionReason: error.message,
+        appSettingsTableOk: false,
+        integrationsConfigTableOk: false,
+        appSettingsCount: 0,
+        integrationsCount: 0,
+        message: 'Supabase cloud egress quota reached. High-speed local database persistence mode is active and protecting all data.'
+      };
     }
-  } catch {}
+  } catch (err: any) {
+    if (isSupabaseQuotaError(err)) {
+      markSupabaseRestricted(err.message);
+    }
+  }
 
   try {
     const { data, error } = await supabase.from('integrations_config').select('id').limit(1);
     if (!error) {
       integrationsOk = true;
       integrationsCount = Array.isArray(data) ? data.length : 0;
+    } else if (isSupabaseQuotaError(error)) {
+      markSupabaseRestricted(error.message);
     }
-  } catch {}
+  } catch (err: any) {
+    if (isSupabaseQuotaError(err)) {
+      markSupabaseRestricted(err.message);
+    }
+  }
 
   let message = 'All settings & integrations tables are active in Supabase.';
   if (!appSettingsOk || !integrationsOk) {

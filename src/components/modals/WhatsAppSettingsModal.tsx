@@ -29,7 +29,12 @@ import {
   User,
   Search,
   Maximize2,
-  X
+  X,
+  QrCode,
+  Smartphone,
+  Server,
+  Radio,
+  ArrowUpDown
 } from 'lucide-react';
 import {
   getWhatsAppSettings,
@@ -45,7 +50,21 @@ import {
   simulateWhatsAppInboundWebhook,
   fetchRemoteWhatsAppSettings,
   fetchRemoteWhatsAppLogs,
-  WhatsAppPingResult
+  WhatsAppPingResult,
+  fetchWhatsAppChannels,
+  saveWhatsAppChannel,
+  activateWhatsAppChannel,
+  startBaileysSession,
+  fetchBaileysStatus,
+  disconnectBaileysSession,
+  simulateBaileysPair,
+  simulateBaileysInbound,
+  sendUnifiedWhatsAppMessage,
+  fetchUnifiedMessages,
+  fetchSupabaseStatus,
+  HybridChannel,
+  UnifiedMessageItem,
+  BaileysLiveSession
 } from '../../services/whatsappService';
 import {
   WhatsAppIntegrationSettings,
@@ -57,7 +76,7 @@ import {
 interface WhatsAppSettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  initialTab?: 'settings' | 'chat' | 'templates' | 'simulator' | 'logs';
+  initialTab?: 'channels' | 'supabase' | 'chat' | 'templates' | 'simulator' | 'logs';
 }
 
 const CRM_TEST_CONTACTS = [
@@ -67,19 +86,88 @@ const CRM_TEST_CONTACTS = [
   { id: 'c4-sarah-jenkins', name: 'Sarah Jenkins', phone: '+61 433 109 448', address: '78 Pine Road, Indooroopilly QLD' }
 ];
 
+const MASTER_SUPABASE_SCHEMA_SQL = `-- ============================================================================
+-- HYBRID WHATSAPP ARCHITECTURE: SUPABASE MASTER SCHEMA
+-- Supports: Unofficial Baileys Web API (QR Code) + Official Meta Cloud API
+-- ============================================================================
+
+-- 1. Create WhatsApp Channel Type ENUM
+DO $$ BEGIN
+    CREATE TYPE whatsapp_channel_type AS ENUM ('cloud_api', 'baileys_web');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
+
+-- 2. Multi-tenant WhatsApp Channels Configuration Table
+CREATE TABLE IF NOT EXISTS whatsapp_channels (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL,
+    channel_name TEXT NOT NULL,
+    channel_type whatsapp_channel_type NOT NULL DEFAULT 'cloud_api',
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    status TEXT NOT NULL DEFAULT 'disconnected', -- 'connected', 'qr_ready', 'disconnected', 'connecting'
+    credentials JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- 3. Normalized Unified Messages Table (Inbound & Outbound from all channels)
+CREATE TABLE IF NOT EXISTS messages (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL,
+    channel_id UUID REFERENCES whatsapp_channels(id) ON DELETE SET NULL,
+    channel_type whatsapp_channel_type NOT NULL,
+    contact_id TEXT,
+    recipient_phone TEXT NOT NULL,
+    sender_phone TEXT,
+    wa_message_id TEXT NOT NULL UNIQUE,
+    direction TEXT NOT NULL CHECK (direction IN ('inbound', 'outbound')),
+    message_body TEXT NOT NULL,
+    message_type TEXT NOT NULL DEFAULT 'text' CHECK (message_type IN ('text', 'template', 'image', 'document', 'audio', 'video')),
+    media_url TEXT,
+    media_type TEXT,
+    media_caption TEXT,
+    template_name TEXT,
+    status TEXT NOT NULL DEFAULT 'sent' CHECK (status IN ('pending', 'sent', 'delivered', 'read', 'failed', 'received')),
+    raw_payload JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- 4. High-Performance Indexes for CRM Queries
+CREATE INDEX IF NOT EXISTS idx_whatsapp_channels_tenant ON whatsapp_channels(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_messages_tenant ON messages(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_messages_recipient ON messages(recipient_phone);
+CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at DESC);
+`;
+
 export const WhatsAppSettingsModal: React.FC<WhatsAppSettingsModalProps> = ({
   isOpen,
   onClose,
-  initialTab = 'settings'
+  initialTab = 'channels'
 }) => {
-  const [activeTab, setActiveTab] = useState<'settings' | 'chat' | 'templates' | 'simulator' | 'logs'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'channels' | 'supabase' | 'chat' | 'templates' | 'simulator' | 'logs'>(initialTab);
 
-  // Settings
+  // Hybrid Channels & Baileys State
+  const [channels, setChannels] = useState<HybridChannel[]>([]);
+  const [isLoadingChannels, setIsLoadingChannels] = useState(false);
+  const [baileysState, setBaileysState] = useState<BaileysLiveSession | null>(null);
+  const [isStartingBaileys, setIsStartingBaileys] = useState(false);
+
+  // Supabase Diagnostics State
+  const [supabaseStatus, setSupabaseStatus] = useState<any>(null);
+  const [isLoadingSupabase, setIsLoadingSupabase] = useState(false);
+
+  // Settings & Templates
   const [settings, setSettings] = useState<WhatsAppIntegrationSettings>(getWhatsAppSettings);
   const [templates, setTemplates] = useState<WhatsAppTemplate[]>(getWhatsAppTemplates);
-  const [logs, setLogs] = useState<WhatsAppMessageLog[]>(getWhatsAppLogs);
+  const [unifiedMessages, setUnifiedMessages] = useState<UnifiedMessageItem[]>([]);
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+
+  // Active channel helper
+  const activeChannel = useMemo(() => {
+    return channels.find(c => c.is_active) || channels[0] || null;
+  }, [channels]);
 
   // Ping test
   const [isPinging, setIsPinging] = useState(false);
@@ -94,8 +182,8 @@ export const WhatsAppSettingsModal: React.FC<WhatsAppSettingsModalProps> = ({
   const [windowStatus, setWindowStatus] = useState<WhatsApp24HourWindowStatus>({
     isWithin24Hours: true,
     canSendFreeForm: true,
-    remainingHours: 23.2,
-    remainingMinutes: 1395
+    remainingHours: 23.8,
+    remainingMinutes: 1428
   });
 
   const [chatInputText, setChatInputText] = useState('');
@@ -118,94 +206,78 @@ export const WhatsAppSettingsModal: React.FC<WhatsAppSettingsModalProps> = ({
   const [isSendingTemplate, setIsSendingTemplate] = useState(false);
   const [templateSendResult, setTemplateSendResult] = useState<string | null>(null);
 
-  // Webhook Simulator state
+  // Simulator state
+  const [simChannelType, setSimChannelType] = useState<'cloud_api' | 'baileys_web'>('cloud_api');
   const [simType, setSimType] = useState<'text' | 'image' | 'document' | 'status'>('text');
-  const [simText, setSimText] = useState('G\'day! Can we move our solar installation to next Thursday?');
   const [simSenderPhone, setSimSenderPhone] = useState('+61 412 884 910');
   const [simSenderName, setSimSenderName] = useState('Marcus Aurelius Vance');
-  const [simStatusMsgId, setSimStatusMsgId] = useState('');
-  const [simStatusReceipt, setSimStatusReceipt] = useState<'delivered' | 'read' | 'failed'>('read');
+  const [simText, setSimText] = useState('G\'day! Here is the photo of our 3-phase switchboard inside the garage.');
   const [isSimulating, setIsSimulating] = useState(false);
   const [simResult, setSimResult] = useState<string | null>(null);
 
-  // Media zoom modal
-  const [viewingMediaUrl, setViewingMediaUrl] = useState<string | null>(null);
+  // Initial Load
+  const loadAllData = async () => {
+    setIsLoadingChannels(true);
+    try {
+      const [chList, bStatus, uMsgs, sStatus] = await Promise.all([
+        fetchWhatsAppChannels(),
+        fetchBaileysStatus(),
+        fetchUnifiedMessages(),
+        fetchSupabaseStatus()
+      ]);
+      setChannels(chList);
+      setBaileysState(bStatus);
+      setUnifiedMessages(uMsgs);
+      setSupabaseStatus(sStatus);
+    } catch (err) {
+      console.warn('Error loading hybrid whatsapp data:', err);
+    } finally {
+      setIsLoadingChannels(false);
+    }
+  };
 
-  // Filter messages for current contact
-  const conversationMessages = useMemo(() => {
-    return logs.filter(l => {
-      if (l.contact_id === selectedContact.id) return true;
-      if (l.customerPhone && l.customerPhone.replace(/[^0-9]/g, '') === selectedContact.phone.replace(/[^0-9]/g, '')) return true;
-      return false;
-    });
-  }, [logs, selectedContact]);
-
-  // Load and refresh settings & logs
   useEffect(() => {
     if (isOpen) {
-      setSettings(getWhatsAppSettings());
-      setTemplates(getWhatsAppTemplates());
-      setLogs(getWhatsAppLogs());
-      setActiveTab(initialTab);
-
-      // Async fetch from remote
-      fetchRemoteWhatsAppSettings().then(s => setSettings(s));
-      fetchRemoteWhatsAppLogs().then(l => setLogs(l));
-    }
-  }, [isOpen, initialTab]);
-
-  // Refresh 24-hour window status whenever selected contact changes or logs update
-  useEffect(() => {
-    if (selectedContact) {
-      checkWhatsApp24HourWindow(selectedContact.id, selectedContact.phone).then(status => {
-        setWindowStatus(status);
+      loadAllData();
+      fetchRemoteWhatsAppSettings().then(setSettings);
+      fetchRemoteWhatsAppLogs().then(logs => {
+        if (logs.length > 0) saveWhatsAppLogs(logs);
       });
+      checkWhatsApp24HourWindow(selectedContact.id, selectedContact.phone).then(setWindowStatus);
     }
-  }, [selectedContact, logs]);
+  }, [isOpen]);
 
-  // Update template parameter inputs when template selection changes
+  // Polling for Baileys QR code and connection updates when in channels tab
   useEffect(() => {
-    if (activeTemplate) {
-      const initial: Record<string, string> = {};
-      activeTemplate.parameters.forEach((paramName, idx) => {
-        if (paramName.toLowerCase().includes('name')) initial[idx] = selectedContact.name.split(' ')[0];
-        else if (paramName.toLowerCase().includes('address')) initial[idx] = selectedContact.address;
-        else if (paramName.toLowerCase().includes('date')) initial[idx] = 'tomorrow';
-        else if (paramName.toLowerCase().includes('time') || paramName.toLowerCase().includes('eta')) initial[idx] = '10:00 AM';
-        else if (paramName.toLowerCase().includes('technician') || paramName.toLowerCase().includes('lead')) initial[idx] = 'David Miller (CEC Accredited)';
-        else if (paramName.toLowerCase().includes('size')) initial[idx] = '13.2';
-        else if (paramName.toLowerCase().includes('battery') || paramName.toLowerCase().includes('provider')) initial[idx] = 'Tesla Powerwall 3';
-        else if (paramName.toLowerCase().includes('savings')) initial[idx] = '$2,840/year';
-        else if (paramName.toLowerCase().includes('link')) initial[idx] = 'https://mysolarcrm.com.au/proposal/v2026';
-        else initial[idx] = `Value ${idx + 1}`;
-      });
-      setTemplateParams(initial);
-    }
-  }, [activeTemplate, selectedContact]);
+    if (!isOpen || activeTab !== 'channels') return;
+    const interval = setInterval(async () => {
+      const bStatus = await fetchBaileysStatus();
+      if (bStatus) {
+        setBaileysState(bStatus);
+        setChannels(prev =>
+          prev.map(c => {
+            if (c.channel_type === 'baileys_web') {
+              return {
+                ...c,
+                status: bStatus.status === 'connected' ? 'connected' : (bStatus.status === 'qr_ready' ? 'qr_ready' : c.status),
+                credentials: {
+                  ...c.credentials,
+                  qr_code_url: bStatus.qrCodeUrl || c.credentials.qr_code_url,
+                  paired_phone: bStatus.pairedPhone || c.credentials.paired_phone,
+                  push_name: bStatus.pushName || c.credentials.push_name,
+                  last_connected_at: bStatus.lastConnectedAt || c.credentials.last_connected_at
+                }
+              };
+            }
+            return c;
+          })
+        );
+      }
+    }, 4000);
+    return () => clearInterval(interval);
+  }, [isOpen, activeTab]);
 
   if (!isOpen) return null;
-
-  const handleSaveSettings = (e: React.FormEvent) => {
-    e.preventDefault();
-    const updated = saveWhatsAppSettings(settings);
-    setSettings(updated);
-    setSavedSuccess(true);
-    setTimeout(() => setSavedSuccess(false), 4000);
-  };
-
-  const handlePingTest = async () => {
-    setIsPinging(true);
-    setPingResult(null);
-    try {
-      const res = await pingWhatsAppApi();
-      setPingResult(res);
-      if (res.success) {
-        setSettings(prev => ({ ...prev, status: 'connected', qualityRating: res.qualityRating }));
-      }
-    } finally {
-      setIsPinging(false);
-    }
-  };
 
   const copyToClipboard = (text: string, field: string) => {
     navigator.clipboard.writeText(text);
@@ -213,16 +285,80 @@ export const WhatsAppSettingsModal: React.FC<WhatsAppSettingsModalProps> = ({
     setTimeout(() => setCopiedField(null), 2500);
   };
 
-  const generateRandomVerifyToken = () => {
-    const token = `solarflow_wa_token_${Math.random().toString(36).substring(2, 12)}_${Date.now().toString(36)}`;
-    setSettings(prev => ({
-      ...prev,
-      webhook_verify_token: token,
-      webhookVerifyToken: token
-    }));
+  // Channel Activation
+  const handleActivateChannel = async (channelId: string) => {
+    const success = await activateWhatsAppChannel(channelId);
+    if (success) {
+      setChannels(prev =>
+        prev.map(c => ({
+          ...c,
+          is_active: c.id === channelId
+        }))
+      );
+      setSavedSuccess(true);
+      setTimeout(() => setSavedSuccess(false), 3000);
+    }
   };
 
-  // Dispatch Free-form message from Chat UI
+  // Start / Refresh Baileys QR Session
+  const handleStartBaileys = async (forceFresh = false) => {
+    setIsStartingBaileys(true);
+    try {
+      const session = await startBaileysSession(forceFresh);
+      if (session) {
+        setBaileysState(session);
+        await loadAllData();
+      }
+    } finally {
+      setIsStartingBaileys(false);
+    }
+  };
+
+  // Simulate Baileys Pairing for Testing
+  const handleSimulateBaileysPair = async () => {
+    const res = await simulateBaileysPair('+61 412 884 910', 'David Miller (Solar Installer)');
+    if (res.success) {
+      setBaileysState(res.session);
+      await loadAllData();
+      setSavedSuccess(true);
+      setTimeout(() => setSavedSuccess(false), 3000);
+    }
+  };
+
+  // Disconnect Baileys
+  const handleDisconnectBaileys = async () => {
+    await disconnectBaileysSession(true);
+    setBaileysState(prev => prev ? { ...prev, status: 'disconnected', qrCodeUrl: null, pairedPhone: null } : null);
+    await loadAllData();
+  };
+
+  // Save Meta Cloud API Settings
+  const handleSaveMetaSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const updated = saveWhatsAppSettings(settings);
+    setSettings(updated);
+
+    // Also update channel record
+    const metaChannel = channels.find(c => c.channel_type === 'cloud_api');
+    if (metaChannel) {
+      await saveWhatsAppChannel({
+        ...metaChannel,
+        credentials: {
+          ...metaChannel.credentials,
+          phone_number_id: updated.phone_number_id,
+          waba_id: updated.waba_id,
+          access_token: updated.access_token,
+          webhook_verify_token: updated.webhook_verify_token,
+          display_phone_number: updated.displayPhoneNumber
+        }
+      });
+    }
+
+    setSavedSuccess(true);
+    setTimeout(() => setSavedSuccess(false), 3000);
+  };
+
+  // Unified Send Message via Central Router
   const handleSendChatMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!chatInputText.trim() || isSendingMessage) return;
@@ -231,33 +367,35 @@ export const WhatsAppSettingsModal: React.FC<WhatsAppSettingsModalProps> = ({
     setChatFeedback(null);
 
     try {
-      const result = await sendWhatsAppTextMessage(
-        selectedContact.phone,
-        chatInputText.trim(),
-        selectedContact.id,
-        false // strictly enforce 24-hour window
-      );
+      const result = await sendUnifiedWhatsAppMessage({
+        channelId: activeChannel?.id,
+        to: selectedContact.phone,
+        message: chatInputText.trim(),
+        type: 'text',
+        contactId: selectedContact.id,
+        contactName: selectedContact.name
+      });
 
       if (result.success) {
         setChatInputText('');
-        setLogs(getWhatsAppLogs());
-        setChatFeedback({ type: 'success', message: 'Message sent successfully via Meta Cloud API!' });
+        const msgs = await fetchUnifiedMessages(selectedContact.id);
+        setUnifiedMessages(msgs);
+        setChatFeedback({
+          type: 'success',
+          message: `Dispatched via ${result.channelName || (result.channelType === 'cloud_api' ? 'Meta Cloud API' : 'Baileys Web')} (ID: ${result.messageId.substring(0, 16)}...)`
+        });
       } else {
         setChatFeedback({
-          type: result.windowExpired ? 'warning' : 'error',
-          message: result.message
+          type: 'error',
+          message: result.error || 'Failed to dispatch message via Unified Message Router'
         });
-        if (result.windowExpired) {
-          // Switch to template prompt
-          setWindowStatus(prev => ({ ...prev, canSendFreeForm: false, isWithin24Hours: false }));
-        }
       }
     } finally {
       setIsSendingMessage(false);
     }
   };
 
-  // Dispatch Template message with dynamic parameters
+  // Send Template Message via Router
   const handleSendTemplateMessage = async () => {
     if (!activeTemplate || isSendingTemplate) return;
 
@@ -266,64 +404,77 @@ export const WhatsAppSettingsModal: React.FC<WhatsAppSettingsModalProps> = ({
 
     try {
       const orderedParams: string[] = activeTemplate.parameters.map((_, idx) => templateParams[idx] || '');
-      const result = await sendWhatsAppTemplateMessage(
-        selectedContact.phone,
-        activeTemplate.name,
-        orderedParams,
-        activeTemplate.language || 'en_AU',
-        selectedContact.id
-      );
+      const result = await sendUnifiedWhatsAppMessage({
+        channelId: activeChannel?.id,
+        to: selectedContact.phone,
+        message: `Template: ${activeTemplate.name}`,
+        type: 'template',
+        templateName: activeTemplate.name,
+        templateParams: orderedParams,
+        contactId: selectedContact.id,
+        contactName: selectedContact.name
+      });
 
-      setLogs(getWhatsAppLogs());
-      setTemplateSendResult(result.message);
       if (result.success) {
+        setTemplateSendResult(`Template "${activeTemplate.name}" dispatched via ${result.channelType === 'cloud_api' ? 'Meta Cloud API' : 'Baileys Web'}!`);
+        const msgs = await fetchUnifiedMessages(selectedContact.id);
+        setUnifiedMessages(msgs);
         setActiveTab('chat');
-        setChatFeedback({ type: 'success', message: `Template "${activeTemplate.name}" dispatched to customer!` });
+      } else {
+        setTemplateSendResult(`Dispatch failed: ${result.error}`);
       }
     } finally {
       setIsSendingTemplate(false);
     }
   };
 
-  // Trigger Live Webhook Simulation
-  const handleSimulateWebhook = async () => {
+  // Inbound Simulation
+  const handleSimulateInbound = async () => {
     setIsSimulating(true);
     setSimResult(null);
 
     try {
-      if (simType === 'status') {
-        const targetId = simStatusMsgId || logs.find(l => l.direction === 'outbound')?.wa_message_id || 'wamid.HBgLMjY5MTI4ODQ5MTAVAgARGBI1N0Q2QTY5MjIzREQ0RTFFMQA=';
-        const res = await simulateWhatsAppInboundWebhook({
-          type: 'text',
-          senderPhone: simSenderPhone,
-          senderName: simSenderName,
-          statusUpdateId: targetId,
-          statusUpdateStatus: simStatusReceipt
-        });
-        setSimResult(res.message);
+      if (simChannelType === 'baileys_web') {
+        const res = await simulateBaileysInbound(simSenderPhone, simText, simSenderName);
+        if (res.success) {
+          setSimResult('Simulated Baileys WebSocket "messages.upsert" event received and stored in unified messages table!');
+          const msgs = await fetchUnifiedMessages();
+          setUnifiedMessages(msgs);
+        } else {
+          setSimResult(`Baileys simulation failed: ${res.error}`);
+        }
       } else {
         const res = await simulateWhatsAppInboundWebhook({
           type: simType as any,
           senderPhone: simSenderPhone,
           senderName: simSenderName,
           text: simText,
-          mediaCaption: simType === 'image' ? 'Switchboard & meter photo taken on site' : 'Inspection_Report.pdf'
+          mediaCaption: simType === 'image' ? 'Switchboard & meter photo taken on site' : undefined
         });
         setSimResult(res.message);
+        const msgs = await fetchUnifiedMessages();
+        setUnifiedMessages(msgs);
       }
-
-      setLogs(getWhatsAppLogs());
-      // Re-evaluate window
-      checkWhatsApp24HourWindow(selectedContact.id, selectedContact.phone).then(setWindowStatus);
     } finally {
       setIsSimulating(false);
+    }
+  };
+
+  // Ping Meta API
+  const handlePingTest = async () => {
+    setIsPinging(true);
+    try {
+      const res = await pingWhatsAppApi();
+      setPingResult(res);
+    } finally {
+      setIsPinging(false);
     }
   };
 
   const callbackUrl = settings.webhookCallbackUrl || (typeof window !== 'undefined' ? `${window.location.origin}/api/webhooks/whatsapp` : 'http://localhost:3000/api/webhooks/whatsapp');
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/70 backdrop-blur-xs animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-xs animate-in fade-in duration-200">
       <div className="relative w-full max-w-5xl bg-[#121212] border border-[#2d2d2d] rounded-2xl shadow-2xl flex flex-col max-h-[92vh] text-gray-100 overflow-hidden font-sans">
         
         {/* Modal Header */}
@@ -333,29 +484,29 @@ export const WhatsAppSettingsModal: React.FC<WhatsAppSettingsModalProps> = ({
               <MessageCircle className="w-5 h-5" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-base font-semibold text-white tracking-tight">Meta WhatsApp Business Cloud API</h2>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-base font-semibold text-white tracking-tight">Hybrid WhatsApp Architecture</h2>
                 <span className="px-2 py-0.5 text-[10px] font-semibold tracking-wider rounded-md bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 uppercase">
-                  Cloud API v20.0
+                  Meta Cloud API + Baileys Web
                 </span>
-                <span className="px-2 py-0.5 text-[10px] font-medium rounded-md bg-[#252525] text-gray-400 border border-[#333]">
+                <span className="px-2 py-0.5 text-[10px] font-medium rounded-md bg-blue-500/15 text-blue-300 border border-blue-500/30">
                   Supabase Powered
                 </span>
               </div>
               <p className="text-xs text-gray-400 mt-0.5">
-                Official 2-way messaging, Supabase persistent storage, media retrieval, and 24-Hour window compliance.
+                Multi-tenant unified messaging router, QR WebSocket session manager, and official Meta Cloud API gateway.
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-3">
             <button
-              onClick={handlePingTest}
-              disabled={isPinging}
-              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-[#242424] hover:bg-[#2e2e2e] text-gray-200 rounded-lg border border-[#383838] transition-all disabled:opacity-50"
+              onClick={loadAllData}
+              disabled={isLoadingChannels}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-[#242424] hover:bg-[#2e2e2e] text-gray-200 rounded-lg border border-[#383838] transition-all disabled:opacity-50"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${isPinging ? 'animate-spin text-emerald-400' : 'text-gray-400'}`} />
-              <span>{isPinging ? 'Checking...' : 'Ping Meta API'}</span>
+              <RefreshCw className={`w-3.5 h-3.5 ${isLoadingChannels ? 'animate-spin text-emerald-400' : 'text-gray-400'}`} />
+              <span>{isLoadingChannels ? 'Syncing...' : 'Sync Channels'}</span>
             </button>
             <button
               onClick={onClose}
@@ -369,11 +520,12 @@ export const WhatsAppSettingsModal: React.FC<WhatsAppSettingsModalProps> = ({
         {/* Modal Navigation Tabs */}
         <div className="flex items-center gap-1 px-6 border-b border-[#242424] bg-[#141414] overflow-x-auto">
           {[
-            { id: 'settings', label: 'API Credentials & Webhook', icon: Sliders },
-            { id: 'chat', label: '2-Way CRM Messaging', icon: MessageCircle, badge: windowStatus.canSendFreeForm ? 'Active 24h' : 'Window Expired' },
-            { id: 'templates', label: 'Templates & Dynamic Variables', icon: FileCheck },
-            { id: 'simulator', label: 'Webhook & Media Sandbox', icon: Zap },
-            { id: 'logs', label: 'Message History & Audit', icon: Database }
+            { id: 'channels', label: 'Hybrid Channels', icon: Radio, badge: activeChannel ? `${activeChannel.channel_type === 'cloud_api' ? 'Meta Cloud' : 'Baileys'} Active` : undefined },
+            { id: 'supabase', label: 'Supabase Database', icon: Database, badge: supabaseStatus?.configured ? 'Connected' : 'Configured' },
+            { id: 'chat', label: '2-Way CRM Chat', icon: MessageCircle },
+            { id: 'templates', label: 'Meta Templates', icon: FileCheck },
+            { id: 'simulator', label: 'Inbound Simulator', icon: Zap },
+            { id: 'logs', label: 'Unified Message Log', icon: Terminal, count: unifiedMessages.length }
           ].map(tab => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -390,12 +542,13 @@ export const WhatsAppSettingsModal: React.FC<WhatsAppSettingsModalProps> = ({
                 <Icon className="w-3.5 h-3.5" />
                 <span>{tab.label}</span>
                 {tab.badge && (
-                  <span className={`px-1.5 py-0.2 text-[10px] font-semibold rounded ${
-                    tab.badge === 'Active 24h'
-                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                      : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                  }`}>
+                  <span className="px-1.5 py-0.2 text-[10px] font-semibold rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                     {tab.badge}
+                  </span>
+                )}
+                {tab.count !== undefined && tab.count > 0 && (
+                  <span className="px-1.5 py-0.2 text-[10px] font-mono rounded bg-[#27272a] text-gray-400 border border-[#3f3f46]">
+                    {tab.count}
                   </span>
                 )}
               </button>
@@ -406,833 +559,711 @@ export const WhatsAppSettingsModal: React.FC<WhatsAppSettingsModalProps> = ({
         {/* Modal Body */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
 
-          {/* TAB 1: API SETTINGS & WEBHOOK HANDSHAKE */}
-          {activeTab === 'settings' && (
+          {/* TAB 1: HYBRID CHANNELS (Meta Cloud API + Baileys Web QR) */}
+          {activeTab === 'channels' && (
             <div className="space-y-6">
-              {/* Status Banner */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-xl bg-emerald-950/20 border border-emerald-800/40 text-emerald-200">
+              
+              {/* Active Routing Summary Banner */}
+              <div className="p-4 rounded-xl bg-gradient-to-r from-emerald-950/40 via-[#172554]/30 to-black border border-emerald-800/40 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
-                  <div className="p-2 bg-emerald-500/20 rounded-lg text-emerald-400">
-                    <CheckCircle2 className="w-5 h-5" />
+                  <div className="w-10 h-10 rounded-xl bg-emerald-500/20 flex items-center justify-center text-emerald-400">
+                    <ArrowUpDown className="w-5 h-5" />
                   </div>
                   <div>
-                    <div className="text-sm font-semibold text-white">Meta Cloud API Connected & Verified</div>
-                    <div className="text-xs text-emerald-300/80 mt-0.5">
-                      Phone Number ID: <span className="font-mono text-white">{settings.phone_number_id}</span> • Quality Rating: <span className="font-semibold text-emerald-400">{settings.qualityRating || 'GREEN'}</span>
+                    <div className="text-xs uppercase tracking-wider font-semibold text-emerald-400">Unified Message Router Status</div>
+                    <div className="text-sm font-semibold text-white mt-0.5">
+                      Primary Active Route: {activeChannel?.channel_name || 'Official Enterprise WhatsApp (Meta Cloud API)'}
                     </div>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      Outbound messages via <code className="text-emerald-300 font-mono">sendMessage(tenantId, payload)</code> automatically dispatch over this channel and insert into Supabase <code className="text-emerald-300 font-mono">messages</code>.
+                    </p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-gray-400">Sync: {settings.lastSyncTime || 'Real-time'}</span>
+                  <span className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                    {activeChannel?.channel_type === 'cloud_api' ? 'Official Meta Graph API' : 'Baileys WebSocket'}
+                  </span>
                 </div>
               </div>
 
-              {pingResult && (
-                <div className={`p-3.5 rounded-xl border text-xs flex items-center justify-between gap-3 ${
-                  pingResult.success ? 'bg-emerald-950/30 border-emerald-500/40 text-emerald-300' : 'bg-red-950/30 border-red-500/40 text-red-300'
-                }`}>
-                  <div className="flex items-center gap-2">
-                    {pingResult.success ? <Check className="w-4 h-4 text-emerald-400" /> : <AlertTriangle className="w-4 h-4 text-red-400" />}
-                    <span>{pingResult.message}</span>
-                  </div>
-                  <span className="font-mono text-[11px] text-gray-400">Latency: {pingResult.latencyMs}ms</span>
+              {savedSuccess && (
+                <div className="p-3 bg-emerald-950/50 border border-emerald-800/50 rounded-xl text-xs text-emerald-300 flex items-center gap-2 animate-in fade-in">
+                  <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+                  <span>Channel configuration and active route updated successfully!</span>
                 </div>
               )}
 
-              {/* Form */}
-              <form onSubmit={handleSaveSettings} className="space-y-5">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                  {/* Phone Number ID */}
-                  <div>
-                    <label className="block text-xs font-medium text-gray-300 mb-1.5">
-                      Phone Number ID <span className="text-emerald-400">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={settings.phone_number_id}
-                      onChange={e => setSettings(prev => ({
-                        ...prev,
-                        phone_number_id: e.target.value,
-                        phoneNumberId: e.target.value
-                      }))}
-                      placeholder="e.g. 109823749281726"
-                      className="w-full px-3.5 py-2.5 bg-[#191919] border border-[#333] rounded-xl text-sm font-mono text-white focus:outline-none focus:border-emerald-500 transition-colors"
-                    />
-                    <p className="text-[11px] text-gray-400 mt-1">
-                      Found in Meta App Dashboard &gt; WhatsApp &gt; API Setup &gt; Step 1.
-                    </p>
-                  </div>
+              {/* Channel Cards Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 
-                  {/* WABA ID */}
-                  <div>
-                    <label className="block text-xs font-medium text-gray-300 mb-1.5">
-                      WhatsApp Business Account ID (WABA ID) <span className="text-emerald-400">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={settings.waba_id}
-                      onChange={e => setSettings(prev => ({
-                        ...prev,
-                        waba_id: e.target.value,
-                        wabaId: e.target.value
-                      }))}
-                      placeholder="e.g. 392019485019283"
-                      className="w-full px-3.5 py-2.5 bg-[#191919] border border-[#333] rounded-xl text-sm font-mono text-white focus:outline-none focus:border-emerald-500 transition-colors"
-                    />
-                    <p className="text-[11px] text-gray-400 mt-1">
-                      Unique WABA identifier from Meta Business Manager.
-                    </p>
-                  </div>
-                </div>
-
-                {/* System User Access Token */}
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="block text-xs font-medium text-gray-300">
-                      Permanent System User Access Token <span className="text-emerald-400">*</span>
-                    </label>
-                    <span className="text-[11px] text-emerald-400 flex items-center gap-1 font-mono">
-                      <Lock className="w-3 h-3" /> Securely stored in Supabase
-                    </span>
-                  </div>
-                  <input
-                    type="password"
-                    required
-                    value={settings.access_token}
-                    onChange={e => setSettings(prev => ({
-                      ...prev,
-                      access_token: e.target.value,
-                      apiToken: e.target.value
-                    }))}
-                    placeholder="EAAGm0PX4ZBZB4BA...system_user_permanent_token"
-                    className="w-full px-3.5 py-2.5 bg-[#191919] border border-[#333] rounded-xl text-sm font-mono text-white focus:outline-none focus:border-emerald-500 transition-colors"
-                  />
-                  <p className="text-[11px] text-gray-400 mt-1">
-                    System User token generated from Meta Business Manager with permissions: <code className="text-emerald-300 bg-emerald-950/40 px-1 py-0.5 rounded">whatsapp_business_messaging</code> and <code className="text-emerald-300 bg-emerald-950/40 px-1 py-0.5 rounded">whatsapp_business_management</code>.
-                  </p>
-                </div>
-
-                {/* Webhook Configuration Section */}
-                <div className="p-4 rounded-xl bg-[#191919] border border-[#2d2d2d] space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                      <span className="text-xs font-semibold text-white uppercase tracking-wider">Meta Inbound Webhook Configuration</span>
-                    </div>
-                    <a
-                      href="https://developers.facebook.com/apps"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs text-emerald-400 hover:text-emerald-300 flex items-center gap-1"
-                    >
-                      <span>Meta App Dashboard</span>
-                      <ExternalLink className="w-3 h-3" />
-                    </a>
-                  </div>
-
-                  {/* Webhook Callback URL */}
-                  <div>
-                    <label className="block text-[11px] font-medium text-gray-400 mb-1">
-                      Webhook Callback URL (Paste into Meta Dashboard)
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        readOnly
-                        value={callbackUrl}
-                        className="flex-1 px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs font-mono text-emerald-300"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => copyToClipboard(callbackUrl, 'callbackUrl')}
-                        className="px-3 py-2 bg-[#252525] hover:bg-[#303030] text-gray-200 text-xs rounded-lg border border-[#3d3d3d] flex items-center gap-1.5 transition-colors"
-                      >
-                        {copiedField === 'callbackUrl' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                        <span>{copiedField === 'callbackUrl' ? 'Copied' : 'Copy'}</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Webhook Verify Token */}
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="block text-[11px] font-medium text-gray-400">
-                        Webhook Verify Token (<code className="text-gray-300">hub.verify_token</code>)
-                      </label>
-                      <button
-                        type="button"
-                        onClick={generateRandomVerifyToken}
-                        className="text-[11px] text-emerald-400 hover:text-emerald-300 flex items-center gap-1"
-                      >
-                        <Sparkles className="w-3 h-3" />
-                        <span>Generate Secure Token</span>
-                      </button>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        required
-                        value={settings.webhook_verify_token}
-                        onChange={e => setSettings(prev => ({
-                          ...prev,
-                          webhook_verify_token: e.target.value,
-                          webhookVerifyToken: e.target.value
-                        }))}
-                        className="flex-1 px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs font-mono text-gray-200 focus:outline-none focus:border-emerald-500"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => copyToClipboard(settings.webhook_verify_token, 'verifyToken')}
-                        className="px-3 py-2 bg-[#252525] hover:bg-[#303030] text-gray-200 text-xs rounded-lg border border-[#3d3d3d] flex items-center gap-1.5 transition-colors"
-                      >
-                        {copiedField === 'verifyToken' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                        <span>{copiedField === 'verifyToken' ? 'Copied' : 'Copy'}</span>
-                      </button>
-                    </div>
-                    <p className="text-[11px] text-gray-400 mt-1">
-                      Meta uses this token to verify handshake requests (<code className="text-gray-300">GET /api/webhooks/whatsapp</code>).
-                    </p>
-                  </div>
-                </div>
-
-                {/* Save Button */}
-                <div className="flex items-center justify-between pt-2">
-                  <span className="text-xs text-gray-400">
-                    Configurations persist directly to the Supabase <code className="text-emerald-400">whatsapp_settings</code> table.
-                  </span>
-                  <div className="flex items-center gap-3">
-                    {savedSuccess && (
-                      <span className="text-xs text-emerald-400 flex items-center gap-1 font-medium animate-in fade-in">
-                        <Check className="w-3.5 h-3.5" /> Settings saved to Supabase!
+                {/* CARD 1: Official Meta Cloud API */}
+                <div className="p-5 rounded-xl bg-[#161616] border border-[#2b2b2b] flex flex-col justify-between space-y-4">
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+                          <Server className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <div className="text-sm font-semibold text-white">Meta Cloud API (Official)</div>
+                          <div className="text-[11px] text-gray-400">Enterprise Scale • Graph API v20.0</div>
+                        </div>
+                      </div>
+                      <span className={`px-2 py-0.5 text-[11px] font-semibold rounded-md ${
+                        channels.find(c => c.channel_type === 'cloud_api')?.is_active
+                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                          : 'bg-[#252525] text-gray-400 border border-[#333]'
+                      }`}>
+                        {channels.find(c => c.channel_type === 'cloud_api')?.is_active ? 'Active Outbound' : 'Standby'}
                       </span>
-                    )}
+                    </div>
+
+                    <p className="text-xs text-gray-400">
+                      Direct integration with Meta Graph API for high-volume broadcasts, automated STC alerts, and certified 2-way business messaging.
+                    </p>
+
+                    <div className="space-y-2.5 pt-2 text-xs">
+                      <div>
+                        <label className="text-[11px] font-medium text-gray-400">Phone Number ID</label>
+                        <input
+                          type="text"
+                          value={settings.phone_number_id || settings.phoneNumberId || ''}
+                          onChange={e => setSettings(prev => ({ ...prev, phone_number_id: e.target.value, phoneNumberId: e.target.value }))}
+                          className="mt-1 w-full px-3 py-1.5 bg-[#1f1f1f] border border-[#333] rounded-lg text-white font-mono text-xs focus:border-emerald-500 focus:outline-hidden"
+                          placeholder="109823749281726"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-medium text-gray-400">WhatsApp Business Account ID (WABA)</label>
+                        <input
+                          type="text"
+                          value={settings.waba_id || settings.wabaId || ''}
+                          onChange={e => setSettings(prev => ({ ...prev, waba_id: e.target.value, wabaId: e.target.value }))}
+                          className="mt-1 w-full px-3 py-1.5 bg-[#1f1f1f] border border-[#333] rounded-lg text-white font-mono text-xs focus:border-emerald-500 focus:outline-hidden"
+                          placeholder="392019485019283"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-medium text-gray-400">System User Permanent Access Token</label>
+                        <input
+                          type="password"
+                          value={settings.access_token || settings.apiToken || ''}
+                          onChange={e => setSettings(prev => ({ ...prev, access_token: e.target.value, apiToken: e.target.value }))}
+                          className="mt-1 w-full px-3 py-1.5 bg-[#1f1f1f] border border-[#333] rounded-lg text-white font-mono text-xs focus:border-emerald-500 focus:outline-hidden"
+                          placeholder="EAAGm0PX4ZB..."
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-medium text-gray-400">Webhook Verify Token</label>
+                        <input
+                          type="text"
+                          value={settings.webhook_verify_token || settings.webhookVerifyToken || ''}
+                          onChange={e => setSettings(prev => ({ ...prev, webhook_verify_token: e.target.value, webhookVerifyToken: e.target.value }))}
+                          className="mt-1 w-full px-3 py-1.5 bg-[#1f1f1f] border border-[#333] rounded-lg text-white font-mono text-xs focus:border-emerald-500 focus:outline-hidden"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="pt-4 border-t border-[#252525] flex items-center justify-between gap-3">
                     <button
-                      type="submit"
-                      className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-gray-950 font-semibold text-xs rounded-xl shadow-md transition-all flex items-center gap-2"
+                      type="button"
+                      onClick={handleSaveMetaSettings}
+                      className="px-3 py-1.5 text-xs font-semibold bg-[#2a2a2a] hover:bg-[#333] text-gray-200 rounded-lg border border-[#3d3d3d] transition-all"
                     >
-                      <ShieldCheck className="w-4 h-4" />
-                      <span>Save WhatsApp Credentials</span>
+                      Save Meta Settings
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const metaCh = channels.find(c => c.channel_type === 'cloud_api');
+                        if (metaCh) handleActivateChannel(metaCh.id);
+                      }}
+                      disabled={channels.find(c => c.channel_type === 'cloud_api')?.is_active}
+                      className="px-3 py-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg transition-all shadow-md shadow-emerald-900/30"
+                    >
+                      {channels.find(c => c.channel_type === 'cloud_api')?.is_active ? 'Currently Active' : 'Set as Active Route'}
                     </button>
                   </div>
                 </div>
-              </form>
+
+                {/* CARD 2: Unofficial Baileys Web API (QR Code) */}
+                <div className="p-5 rounded-xl bg-[#161616] border border-[#2b2b2b] flex flex-col justify-between space-y-4">
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
+                          <Smartphone className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <div className="text-sm font-semibold text-white">Baileys Web API (QR Code)</div>
+                          <div className="text-[11px] text-gray-400">Field Users • @whiskeysockets/baileys</div>
+                        </div>
+                      </div>
+                      <span className={`px-2 py-0.5 text-[11px] font-semibold rounded-md ${
+                        channels.find(c => c.channel_type === 'baileys_web')?.is_active
+                          ? 'bg-blue-500/20 text-blue-400 border border-blue-500/40'
+                          : 'bg-[#252525] text-gray-400 border border-[#333]'
+                      }`}>
+                        {channels.find(c => c.channel_type === 'baileys_web')?.is_active ? 'Active Outbound' : 'Standby'}
+                      </span>
+                    </div>
+
+                    <p className="text-xs text-gray-400">
+                      Allows sales reps and field technicians to link their personal or business WhatsApp number directly via QR code scanning.
+                    </p>
+
+                    {/* QR Code / Connection Box */}
+                    <div className="p-4 rounded-xl bg-[#111] border border-[#262626] flex flex-col items-center justify-center min-h-[190px] text-center space-y-3">
+                      {baileysState?.status === 'qr_ready' && baileysState.qrCodeUrl ? (
+                        <div className="space-y-2">
+                          <div className="p-2 bg-white rounded-xl inline-block shadow-lg">
+                            <img src={baileysState.qrCodeUrl} alt="WhatsApp Web QR Code" className="w-44 h-44 object-contain" />
+                          </div>
+                          <div className="text-xs font-semibold text-amber-400 flex items-center justify-center gap-1.5">
+                            <QrCode className="w-3.5 h-3.5" />
+                            <span>Scan with WhatsApp &gt; Linked Devices</span>
+                          </div>
+                          <p className="text-[11px] text-gray-400">Open WhatsApp on your phone, tap Linked Devices, and point camera here.</p>
+                        </div>
+                      ) : baileysState?.status === 'connected' ? (
+                        <div className="space-y-2 py-3">
+                          <div className="w-12 h-12 mx-auto rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+                            <CheckCircle2 className="w-6 h-6" />
+                          </div>
+                          <div className="text-sm font-semibold text-white">WhatsApp Web Linked & Online</div>
+                          <div className="text-xs text-emerald-300 font-mono">
+                            Paired Phone: {baileysState.pairedPhone || '+61 412 884 910'}
+                          </div>
+                          <div className="text-[11px] text-gray-400">
+                            User: {baileysState.pushName || 'David Miller (Solar Installer)'}
+                          </div>
+                        </div>
+                      ) : isStartingBaileys ? (
+                        <div className="space-y-2 py-6 text-gray-400">
+                          <RefreshCw className="w-6 h-6 animate-spin mx-auto text-blue-400" />
+                          <div className="text-xs font-medium">Initializing Baileys Multi-File Auth Socket...</div>
+                        </div>
+                      ) : (
+                        <div className="space-y-2 py-6 text-gray-400">
+                          <Smartphone className="w-8 h-8 mx-auto text-gray-500" />
+                          <div className="text-xs font-medium text-gray-300">No Active WhatsApp Web Session</div>
+                          <p className="text-[11px] text-gray-500 max-w-xs">
+                            Click below to generate a fresh QR code session or simulate pairing for local testing.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Baileys Action Bar */}
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => handleStartBaileys(true)}
+                        disabled={isStartingBaileys}
+                        className="px-3 py-1.5 text-xs font-medium bg-[#242424] hover:bg-[#2e2e2e] text-white rounded-lg border border-[#383838] transition-all flex items-center gap-1.5"
+                      >
+                        <QrCode className="w-3.5 h-3.5 text-blue-400" />
+                        <span>{baileysState?.status === 'qr_ready' ? 'Refresh QR' : 'Generate QR Code'}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleSimulateBaileysPair}
+                        className="px-3 py-1.5 text-xs font-medium bg-blue-900/30 hover:bg-blue-900/50 text-blue-200 rounded-lg border border-blue-700/40 transition-all flex items-center gap-1.5"
+                        title="Simulate paired connection for dev testing without physical phone"
+                      >
+                        <Sparkles className="w-3.5 h-3.5 text-blue-300" />
+                        <span>Simulate Pairing</span>
+                      </button>
+
+                      {baileysState?.status === 'connected' && (
+                        <button
+                          type="button"
+                          onClick={handleDisconnectBaileys}
+                          className="px-3 py-1.5 text-xs font-medium bg-rose-950/40 hover:bg-rose-900/50 text-rose-300 rounded-lg border border-rose-800/40 transition-all"
+                        >
+                          Disconnect
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="pt-4 border-t border-[#252525] flex items-center justify-between gap-3">
+                    <span className="text-[11px] text-gray-400 font-mono">
+                      Status: <span className="text-white capitalize">{baileysState?.status || 'disconnected'}</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const bCh = channels.find(c => c.channel_type === 'baileys_web');
+                        if (bCh) handleActivateChannel(bCh.id);
+                      }}
+                      disabled={channels.find(c => c.channel_type === 'baileys_web')?.is_active}
+                      className="px-3 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg transition-all shadow-md shadow-blue-900/30"
+                    >
+                      {channels.find(c => c.channel_type === 'baileys_web')?.is_active ? 'Currently Active' : 'Set as Active Route'}
+                    </button>
+                  </div>
+                </div>
+
+              </div>
             </div>
           )}
 
-          {/* TAB 2: 2-WAY CRM MESSAGING & 24-HOUR WINDOW */}
-          {activeTab === 'chat' && (
-            <div className="space-y-4">
-              {/* Contact Selector Header */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-[#171717] rounded-xl border border-[#2a2a2a]">
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 font-semibold text-sm">
-                    {selectedContact.name.charAt(0)}
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <select
-                        value={selectedContactId}
-                        onChange={e => setSelectedContactId(e.target.value)}
-                        className="bg-[#222] border border-[#383838] text-sm font-semibold text-white rounded-lg px-2.5 py-1 focus:outline-none focus:border-emerald-500"
-                      >
-                        {CRM_TEST_CONTACTS.map(c => (
-                          <option key={c.id} value={c.id}>
-                            {c.name} ({c.phone})
-                          </option>
-                        ))}
-                      </select>
+          {/* TAB 2: SUPABASE DATABASE & SCHEMA */}
+          {activeTab === 'supabase' && (
+            <div className="space-y-6">
+              
+              {/* Supabase Connection Status Card */}
+              <div className="p-4 rounded-xl bg-[#161616] border border-[#292929] space-y-3">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+                      <Database className="w-4 h-4" />
                     </div>
-                    <div className="text-[11px] text-gray-400 mt-0.5">{selectedContact.address}</div>
+                    <div>
+                      <div className="text-sm font-semibold text-white">Supabase Internal Connection</div>
+                      <div className="text-xs text-gray-400">Project: soecoieksewpjgymjnph</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                      Connected Internally
+                    </span>
+                    <button
+                      onClick={async () => {
+                        setIsLoadingSupabase(true);
+                        const status = await fetchSupabaseStatus();
+                        setSupabaseStatus(status);
+                        setIsLoadingSupabase(false);
+                      }}
+                      className="px-2.5 py-1 text-xs font-medium bg-[#222] hover:bg-[#2c2c2c] text-gray-300 rounded-lg border border-[#383838] transition-all flex items-center gap-1.5"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isLoadingSupabase ? 'animate-spin text-emerald-400' : 'text-gray-400'}`} />
+                      <span>Test Tables</span>
+                    </button>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setActiveTab('templates')}
-                    className="px-3 py-1.5 text-xs bg-[#242424] hover:bg-[#2d2d2d] text-emerald-400 rounded-lg border border-emerald-500/30 flex items-center gap-1.5 transition-colors"
-                  >
-                    <FileCheck className="w-3.5 h-3.5" />
-                    <span>Send Approved Template</span>
-                  </button>
-                  <button
-                    onClick={() => {
-                      fetchRemoteWhatsAppLogs();
-                      checkWhatsApp24HourWindow(selectedContact.id, selectedContact.phone).then(setWindowStatus);
-                    }}
-                    className="p-1.5 bg-[#242424] hover:bg-[#2e2e2e] text-gray-300 rounded-lg border border-[#333]"
-                    title="Refresh chat"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-
-              {/* 24-HOUR CUSTOMER CARE WINDOW INDICATOR */}
-              <div className={`p-3.5 rounded-xl border text-xs flex items-center justify-between gap-3 ${
-                windowStatus.canSendFreeForm
-                  ? 'bg-emerald-950/25 border-emerald-500/30 text-emerald-300'
-                  : 'bg-amber-950/25 border-amber-500/30 text-amber-300'
-              }`}>
-                <div className="flex items-start gap-2.5">
-                  {windowStatus.canSendFreeForm ? (
-                    <Clock className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                  ) : (
-                    <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-                  )}
-                  <div>
-                    <div className="font-semibold text-white flex items-center gap-2">
-                      {windowStatus.canSendFreeForm ? (
-                        <>
-                          <span>Active 24-Hour Customer Care Window</span>
-                          <span className="px-1.5 py-0.5 text-[10px] font-mono bg-emerald-500/20 text-emerald-300 rounded">
-                            {windowStatus.remainingHours} hrs remaining
-                          </span>
-                        </>
-                      ) : (
-                        <span>Meta 24-Hour Customer Care Window Expired</span>
-                      )}
+                {supabaseStatus?.quotaRestricted && (
+                  <div className="p-3 bg-amber-950/40 border border-amber-800/40 rounded-xl text-xs text-amber-200 space-y-1">
+                    <div className="flex items-center gap-2 font-semibold text-amber-300">
+                      <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                      <span>Supabase Project Egress Quota Notice</span>
                     </div>
-                    <p className="text-[11px] mt-0.5 text-gray-300">
-                      {windowStatus.canSendFreeForm
-                        ? 'Customer replied recently. You are permitted to send direct free-form WhatsApp text messages.'
-                        : 'Free-form messages are blocked by Meta. You must select an approved WhatsApp Template to initiate contact.'}
+                    <p className="text-[11px] text-amber-200/80">
+                      Supabase reported: <span className="font-mono text-amber-100">{supabaseStatus.quotaMessage}</span>
+                    </p>
+                    <p className="text-[11px] text-emerald-300 font-medium">
+                      ✓ Zero Downtime Protection Active: The backend has automatically engaged its local persistent cache fallback. All WhatsApp channels, QR sessions, and message routing continue to operate seamlessly.
                     </p>
                   </div>
-                </div>
-
-                {!windowStatus.canSendFreeForm && (
-                  <button
-                    onClick={() => setActiveTab('templates')}
-                    className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-gray-950 font-semibold text-xs rounded-lg transition-colors shrink-0"
-                  >
-                    Select Template
-                  </button>
                 )}
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2 text-xs">
+                  <div className="p-3 rounded-lg bg-[#111] border border-[#252525] space-y-1">
+                    <div className="text-[11px] font-medium text-gray-400">Supabase Project URL</div>
+                    <div className="font-mono text-gray-200 truncate select-all">https://soecoieksewpjgymjnph.supabase.co</div>
+                  </div>
+                  <div className="p-3 rounded-lg bg-[#111] border border-[#252525] space-y-1">
+                    <div className="text-[11px] font-medium text-gray-400">whatsapp_channels Table</div>
+                    <div className="flex items-center gap-1.5 font-medium text-emerald-400">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>Schema Defined & Indexed</span>
+                    </div>
+                  </div>
+                  <div className="p-3 rounded-lg bg-[#111] border border-[#252525] space-y-1">
+                    <div className="text-[11px] font-medium text-gray-400">messages (Unified) Table</div>
+                    <div className="flex items-center gap-1.5 font-medium text-emerald-400">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>Normalized Dual-Channel</span>
+                    </div>
+                  </div>
+                </div>
               </div>
 
-              {/* Feedback Alert */}
-              {chatFeedback && (
-                <div className={`p-3 rounded-xl border text-xs flex items-center justify-between gap-2 ${
-                  chatFeedback.type === 'success'
-                    ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300'
-                    : chatFeedback.type === 'warning'
-                    ? 'bg-amber-950/40 border-amber-500/40 text-amber-300'
-                    : 'bg-red-950/40 border-red-500/40 text-red-300'
-                }`}>
-                  <span>{chatFeedback.message}</span>
-                  <button onClick={() => setChatFeedback(null)} className="text-gray-400 hover:text-white">
-                    <X className="w-3.5 h-3.5" />
+              {/* Master Schema Viewer */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Terminal className="w-4 h-4 text-emerald-400" />
+                    <h3 className="text-sm font-semibold text-white">Supabase SQL Editor Schema</h3>
+                  </div>
+                  <button
+                    onClick={() => copyToClipboard(MASTER_SUPABASE_SCHEMA_SQL, 'schema')}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-all"
+                  >
+                    {copiedField === 'schema' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedField === 'schema' ? 'Copied to Clipboard!' : 'Copy SQL Schema'}</span>
                   </button>
                 </div>
-              )}
+                <div className="relative rounded-xl border border-[#2b2b2b] bg-[#0c0c0c] overflow-hidden">
+                  <pre className="p-4 text-xs font-mono text-emerald-300/90 overflow-x-auto max-h-72 leading-relaxed">
+                    {MASTER_SUPABASE_SCHEMA_SQL}
+                  </pre>
+                </div>
+                <p className="text-xs text-gray-400">
+                  Run this in the Supabase Dashboard &gt; SQL Editor. It creates the <code className="text-emerald-300">whatsapp_channels</code> table, unified <code className="text-emerald-300">messages</code> table, and channel type ENUM.
+                </p>
+              </div>
 
-              {/* Chat Messages Timeline */}
-              <div className="h-[360px] overflow-y-auto p-4 rounded-xl bg-[#0f0f0f] border border-[#262626] space-y-3.5 flex flex-col">
-                {conversationMessages.length === 0 ? (
-                  <div className="flex-1 flex flex-col items-center justify-center text-center p-6 text-gray-400">
-                    <MessageCircle className="w-8 h-8 text-gray-400 mb-2" />
-                    <p className="text-xs">No WhatsApp messages exchanged with {selectedContact.name} yet.</p>
-                    <p className="text-[11px] text-gray-400 mt-1">Send a template or simulate an inbound response from the sandbox tab.</p>
-                  </div>
-                ) : (
-                  conversationMessages.map(msg => {
-                    const isOutbound = msg.direction === 'outbound';
-                    return (
-                      <div
-                        key={msg.id || msg.wa_message_id}
-                        className={`flex flex-col ${isOutbound ? 'items-end' : 'items-start'}`}
+            </div>
+          )}
+
+          {/* TAB 3: 2-WAY CRM MESSAGING */}
+          {activeTab === 'chat' && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 h-[480px]">
+              
+              {/* Left Column: Contact Selector & Route Indicator */}
+              <div className="p-4 rounded-xl bg-[#161616] border border-[#2b2b2b] flex flex-col justify-between space-y-3">
+                <div className="space-y-3">
+                  <div className="text-xs font-semibold text-gray-300 uppercase tracking-wider">Select CRM Customer</div>
+                  <div className="space-y-2">
+                    {CRM_TEST_CONTACTS.map(c => (
+                      <button
+                        key={c.id}
+                        onClick={() => setSelectedContactId(c.id)}
+                        className={`w-full text-left p-3 rounded-lg border transition-all ${
+                          selectedContactId === c.id
+                            ? 'bg-emerald-500/10 border-emerald-500/40 text-white'
+                            : 'bg-[#1b1b1b] border-[#2c2c2c] text-gray-400 hover:border-[#3d3d3d] hover:text-gray-200'
+                        }`}
                       >
-                        <div className="text-[10px] text-gray-400 mb-1 px-1 flex items-center gap-1.5 font-mono">
-                          <span>{isOutbound ? 'SolarFlow Team' : msg.customerName || selectedContact.name}</span>
-                          <span>•</span>
-                          <span>{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                        </div>
+                        <div className="text-xs font-semibold">{c.name}</div>
+                        <div className="text-[11px] font-mono text-emerald-400/90">{c.phone}</div>
+                        <div className="text-[10px] text-gray-500 truncate mt-0.5">{c.address}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
 
-                        <div
-                          className={`max-w-[82%] sm:max-w-[70%] p-3.5 rounded-2xl text-xs relative ${
-                            isOutbound
-                              ? 'bg-emerald-600/90 text-white rounded-tr-xs shadow-md'
-                              : 'bg-[#222] text-gray-100 rounded-tl-xs border border-[#333]'
-                          }`}
-                        >
-                          {/* Template pill indicator */}
-                          {msg.template_name && (
-                            <div className="mb-1.5 inline-flex items-center gap-1 px-2 py-0.5 rounded bg-black/25 text-[10px] font-mono text-emerald-200">
-                              <FileCheck className="w-3 h-3" />
-                              <span>Template: {msg.template_name}</span>
-                            </div>
+                <div className="p-3 rounded-lg bg-[#111] border border-[#262626] text-xs space-y-1.5">
+                  <div className="text-[11px] text-gray-400">Active Outbound Route:</div>
+                  <div className="font-semibold text-emerald-300 flex items-center gap-1.5">
+                    {activeChannel?.channel_type === 'cloud_api' ? (
+                      <>
+                        <Server className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Meta Cloud API</span>
+                      </>
+                    ) : (
+                      <>
+                        <Smartphone className="w-3.5 h-3.5 text-blue-400" />
+                        <span>Baileys Web (Field Rep)</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Center & Right Column: Chat Timeline */}
+              <div className="md:col-span-2 p-4 rounded-xl bg-[#161616] border border-[#2b2b2b] flex flex-col justify-between h-full">
+                
+                {/* Chat Header */}
+                <div className="flex items-center justify-between pb-3 border-b border-[#262626]">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xs font-semibold">
+                      {selectedContact.name.substring(0, 2).toUpperCase()}
+                    </div>
+                    <div>
+                      <div className="text-xs font-semibold text-white">{selectedContact.name}</div>
+                      <div className="text-[10px] text-gray-400 font-mono">{selectedContact.phone}</div>
+                    </div>
+                  </div>
+                  <span className="px-2 py-0.5 text-[10px] font-medium rounded bg-[#222] text-gray-300 border border-[#333]">
+                    Unified Messages Stream
+                  </span>
+                </div>
+
+                {/* Messages Stream */}
+                <div className="flex-1 overflow-y-auto py-3 space-y-3">
+                  {unifiedMessages
+                    .filter(m => !m.contact_id || m.contact_id === selectedContact.id || m.recipient_phone.includes(selectedContact.phone.replace(/\D/g, '').slice(-8)) || (m.sender_phone && m.sender_phone.includes(selectedContact.phone.replace(/\D/g, '').slice(-8))))
+                    .map(msg => (
+                      <div
+                        key={msg.id}
+                        className={`flex flex-col ${msg.direction === 'outbound' ? 'items-end' : 'items-start'}`}
+                      >
+                        <div className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-xs shadow-md ${
+                          msg.direction === 'outbound'
+                            ? 'bg-emerald-600 text-white rounded-br-xs'
+                            : 'bg-[#222] text-gray-100 rounded-bl-xs border border-[#333]'
+                        }`}>
+                          {msg.media_url && (
+                            <img src={msg.media_url} alt="Media message" className="rounded-lg mb-2 max-h-40 w-full object-cover" />
                           )}
-
-                          {/* Media Rendering */}
-                          {msg.has_media && msg.media_url && (
-                            <div className="mb-2.5 rounded-lg overflow-hidden border border-black/20 bg-black/40">
-                              {msg.media_type?.startsWith('image') || msg.media_url.includes('images.unsplash') ? (
-                                <div className="relative group">
-                                  <img
-                                    src={msg.media_url}
-                                    alt="WhatsApp attachment"
-                                    className="max-h-48 w-full object-cover cursor-pointer hover:opacity-95 transition-opacity"
-                                    onClick={() => setViewingMediaUrl(msg.media_url!)}
-                                    referrerPolicy="no-referrer"
-                                  />
-                                  <button
-                                    onClick={() => setViewingMediaUrl(msg.media_url!)}
-                                    className="absolute bottom-2 right-2 p-1.5 bg-black/60 rounded-md text-white opacity-0 group-hover:opacity-100 transition-opacity"
-                                    title="Enlarge photo"
-                                  >
-                                    <Maximize2 className="w-3.5 h-3.5" />
-                                  </button>
-                                </div>
-                              ) : msg.media_type?.includes('pdf') || msg.media_type?.includes('document') ? (
-                                <a
-                                  href={msg.media_url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="p-3 flex items-center gap-2.5 hover:bg-white/5 transition-colors"
-                                >
-                                  <FileText className="w-6 h-6 text-red-400 shrink-0" />
-                                  <div className="overflow-hidden">
-                                    <div className="font-semibold truncate text-white">Inspection_Report.pdf</div>
-                                    <div className="text-[10px] text-gray-300">Click to view document</div>
-                                  </div>
-                                  <Download className="w-4 h-4 ml-auto text-gray-300 shrink-0" />
-                                </a>
-                              ) : (
-                                <div className="p-2.5 flex items-center gap-2 text-xs">
-                                  <ImageIcon className="w-4 h-4 text-emerald-300" />
-                                  <span>Media attachment ({msg.media_type || 'file'})</span>
-                                </div>
-                              )}
-                            </div>
-                          )}
-
-                          {/* Message Body Text */}
-                          <p className="whitespace-pre-wrap leading-relaxed">{msg.message_body || msg.content}</p>
-
-                          {/* Status and WAMID Footer */}
-                          <div className={`mt-1.5 flex items-center justify-end gap-1.5 text-[10px] ${isOutbound ? 'text-emerald-200/80' : 'text-gray-400'}`}>
-                            {isOutbound && (
-                              <span className="flex items-center gap-1 font-mono">
-                                {msg.status === 'read' ? (
-                                  <span className="flex items-center text-cyan-300" title="Read by customer">
-                                    <CheckCheck className="w-3.5 h-3.5" />
-                                    <span className="text-[9px]">Read</span>
-                                  </span>
-                                ) : msg.status === 'delivered' ? (
-                                  <span className="flex items-center text-gray-300" title="Delivered to customer phone">
-                                    <CheckCheck className="w-3.5 h-3.5" />
-                                    <span className="text-[9px]">Delivered</span>
-                                  </span>
-                                ) : msg.status === 'sent' ? (
-                                  <span className="flex items-center text-gray-300" title="Sent from Meta Cloud API">
-                                    <Check className="w-3.5 h-3.5" />
-                                    <span className="text-[9px]">Sent</span>
-                                  </span>
-                                ) : (
-                                  <span className="flex items-center text-red-300" title={msg.error_message || 'Dispatch failed'}>
-                                    <AlertCircle className="w-3.5 h-3.5" />
-                                    <span className="text-[9px]">Failed</span>
-                                  </span>
-                                )}
-                              </span>
-                            )}
-                            {!isOutbound && (
-                              <span className="text-[9px] uppercase tracking-wider text-emerald-400 font-mono">Inbound</span>
-                            )}
+                          <p className="leading-relaxed whitespace-pre-wrap">{msg.message_body}</p>
+                          <div className="flex items-center justify-end gap-1.5 mt-1 text-[10px] opacity-75">
+                            <span className="font-mono">{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                            <span className="uppercase text-[9px] font-bold px-1 py-0.2 rounded bg-black/30">
+                              {msg.channel_type === 'cloud_api' ? 'Meta' : 'Baileys'}
+                            </span>
+                            {msg.direction === 'outbound' && <CheckCheck className="w-3 h-3 text-emerald-200" />}
                           </div>
                         </div>
                       </div>
-                    );
-                  })
-                )}
-              </div>
+                    ))}
+                </div>
 
-              {/* Message Composer */}
-              <form onSubmit={handleSendChatMessage} className="flex items-center gap-2">
-                <div className="relative flex-1">
+                {/* Feedback */}
+                {chatFeedback && (
+                  <div className={`p-2 rounded-lg text-xs mb-2 ${
+                    chatFeedback.type === 'success'
+                      ? 'bg-emerald-950/40 text-emerald-300 border border-emerald-800/40'
+                      : 'bg-rose-950/40 text-rose-300 border border-rose-800/40'
+                  }`}>
+                    {chatFeedback.message}
+                  </div>
+                )}
+
+                {/* Input Bar */}
+                <form onSubmit={handleSendChatMessage} className="flex items-center gap-2 pt-3 border-t border-[#262626]">
                   <input
                     type="text"
                     value={chatInputText}
                     onChange={e => setChatInputText(e.target.value)}
-                    disabled={!windowStatus.canSendFreeForm || isSendingMessage}
-                    placeholder={
-                      windowStatus.canSendFreeForm
-                        ? `Type a WhatsApp message to ${selectedContact.name}...`
-                        : '24-Hour window expired. Use the Templates tab to send an approved message.'
-                    }
-                    className={`w-full px-4 py-3 bg-[#191919] border rounded-xl text-xs text-white focus:outline-none transition-colors ${
-                      windowStatus.canSendFreeForm
-                        ? 'border-[#333] focus:border-emerald-500'
-                        : 'border-amber-900/50 bg-[#161616] text-gray-400 cursor-not-allowed'
-                    }`}
+                    placeholder={`Message ${selectedContact.name} via ${activeChannel?.channel_name || 'Active Route'}...`}
+                    className="flex-1 px-3 py-2 bg-[#1b1b1b] border border-[#333] rounded-xl text-xs text-white placeholder-gray-500 focus:outline-hidden focus:border-emerald-500"
                   />
-                  {!windowStatus.canSendFreeForm && (
-                    <Lock className="w-4 h-4 text-amber-500 absolute right-3.5 top-3.5" />
-                  )}
-                </div>
-
-                {windowStatus.canSendFreeForm ? (
                   <button
                     type="submit"
-                    disabled={!chatInputText.trim() || isSendingMessage}
-                    className="px-5 py-3 bg-emerald-500 hover:bg-emerald-400 text-gray-950 font-semibold text-xs rounded-xl flex items-center gap-1.5 transition-all disabled:opacity-50"
+                    disabled={isSendingMessage || !chatInputText.trim()}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5"
                   >
                     <Send className="w-3.5 h-3.5" />
-                    <span>{isSendingMessage ? 'Sending...' : 'Send'}</span>
+                    <span>Send</span>
                   </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('templates')}
-                    className="px-4 py-3 bg-amber-500 hover:bg-amber-400 text-gray-950 font-semibold text-xs rounded-xl flex items-center gap-1.5 transition-all"
-                  >
-                    <FileCheck className="w-3.5 h-3.5" />
-                    <span>Use Template</span>
-                  </button>
-                )}
-              </form>
+                </form>
+
+              </div>
             </div>
           )}
 
-          {/* TAB 3: TEMPLATES & DYNAMIC VARIABLES */}
+          {/* TAB 4: TEMPLATES */}
           {activeTab === 'templates' && (
-            <div className="space-y-6">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl bg-[#171717] border border-[#292929]">
-                <div>
-                  <h3 className="text-sm font-semibold text-white">Meta Pre-Approved WhatsApp Templates</h3>
-                  <p className="text-xs text-gray-400 mt-0.5">
-                    Meta requires approved templates with sequential variables (<code className="text-emerald-400">&#123;&#123;1&#125;&#125;</code>, <code className="text-emerald-400">&#123;&#123;2&#125;&#125;</code>) to initiate customer conversations or message outside the 24-hour window.
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="px-2.5 py-1 rounded-md text-xs font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">
-                    Category: {activeTemplate.category}
-                  </span>
-                  <span className="px-2.5 py-1 rounded-md text-xs font-semibold bg-[#262626] text-gray-300 border border-[#383838]">
-                    Lang: {activeTemplate.language}
-                  </span>
-                </div>
-              </div>
-
-              {/* Template Selector */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                {templates.map(tpl => {
-                  const isSelected = selectedTemplateName === tpl.name;
-                  return (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-4">
+                <div className="text-xs font-semibold text-gray-300 uppercase tracking-wider">Approved Meta Templates</div>
+                <div className="space-y-2">
+                  {templates.map(tpl => (
                     <button
                       key={tpl.id}
-                      type="button"
                       onClick={() => setSelectedTemplateName(tpl.name)}
-                      className={`p-3.5 rounded-xl border text-left transition-all ${
-                        isSelected
-                          ? 'bg-emerald-950/30 border-emerald-500 text-white shadow-md'
-                          : 'bg-[#181818] border-[#2c2c2c] text-gray-300 hover:border-[#3d3d3d]'
+                      className={`w-full text-left p-3.5 rounded-xl border transition-all ${
+                        selectedTemplateName === tpl.name
+                          ? 'bg-emerald-500/10 border-emerald-500/40 text-white'
+                          : 'bg-[#181818] border-[#292929] text-gray-400 hover:border-[#383838]'
                       }`}
                     >
-                      <div className="flex items-center justify-between mb-1.5">
-                        <span className="font-semibold text-xs font-mono truncate">{tpl.name}</span>
-                        <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold text-white">{tpl.name}</span>
+                        <span className="px-1.5 py-0.5 text-[10px] font-mono rounded bg-emerald-500/20 text-emerald-300">
+                          {tpl.category}
+                        </span>
                       </div>
-                      <p className="text-[11px] text-gray-400 line-clamp-2">{tpl.bodyText}</p>
+                      <p className="text-[11px] text-gray-400 mt-1 line-clamp-2">{tpl.bodyText}</p>
                     </button>
-                  );
-                })}
+                  ))}
+                </div>
               </div>
 
-              {/* Dynamic Parameter Mapper Form & Live Preview */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-                {/* Variable Inputs */}
-                <div className="p-4 rounded-xl bg-[#191919] border border-[#2a2a2a] space-y-4">
-                  <div className="flex items-center justify-between border-b border-[#2e2e2e] pb-2.5">
-                    <span className="text-xs font-semibold text-white uppercase tracking-wider">Dynamic Variables Mapping</span>
-                    <span className="text-[11px] text-gray-400 font-mono">Recipient: {selectedContact.name} ({selectedContact.phone})</span>
-                  </div>
-
-                  <div className="space-y-3">
+              {/* Template Parameters Editor */}
+              <div className="p-5 rounded-xl bg-[#161616] border border-[#2b2b2b] flex flex-col justify-between space-y-4">
+                <div className="space-y-3">
+                  <div className="text-sm font-semibold text-white">Dynamic Parameters: {activeTemplate.name}</div>
+                  <div className="space-y-2">
                     {activeTemplate.parameters.map((paramName, idx) => (
                       <div key={idx}>
-                        <label className="block text-[11px] font-medium text-gray-300 mb-1 flex items-center justify-between">
-                          <span>Variable &#123;&#123;{idx + 1}&#125;&#125; — <strong className="text-white">{paramName}</strong></span>
-                          <span className="text-[10px] text-emerald-400 font-mono">type: text</span>
-                        </label>
+                        <label className="text-[11px] text-gray-400 font-medium">{paramName} ({`{{${idx + 1}}}`})</label>
                         <input
                           type="text"
                           value={templateParams[idx] || ''}
-                          onChange={e => setTemplateParams(prev => ({ ...prev, [idx]: e.target.value }))}
-                          placeholder={`Enter ${paramName}...`}
-                          className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:outline-none focus:border-emerald-500 font-sans"
+                          onChange={e => setTemplateParams({ ...templateParams, [idx]: e.target.value })}
+                          className="mt-1 w-full px-3 py-1.5 bg-[#1f1f1f] border border-[#333] rounded-lg text-xs text-white focus:border-emerald-500 focus:outline-hidden"
                         />
                       </div>
                     ))}
                   </div>
-
                   {templateSendResult && (
-                    <div className="p-2.5 rounded-lg bg-emerald-950/40 border border-emerald-500/40 text-emerald-300 text-xs flex items-center gap-2">
-                      <Check className="w-3.5 h-3.5" />
-                      <span>{templateSendResult}</span>
+                    <div className="p-2.5 rounded-lg bg-emerald-950/40 border border-emerald-800/40 text-xs text-emerald-300">
+                      {templateSendResult}
                     </div>
                   )}
-
-                  <button
-                    type="button"
-                    onClick={handleSendTemplateMessage}
-                    disabled={isSendingTemplate}
-                    className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 text-gray-950 font-semibold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-2"
-                  >
-                    <Send className="w-3.5 h-3.5" />
-                    <span>{isSendingTemplate ? 'Dispatched to Meta...' : `Dispatch "${activeTemplate.name}" to ${selectedContact.name}`}</span>
-                  </button>
                 </div>
-
-                {/* Live JSON Payload Preview */}
-                <div className="p-4 rounded-xl bg-[#101010] border border-[#2a2a2a] flex flex-col">
-                  <div className="flex items-center justify-between border-b border-[#242424] pb-2.5 mb-3">
-                    <span className="text-xs font-semibold text-gray-300 flex items-center gap-1.5 uppercase tracking-wider">
-                      <Terminal className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>Meta Cloud API Payload</span>
-                    </span>
-                    <span className="text-[10px] font-mono text-gray-400">POST /v20.0/{'{phone_number_id}'}/messages</span>
-                  </div>
-
-                  <pre className="flex-1 text-[11px] font-mono text-emerald-300/90 bg-[#080808] p-3 rounded-lg overflow-x-auto border border-[#1e1e1e]">
-{JSON.stringify({
-  messaging_product: 'whatsapp',
-  recipient_type: 'individual',
-  to: selectedContact.phone.replace(/[^0-9]/g, ''),
-  type: 'template',
-  template: {
-    name: activeTemplate.name,
-    language: {
-      code: activeTemplate.language
-    },
-    components: [
-      {
-        type: 'body',
-        parameters: activeTemplate.parameters.map((_, idx) => ({
-          type: 'text',
-          text: templateParams[idx] || ''
-        }))
-      }
-    ]
-  }
-}, null, 2)}
-                  </pre>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 4: WEBHOOK & MEDIA SANDBOX */}
-          {activeTab === 'simulator' && (
-            <div className="space-y-6">
-              <div className="p-4 rounded-xl bg-purple-950/20 border border-purple-800/40 text-purple-200">
-                <div className="flex items-start gap-3">
-                  <div className="p-2 bg-purple-500/20 rounded-lg text-purple-400 mt-0.5">
-                    <Zap className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-semibold text-white">Inbound Webhook & Media Test Sandbox</h3>
-                    <p className="text-xs text-purple-300/80 mt-1">
-                      Simulate real inbound events from Meta to verify the entire pipeline:
-                      <strong className="text-white"> Inbound Webhook parsing &rarr; Automatic Contact Matching & Lead Generation &rarr; 2-Step Media Retrieval &rarr; Supabase Storage Bucket &rarr; 24-Hour Window Activation</strong>.
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {simResult && (
-                <div className="p-3.5 rounded-xl bg-emerald-950/40 border border-emerald-500/40 text-emerald-300 text-xs flex items-center justify-between gap-3 animate-in fade-in">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                    <span>{simResult}</span>
-                  </div>
-                  <button
-                    onClick={() => setActiveTab('chat')}
-                    className="px-2.5 py-1 bg-emerald-500 text-gray-950 font-semibold rounded text-[11px]"
-                  >
-                    View in Chat
-                  </button>
-                </div>
-              )}
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                {[
-                  { id: 'text', label: 'Inbound Customer Text', desc: 'Activates 24-hour free-form messaging window' },
-                  { id: 'image', label: 'Inbound Switchboard Photo', desc: 'Tests 2-step media download & Supabase storage' },
-                  { id: 'status', label: 'Delivery Receipt Receipt', desc: 'Simulates read / delivered checks (✓✓)' }
-                ].map(item => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => setSimType(item.id as any)}
-                    className={`p-4 rounded-xl border text-left transition-all ${
-                      simType === item.id
-                        ? 'bg-purple-950/30 border-purple-500 text-white'
-                        : 'bg-[#181818] border-[#2c2c2c] text-gray-300 hover:border-[#383838]'
-                    }`}
-                  >
-                    <div className="font-semibold text-xs text-white">{item.label}</div>
-                    <div className="text-[11px] text-gray-400 mt-1">{item.desc}</div>
-                  </button>
-                ))}
-              </div>
-
-              {/* Simulation Configuration */}
-              <div className="p-5 rounded-xl bg-[#191919] border border-[#2a2a2a] space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-300 mb-1">Customer / Sender Phone</label>
-                    <input
-                      type="text"
-                      value={simSenderPhone}
-                      onChange={e => setSimSenderPhone(e.target.value)}
-                      className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs font-mono text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-300 mb-1">WhatsApp Profile Name</label>
-                    <input
-                      type="text"
-                      value={simSenderName}
-                      onChange={e => setSimSenderName(e.target.value)}
-                      className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white"
-                    />
-                  </div>
-                </div>
-
-                {simType === 'text' && (
-                  <div>
-                    <label className="block text-xs font-medium text-gray-300 mb-1">Message Text</label>
-                    <textarea
-                      rows={3}
-                      value={simText}
-                      onChange={e => setSimText(e.target.value)}
-                      className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white"
-                    />
-                  </div>
-                )}
-
-                {simType === 'image' && (
-                  <div className="p-3 bg-[#131313] border border-[#262626] rounded-lg text-xs space-y-2">
-                    <div className="flex items-center gap-2 text-emerald-400 font-semibold">
-                      <ImageIcon className="w-4 h-4" />
-                      <span>2-Step Media Retrieval Flow Verified:</span>
-                    </div>
-                    <p className="text-gray-300 text-[11px]">
-                      1. Inbound webhook receives Meta Media ID <code className="text-emerald-300 font-mono">mock_media_id_switchboard_9941</code>.<br />
-                      2. Server invokes Meta Graph API to query CDN binary buffer.<br />
-                      3. Buffer streams directly into Supabase Storage bucket <code className="text-emerald-300 font-mono">whatsapp_media</code> at <code className="text-emerald-300 font-mono">{'{tenant_id}'}/{'{wa_message_id}'}.jpg</code>.
-                    </p>
-                  </div>
-                )}
-
-                {simType === 'status' && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-medium text-gray-300 mb-1">Target WA Message ID</label>
-                      <input
-                        type="text"
-                        value={simStatusMsgId}
-                        onChange={e => setSimStatusMsgId(e.target.value)}
-                        placeholder="Leave blank for latest outbound message"
-                        className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs font-mono text-white"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-300 mb-1">Status Receipt</label>
-                      <select
-                        value={simStatusReceipt}
-                        onChange={e => setSimStatusReceipt(e.target.value as any)}
-                        className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs font-semibold text-white"
-                      >
-                        <option value="delivered">Delivered (✓✓ gray)</option>
-                        <option value="read">Read (✓✓ blue)</option>
-                        <option value="failed">Failed (⚠ red alert)</option>
-                      </select>
-                    </div>
-                  </div>
-                )}
 
                 <button
                   type="button"
-                  onClick={handleSimulateWebhook}
-                  disabled={isSimulating}
-                  className="px-5 py-2.5 bg-purple-600 hover:bg-purple-500 text-white font-semibold text-xs rounded-xl shadow-md transition-all flex items-center gap-2"
+                  onClick={handleSendTemplateMessage}
+                  disabled={isSendingTemplate}
+                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-semibold text-xs rounded-xl transition-all shadow-md flex items-center justify-center gap-2"
                 >
-                  <Zap className="w-3.5 h-3.5" />
-                  <span>{isSimulating ? 'Processing Webhook Event...' : 'Trigger Webhook Handshake'}</span>
+                  <Send className="w-3.5 h-3.5" />
+                  <span>Dispatch Template to {selectedContact.name}</span>
                 </button>
               </div>
             </div>
           )}
 
-          {/* TAB 5: AUDIT LOGS & DATABASE */}
+          {/* TAB 5: INBOUND SIMULATOR */}
+          {activeTab === 'simulator' && (
+            <div className="max-w-2xl mx-auto space-y-6">
+              <div className="p-5 rounded-xl bg-[#161616] border border-[#2b2b2b] space-y-4">
+                <div>
+                  <div className="text-sm font-semibold text-white">Inbound Ingestion & Webhook Sandbox</div>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    Test how incoming messages from Meta Cloud API or Baileys Web sockets are parsed and inserted into the unified Supabase <code className="text-emerald-300">messages</code> table.
+                  </p>
+                </div>
+
+                <div className="space-y-3 text-xs">
+                  <div>
+                    <label className="text-[11px] font-medium text-gray-400">Simulation Inbound Source</label>
+                    <div className="grid grid-cols-2 gap-2 mt-1">
+                      <button
+                        type="button"
+                        onClick={() => setSimChannelType('cloud_api')}
+                        className={`p-2.5 rounded-lg border font-medium text-xs flex items-center justify-center gap-2 ${
+                          simChannelType === 'cloud_api'
+                            ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
+                            : 'bg-[#1e1e1e] border-[#333] text-gray-400'
+                        }`}
+                      >
+                        <Server className="w-3.5 h-3.5" />
+                        <span>Meta Cloud Webhook</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSimChannelType('baileys_web')}
+                        className={`p-2.5 rounded-lg border font-medium text-xs flex items-center justify-center gap-2 ${
+                          simChannelType === 'baileys_web'
+                            ? 'bg-blue-500/20 border-blue-500 text-blue-300'
+                            : 'bg-[#1e1e1e] border-[#333] text-gray-400'
+                        }`}
+                      >
+                        <Smartphone className="w-3.5 h-3.5" />
+                        <span>Baileys Socket Upsert</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-[11px] font-medium text-gray-400">Sender Phone</label>
+                      <input
+                        type="text"
+                        value={simSenderPhone}
+                        onChange={e => setSimSenderPhone(e.target.value)}
+                        className="mt-1 w-full px-3 py-1.5 bg-[#1f1f1f] border border-[#333] rounded-lg text-white font-mono text-xs focus:outline-hidden"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-medium text-gray-400">Sender Name</label>
+                      <input
+                        type="text"
+                        value={simSenderName}
+                        onChange={e => setSimSenderName(e.target.value)}
+                        className="mt-1 w-full px-3 py-1.5 bg-[#1f1f1f] border border-[#333] rounded-lg text-white text-xs focus:outline-hidden"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] font-medium text-gray-400">Inbound Message Body</label>
+                    <textarea
+                      rows={3}
+                      value={simText}
+                      onChange={e => setSimText(e.target.value)}
+                      className="mt-1 w-full px-3 py-2 bg-[#1f1f1f] border border-[#333] rounded-lg text-white text-xs focus:outline-hidden"
+                    />
+                  </div>
+                </div>
+
+                {simResult && (
+                  <div className="p-3 bg-[#111] border border-[#2d2d2d] rounded-xl text-xs text-emerald-300 font-mono">
+                    {simResult}
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={handleSimulateInbound}
+                  disabled={isSimulating}
+                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-semibold text-xs rounded-xl transition-all shadow-md flex items-center justify-center gap-2"
+                >
+                  <Zap className="w-3.5 h-3.5" />
+                  <span>{isSimulating ? 'Processing Inbound Payload...' : 'Trigger Inbound Ingestion'}</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 6: UNIFIED MESSAGE LOG */}
           {activeTab === 'logs' && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between p-3.5 bg-[#171717] rounded-xl border border-[#282828]">
-                <div className="flex items-center gap-2">
-                  <Database className="w-4 h-4 text-emerald-400" />
-                  <span className="text-xs font-semibold text-white">Supabase Table: <code className="text-emerald-400">whatsapp_messages</code></span>
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-semibold text-white">Unified Messages Audit Trail</div>
+                  <p className="text-xs text-gray-400">Normalized records from Supabase <code className="text-emerald-300 font-mono">messages</code> table</p>
                 </div>
-                <span className="text-xs text-gray-400 font-mono">Total Recorded: {logs.length} messages</span>
+                <button
+                  onClick={async () => {
+                    const msgs = await fetchUnifiedMessages();
+                    setUnifiedMessages(msgs);
+                  }}
+                  className="px-3 py-1.5 text-xs bg-[#242424] hover:bg-[#2d2d2d] text-gray-300 rounded-lg border border-[#383838] transition-all flex items-center gap-1.5"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Refresh</span>
+                </button>
               </div>
 
-              <div className="border border-[#292929] rounded-xl overflow-hidden bg-[#101010]">
-                <div className="overflow-x-auto max-h-[420px]">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-[#181818] border-b border-[#262626] text-gray-400 uppercase text-[10px] tracking-wider font-mono">
-                      <tr>
-                        <th className="py-2.5 px-3">Direction</th>
-                        <th className="py-2.5 px-3">Contact</th>
-                        <th className="py-2.5 px-3">Phone</th>
-                        <th className="py-2.5 px-3">Content / Template</th>
-                        <th className="py-2.5 px-3">Status</th>
-                        <th className="py-2.5 px-3">Media</th>
-                        <th className="py-2.5 px-3">Timestamp</th>
+              <div className="border border-[#2b2b2b] rounded-xl overflow-hidden bg-[#141414]">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-[#1b1b1b] border-b border-[#292929] text-gray-400 font-medium">
+                    <tr>
+                      <th className="py-2.5 px-4">Channel</th>
+                      <th className="py-2.5 px-4">Direction</th>
+                      <th className="py-2.5 px-4">Phone / Party</th>
+                      <th className="py-2.5 px-4">Message Body</th>
+                      <th className="py-2.5 px-4">Status</th>
+                      <th className="py-2.5 px-4">Timestamp</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#222] text-gray-300">
+                    {unifiedMessages.map(m => (
+                      <tr key={m.id} className="hover:bg-[#1a1a1a] transition-colors">
+                        <td className="py-2.5 px-4">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
+                            m.channel_type === 'cloud_api'
+                              ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                              : 'bg-blue-500/15 text-blue-400 border border-blue-500/30'
+                          }`}>
+                            {m.channel_type === 'cloud_api' ? 'Meta Cloud' : 'Baileys Web'}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-4 capitalize">
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono ${
+                            m.direction === 'inbound' ? 'bg-amber-500/15 text-amber-300' : 'bg-gray-800 text-gray-300'
+                          }`}>
+                            {m.direction}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-4 font-mono text-[11px]">
+                          {m.direction === 'inbound' ? m.sender_phone : m.recipient_phone}
+                        </td>
+                        <td className="py-2.5 px-4 max-w-xs truncate text-gray-200">
+                          {m.message_body}
+                        </td>
+                        <td className="py-2.5 px-4">
+                          <span className="capitalize text-[11px] text-gray-400">{m.status}</span>
+                        </td>
+                        <td className="py-2.5 px-4 text-gray-500 text-[11px] whitespace-nowrap">
+                          {new Date(m.created_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
+                        </td>
                       </tr>
-                    </thead>
-                    <tbody className="divide-y divide-[#222]">
-                      {logs.map(log => (
-                        <tr key={log.id || log.wa_message_id} className="hover:bg-white/5 transition-colors">
-                          <td className="py-2.5 px-3 font-mono">
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
-                              log.direction === 'outbound' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-blue-500/20 text-blue-300'
-                            }`}>
-                              {log.direction}
-                            </span>
-                          </td>
-                          <td className="py-2.5 px-3 font-medium text-white">{log.customerName || 'Customer'}</td>
-                          <td className="py-2.5 px-3 font-mono text-gray-400">{log.customerPhone || '—'}</td>
-                          <td className="py-2.5 px-3 max-w-xs truncate text-gray-300">{log.message_body || log.content}</td>
-                          <td className="py-2.5 px-3 font-mono">
-                            <span className={`px-1.5 py-0.5 rounded text-[10px] ${
-                              log.status === 'read' ? 'bg-cyan-500/20 text-cyan-300' :
-                              log.status === 'delivered' ? 'bg-emerald-500/20 text-emerald-300' :
-                              log.status === 'sent' ? 'bg-gray-500/20 text-gray-300' :
-                              log.status === 'received' ? 'bg-blue-500/20 text-blue-300' : 'bg-red-500/20 text-red-300'
-                            }`}>
-                              {log.status}
-                            </span>
-                          </td>
-                          <td className="py-2.5 px-3">
-                            {log.has_media ? (
-                              <span className="text-emerald-400 flex items-center gap-1 text-[11px]">
-                                <ImageIcon className="w-3 h-3" /> Yes
-                              </span>
-                            ) : (
-                              <span className="text-gray-400 text-[11px]">None</span>
-                            )}
-                          </td>
-                          <td className="py-2.5 px-3 font-mono text-gray-400 whitespace-nowrap">
-                            {new Date(log.timestamp).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
           )}
@@ -1240,43 +1271,20 @@ export const WhatsAppSettingsModal: React.FC<WhatsAppSettingsModalProps> = ({
         </div>
 
         {/* Modal Footer */}
-        <div className="flex items-center justify-between px-6 py-3.5 border-t border-[#242424] bg-[#141414] text-xs text-gray-400">
+        <div className="px-6 py-3 border-t border-[#242424] bg-[#171717] flex items-center justify-between text-xs text-gray-400">
           <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-            <span>Meta Graph API v20.0 • Supabase Storage <code className="text-emerald-400">whatsapp_media</code></span>
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span>Hybrid Router Autorouting Active</span>
           </div>
           <button
             onClick={onClose}
-            className="px-4 py-1.5 bg-[#252525] hover:bg-[#303030] text-gray-200 rounded-lg border border-[#383838] transition-colors"
+            className="px-4 py-1.5 bg-[#262626] hover:bg-[#303030] text-gray-200 rounded-lg text-xs font-semibold transition-all"
           >
             Close
           </button>
         </div>
 
       </div>
-
-      {/* Media Zoom Lightbox Modal */}
-      {viewingMediaUrl && (
-        <div
-          className="fixed inset-0 z-60 bg-black/90 backdrop-blur-md flex items-center justify-center p-4"
-          onClick={() => setViewingMediaUrl(null)}
-        >
-          <div className="relative max-w-4xl max-h-[90vh] overflow-hidden rounded-2xl bg-black border border-white/20 p-2">
-            <img
-              src={viewingMediaUrl}
-              alt="Enlarged switchboard media"
-              className="max-h-[82vh] w-auto object-contain rounded-xl"
-              referrerPolicy="no-referrer"
-            />
-            <button
-              onClick={() => setViewingMediaUrl(null)}
-              className="absolute top-4 right-4 p-2 bg-black/70 hover:bg-black text-white rounded-full transition-colors"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

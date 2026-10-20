@@ -475,7 +475,7 @@ export const ProjectsView: React.FC<{ onNavigateToSection: (sec: any) => void }>
                   <th className="px-4 py-3">Contract Value</th>
                   <th className="px-4 py-3">Internal CER Claim (Profit)</th>
                   <th className="px-4 py-3">Customer STC Rebate</th>
-                  <th className="px-4 py-3">Project Stage/ Installation Status</th>
+                  <th className="px-4 py-3">Project Status &amp; Stage</th>
                   <th className="px-4 py-3">Subcontractor</th>
                   <th className="px-4 py-3 text-right">Integrations &amp; Actions</th>
                 </tr>

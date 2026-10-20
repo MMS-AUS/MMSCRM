@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import { getSupabase } from './supabase.ts';
+import { getSupabase, isSupabaseQuotaError, markSupabaseRestricted } from './supabase.ts';
 import { Contact, ContactAddress, Lead } from '../src/types/index.ts';
 import { normalizeAddressForComparison, normalizePhoneForComparison, normalizeNameForComparison } from '../src/utils/googleSheetsTemplate.ts';
 
@@ -113,8 +113,15 @@ export async function getDbContacts(): Promise<Contact[]> {
         } catch {}
         return sbContacts;
       }
+      if (error && isSupabaseQuotaError(error)) {
+        markSupabaseRestricted(error.message);
+      }
     } catch (err: any) {
-      console.warn('[ContactsDb] Warning querying Supabase contacts:', err.message || err);
+      if (isSupabaseQuotaError(err)) {
+        markSupabaseRestricted(err.message);
+      } else {
+        console.warn('[ContactsDb] Warning querying Supabase contacts:', err.message || err);
+      }
     }
   }
 
@@ -211,12 +218,20 @@ export async function saveDbContacts(contacts: Contact[]): Promise<boolean> {
 
       const { error: upsertErr } = await supabase.from('contacts').upsert(uniqueRows, { onConflict: 'id' });
       if (upsertErr) {
-        console.error('[ContactsDb] Error upserting contacts to Supabase:', upsertErr.message, upsertErr.code);
+        if (isSupabaseQuotaError(upsertErr)) {
+          markSupabaseRestricted(upsertErr.message);
+        } else {
+          console.error('[ContactsDb] Error upserting contacts to Supabase:', upsertErr.message, upsertErr.code);
+        }
       } else {
         console.log(`[ContactsDb] Successfully saved ${uniqueRows.length} contact(s) to Supabase`);
       }
     } catch (err: any) {
-      console.error('[ContactsDb] Error updating Supabase contacts:', err.message || err);
+      if (isSupabaseQuotaError(err)) {
+        markSupabaseRestricted(err.message);
+      } else {
+        console.error('[ContactsDb] Error updating Supabase contacts:', err.message || err);
+      }
     }
   }
 
@@ -257,7 +272,11 @@ export async function deleteDbContact(contactId: string): Promise<boolean> {
     try {
       await supabase.from('contacts').delete().in('id', [contactId, contactUuid]);
     } catch (err: any) {
-      console.warn('[ContactsDb] Warning deleting contact from Supabase:', err.message || err);
+      if (isSupabaseQuotaError(err)) {
+        markSupabaseRestricted(err.message);
+      } else {
+        console.warn('[ContactsDb] Warning deleting contact from Supabase:', err.message || err);
+      }
     }
   }
 
@@ -275,7 +294,11 @@ export async function clearAllDbContacts(): Promise<boolean> {
     try {
       await supabase.from('contacts').delete().neq('id', '00000000-0000-0000-0000-000000000000');
     } catch (err: any) {
-      console.warn('[ContactsDb] Warning clearing contacts from Supabase:', err.message || err);
+      if (isSupabaseQuotaError(err)) {
+        markSupabaseRestricted(err.message);
+      } else {
+        console.warn('[ContactsDb] Warning clearing contacts from Supabase:', err.message || err);
+      }
     }
   }
 

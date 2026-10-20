@@ -312,9 +312,14 @@ export const ProjectCenterTabs: React.FC<ProjectCenterTabsProps> = ({
                 <Sparkles className="w-3.5 h-3.5 text-[#bef264]" />
                 Project Highlights &amp; Metrics
               </h3>
-              <span className="text-[11px] font-mono text-[#bef264] bg-[#bef26410] px-2 py-0.5 rounded border border-[#bef26425]">
-                Project Status: {formData.projectStage}
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-mono text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/25 font-semibold" title="Settings Category: Project Status">
+                  Status: {formData.projectStatus || 'Active'}
+                </span>
+                <span className="text-[11px] font-mono text-sky-400 bg-sky-500/10 px-2 py-0.5 rounded border border-sky-500/25 font-semibold" title="Settings Category: Project Stage/ Installation Status">
+                  Stage: {formData.projectStage || formData.installationStatus || 'Site Survey'}
+                </span>
+              </div>
             </div>
 
             {/* Metric Bento Grid */}

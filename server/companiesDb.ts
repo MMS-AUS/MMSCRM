@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { Company } from '../src/types/index.ts';
-import { getSupabase } from './supabase.ts';
+import { getSupabase, isSupabaseQuotaError, markSupabaseRestricted } from './supabase.ts';
 
 const COMPANIES_CACHE_FILE = path.join(process.cwd(), '.companies_db.json');
 
@@ -106,10 +106,18 @@ export async function getDbCompanies(): Promise<Company[]> {
         return mapped;
       }
       if (error) {
-        console.warn('[CompaniesDb] Supabase fetch error:', error.message);
+        if (isSupabaseQuotaError(error)) {
+          markSupabaseRestricted(error.message);
+        } else {
+          console.info('[CompaniesDb] Supabase read note, using local cache:', error.message);
+        }
       }
-    } catch (err) {
-      console.warn('[CompaniesDb] Exception fetching companies from Supabase:', err);
+    } catch (err: any) {
+      if (isSupabaseQuotaError(err)) {
+        markSupabaseRestricted(err.message);
+      } else {
+        console.info('[CompaniesDb] Supabase query note, using local cache:', err?.message || err);
+      }
     }
   }
 
@@ -147,10 +155,18 @@ export async function saveSingleDbCompany(company: Company): Promise<Company> {
         return saved;
       }
       if (error) {
-        console.warn('[CompaniesDb] Error upserting company to Supabase:', error.message);
+        if (isSupabaseQuotaError(error)) {
+          markSupabaseRestricted(error.message);
+        } else {
+          console.info('[CompaniesDb] Supabase upsert note, using local persistence:', error.message);
+        }
       }
-    } catch (err) {
-      console.warn('[CompaniesDb] Exception upserting company:', err);
+    } catch (err: any) {
+      if (isSupabaseQuotaError(err)) {
+        markSupabaseRestricted(err.message);
+      } else {
+        console.info('[CompaniesDb] Supabase upsert note, using local persistence:', err?.message || err);
+      }
     }
   }
 
@@ -175,8 +191,12 @@ export async function deleteDbCompany(id: string): Promise<boolean> {
       } else {
         await supabase.from('companies').delete().eq('name', id);
       }
-    } catch (err) {
-      console.warn('[CompaniesDb] Error deleting company from Supabase:', err);
+    } catch (err: any) {
+      if (isSupabaseQuotaError(err)) {
+        markSupabaseRestricted(err.message);
+      } else {
+        console.info('[CompaniesDb] Supabase delete note, processed locally:', err?.message || err);
+      }
     }
   }
 

@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { Ticket } from '../src/types/index.ts';
-import { getSupabase } from './supabase.ts';
+import { getSupabase, isSupabaseQuotaError, markSupabaseRestricted } from './supabase.ts';
 
 const TICKETS_CACHE_FILE = path.join(process.cwd(), '.tickets_db.json');
 
@@ -290,10 +290,18 @@ export async function getDbTickets(): Promise<Ticket[]> {
         return mapped;
       }
       if (error) {
-        console.warn('[TicketsDb] Supabase fetch error:', error.message);
+        if (isSupabaseQuotaError(error)) {
+          markSupabaseRestricted(error.message);
+        } else {
+          console.info('[TicketsDb] Supabase read note, using local cache:', error.message);
+        }
       }
-    } catch (err) {
-      console.warn('[TicketsDb] Exception fetching tickets from Supabase:', err);
+    } catch (err: any) {
+      if (isSupabaseQuotaError(err)) {
+        markSupabaseRestricted(err.message);
+      } else {
+        console.info('[TicketsDb] Supabase query note, using local cache:', err?.message || err);
+      }
     }
   }
 
@@ -316,8 +324,15 @@ export async function getDbTicketById(id: string): Promise<Ticket | null> {
       if (!error && data && data.length > 0) {
         return mapDbRowToTicket(data[0]);
       }
-    } catch (err) {
-      console.warn('[TicketsDb] Error fetching ticket by id:', err);
+      if (error && isSupabaseQuotaError(error)) {
+        markSupabaseRestricted(error.message);
+      }
+    } catch (err: any) {
+      if (isSupabaseQuotaError(err)) {
+        markSupabaseRestricted(err.message);
+      } else {
+        console.warn('[TicketsDb] Error fetching ticket by id:', err);
+      }
     }
   }
 
@@ -358,7 +373,11 @@ export async function saveSingleDbTicket(ticket: Ticket): Promise<Ticket> {
         .select();
 
       if (error) {
-        console.error('[TicketsDb] Failed to upsert ticket in Supabase:', error.message);
+        if (isSupabaseQuotaError(error)) {
+          markSupabaseRestricted(error.message);
+        } else {
+          console.error('[TicketsDb] Failed to upsert ticket in Supabase:', error.message);
+        }
       } else if (data && data[0]) {
         const saved = mapDbRowToTicket(data[0]);
         // Update local cache
@@ -367,8 +386,12 @@ export async function saveSingleDbTicket(ticket: Ticket): Promise<Ticket> {
         saveLocalTickets(updatedLocal);
         return saved;
       }
-    } catch (err) {
-      console.error('[TicketsDb] Exception upserting ticket in Supabase:', err);
+    } catch (err: any) {
+      if (isSupabaseQuotaError(err)) {
+        markSupabaseRestricted(err.message);
+      } else {
+        console.error('[TicketsDb] Exception upserting ticket in Supabase:', err);
+      }
     }
   }
 
@@ -396,8 +419,12 @@ export async function deleteDbTicket(id: string): Promise<boolean> {
       } else {
         await supabase.from('customer_support_tickets').delete().eq('ticket_id', id);
       }
-    } catch (err) {
-      console.warn('[TicketsDb] Error deleting ticket from Supabase:', err);
+    } catch (err: any) {
+      if (isSupabaseQuotaError(err)) {
+        markSupabaseRestricted(err.message);
+      } else {
+        console.warn('[TicketsDb] Error deleting ticket from Supabase:', err);
+      }
     }
   }
 
@@ -422,8 +449,12 @@ export async function deleteDbTicketsBatch(ids: string[]): Promise<boolean> {
       if (textIds.length > 0) {
         await supabase.from('customer_support_tickets').delete().in('ticket_id', textIds);
       }
-    } catch (err) {
-      console.warn('[TicketsDb] Error batch deleting tickets from Supabase:', err);
+    } catch (err: any) {
+      if (isSupabaseQuotaError(err)) {
+        markSupabaseRestricted(err.message);
+      } else {
+        console.warn('[TicketsDb] Error batch deleting tickets from Supabase:', err);
+      }
     }
   }
 

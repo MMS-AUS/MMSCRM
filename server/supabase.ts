@@ -43,13 +43,122 @@ export function isSupabaseConfigured(): boolean {
   return Boolean(getSupabaseUrl() && getSupabaseKey());
 }
 
+const RESTRICTION_FILE = path.join(process.cwd(), '.supabase_restriction.json');
+
+function readPersistentRestriction(): { isRestricted: boolean; reason: string; checkedAt: number } {
+  try {
+    if (fs.existsSync(RESTRICTION_FILE)) {
+      const data = JSON.parse(fs.readFileSync(RESTRICTION_FILE, 'utf8'));
+      if (data && data.isRestricted) {
+        // Keep restriction active for 24 hours before automatic retry, unless manually cleared
+        if (Date.now() - (data.checkedAt || 0) < 24 * 60 * 60 * 1000) {
+          return data;
+        }
+      }
+    }
+  } catch {}
+  return { isRestricted: false, reason: '', checkedAt: 0 };
+}
+
+function writePersistentRestriction(isRestricted: boolean, reason = '', checkedAt = Date.now()): void {
+  try {
+    if (isRestricted) {
+      fs.writeFileSync(RESTRICTION_FILE, JSON.stringify({ isRestricted, reason, checkedAt }, null, 2), 'utf8');
+    } else if (fs.existsSync(RESTRICTION_FILE)) {
+      fs.unlinkSync(RESTRICTION_FILE);
+    }
+  } catch {}
+}
+
+const initialPersisted = readPersistentRestriction();
 let supabaseInstance: SupabaseClient | null = null;
+let isSupabaseQuotaRestricted = initialPersisted.isRestricted;
+let supabaseRestrictionReason = initialPersisted.reason;
+let supabaseRestrictionCheckedAt = initialPersisted.checkedAt;
+
+export function isSupabaseQuotaError(err: any): boolean {
+  if (!err) return false;
+  const msg = (
+    typeof err === 'string'
+      ? err
+      : err.message || err.details || err.error_description || err.error || JSON.stringify(err) || ''
+  ).toLowerCase();
+
+  return (
+    msg.includes('exceed_egress_quota') ||
+    msg.includes('egress_quota') ||
+    msg.includes('egress quota') ||
+    msg.includes('egress') ||
+    msg.includes('quota') ||
+    msg.includes('restricted due to the following violations') ||
+    msg.includes('violations') ||
+    msg.includes('violation') ||
+    msg.includes('upgrade their plan or remove spend caps') ||
+    msg.includes('spend caps') ||
+    msg.includes('spend cap') ||
+    msg.includes('payment required') ||
+    msg.includes('project is restricted') ||
+    msg.includes('restricted') ||
+    err.status === 402 ||
+    err.statusCode === 402 ||
+    err.code === '402'
+  );
+}
+
+export function isSupabaseRestricted(): boolean {
+  if (isSupabaseQuotaRestricted) {
+    if (Date.now() - supabaseRestrictionCheckedAt > 24 * 60 * 60 * 1000) {
+      isSupabaseQuotaRestricted = false;
+      writePersistentRestriction(false);
+      return false;
+    }
+    return true;
+  }
+  const persistent = readPersistentRestriction();
+  if (persistent.isRestricted) {
+    isSupabaseQuotaRestricted = true;
+    supabaseRestrictionReason = persistent.reason;
+    supabaseRestrictionCheckedAt = persistent.checkedAt;
+    return true;
+  }
+  return false;
+}
+
+export function markSupabaseRestricted(reason?: string): void {
+  const isFirstTime = !isSupabaseQuotaRestricted;
+  isSupabaseQuotaRestricted = true;
+  supabaseRestrictionReason = reason || 'Egress quota exceeded or project restricted';
+  supabaseRestrictionCheckedAt = Date.now();
+  writePersistentRestriction(true, supabaseRestrictionReason, supabaseRestrictionCheckedAt);
+  if (isFirstTime) {
+    console.info('[Supabase] Cloud service restriction detected (exceed_egress_quota). Seamlessly operating in local filesystem persistence mode.');
+  }
+}
+
+export function clearSupabaseRestriction(): void {
+  isSupabaseQuotaRestricted = false;
+  supabaseRestrictionReason = '';
+  supabaseRestrictionCheckedAt = 0;
+  supabaseInstance = null;
+  writePersistentRestriction(false);
+}
+
+export function getSupabaseRestrictionDetails(): { isRestricted: boolean; reason: string; lastChecked: number } {
+  return {
+    isRestricted: isSupabaseRestricted(),
+    reason: supabaseRestrictionReason,
+    lastChecked: supabaseRestrictionCheckedAt
+  };
+}
 
 export function resetSupabaseInstance(): void {
   supabaseInstance = null;
 }
 
-export function getSupabase(): SupabaseClient | null {
+export function getSupabase(force = false): SupabaseClient | null {
+  if (!force && isSupabaseRestricted()) {
+    return null;
+  }
   const url = getSupabaseUrl();
   const key = getSupabaseKey();
 

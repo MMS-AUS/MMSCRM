@@ -67,7 +67,9 @@ import {
   PhoneCall,
   MessageSquare,
   RefreshCw,
-  SlidersHorizontal
+  SlidersHorizontal,
+  Activity,
+  Hash
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { originateCall } from '../../services/voiplineService';
@@ -555,6 +557,163 @@ export const ProjectDetailsLeftPanel: React.FC<ProjectDetailsLeftPanelProps> = (
 
   return (
     <div className="space-y-4">
+      {/* TOP SECTION: Project Details & Lifecycle */}
+      <section className="bg-[#181818] border border-amber-500/30 rounded-xl p-4 sm:p-5 space-y-4 shadow-md">
+        <div className="flex items-center justify-between border-b border-[#2a2a2a] pb-3">
+          <div className="flex items-center gap-2">
+            <span className="flex items-center justify-center w-6 h-6 rounded-full bg-amber-500/20 text-amber-400 text-xs font-bold border border-amber-500/40">
+              <Activity className="w-3.5 h-3.5" />
+            </span>
+            <h3 className="font-semibold text-white text-sm tracking-wide">
+              Project Details &amp; Lifecycle
+            </h3>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => openMappingModal('projects_overview')}
+              className="px-2 py-0.5 rounded text-[10px] font-semibold bg-[#1e293b] text-cyan-300 hover:bg-[#334155] border border-cyan-500/30 flex items-center gap-1 transition-colors"
+              title="Map Project Details dropdowns to Settings Dropdown Category"
+            >
+              <SlidersHorizontal className="w-3 h-3" />
+              <span>Map Dropdowns</span>
+            </button>
+            <span className="text-[11px] text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20 font-semibold">
+              Project Details
+            </span>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+          {/* Project Number */}
+          <div>
+            <label className="block text-xs font-medium text-gray-400 mb-1 flex items-center gap-1">
+              <Hash className="w-3 h-3 text-[#bef264]" />
+              <span>Project Number</span>
+              <span className="text-[10px] text-gray-500 font-normal ml-auto">Auto-populated</span>
+            </label>
+            <input
+              type="text"
+              placeholder="e.g. PRJ-NSW-1042"
+              value={formData.projectNumber}
+              onChange={e => handleChange('projectNumber', e.target.value)}
+              className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs font-mono font-semibold text-[#bef264] placeholder-gray-600 focus:border-[#bef264] focus:outline-none transition-colors"
+            />
+          </div>
+
+          {/* Project Status - Dropdown Category in Settings: Project Status */}
+          <div>
+            <label className="block text-xs font-medium text-gray-400 mb-1 flex items-center gap-1">
+              <Activity className="w-3 h-3 text-amber-400" />
+              <span className="text-white font-semibold">Project Status</span>
+              <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 ml-auto">
+                Settings: Project Status
+              </span>
+            </label>
+            <select
+              value={formData.projectStatus || 'Active'}
+              onChange={e => handleChange('projectStatus', e.target.value)}
+              className="w-full px-3 py-2 bg-[#121212] border border-amber-500/40 rounded-lg text-xs font-bold text-amber-300 focus:border-amber-400 focus:outline-none transition-colors"
+            >
+              {getMappedDropdownOptions('projects_projectStatus', dropdowns?.projectStatuses || [
+                'Active',
+                'In Progress',
+                'On Hold',
+                'Pre-Installation',
+                'Installation Completed',
+                'Completed',
+                'Closed',
+                'Cancelled'
+              ]).map((st: string) => (
+                <option key={st} value={st}>
+                  {st}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Amount (Locked, synced from Selling Price) */}
+          <div>
+            <label className="block text-xs font-medium text-gray-400 mb-1 flex items-center gap-1">
+              <Lock className="w-3 h-3 text-gray-500" />
+              <span>Amount (AUD)</span>
+              <span className="text-[10px] text-gray-500 font-normal ml-auto">Locked (Selling Price)</span>
+            </label>
+            <input
+              type="text"
+              readOnly
+              value={formData.amount || formData.sellingPrice || '0'}
+              className="w-full px-3 py-2 bg-[#161616] border border-[#2a2a2a] rounded-lg text-xs font-mono font-bold text-gray-300 cursor-not-allowed select-none"
+            />
+          </div>
+
+          {/* Project Stage/ Installation Status - Dropdown Category in Settings: Project Stage/ Installation Status */}
+          <div>
+            <label className="block text-xs font-medium text-gray-400 mb-1 flex items-center gap-1">
+              <SlidersHorizontal className="w-3 h-3 text-sky-400" />
+              <span className="text-white font-semibold">Project Stage/ Installation Status</span>
+              <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-sky-500/15 text-sky-300 border border-sky-500/30 ml-auto">
+                Settings: Project Stage/ Installation Status
+              </span>
+            </label>
+            <select
+              value={formData.projectStage || formData.installationStatus || 'Site Survey'}
+              onChange={e => handleChange('projectStage', e.target.value)}
+              className="w-full px-3 py-2 bg-[#121212] border border-sky-500/40 rounded-lg text-xs font-bold text-sky-300 focus:border-sky-400 focus:outline-none transition-colors"
+            >
+              {getMappedDropdownOptions('projects_pipelineStage', dropdowns?.projectStages || [
+                'Site Survey',
+                'Engineering & DNSP Approval',
+                'Sales Order Dispatched',
+                'RFQ Sent to Installers',
+                'Install Scheduled',
+                'Installation in Progress',
+                'Installation Completed',
+                'BridgeSelect STC Claimed',
+                'Grid Meter Connected',
+                'Completed',
+                'Closed'
+              ]).map((st: string) => (
+                <option key={st} value={st}>
+                  {st}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Project Created Date */}
+          <div>
+            <label className="block text-xs font-medium text-gray-400 mb-1 flex items-center gap-1">
+              <Calendar className="w-3 h-3 text-gray-400" />
+              <span>Project Created Date</span>
+            </label>
+            <input
+              type="date"
+              value={formData.projectCreatedDate}
+              onChange={e => handleChange('projectCreatedDate', e.target.value)}
+              className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
+            />
+          </div>
+
+          {/* Project Closed Date */}
+          <div>
+            <label className="block text-xs font-medium text-gray-400 mb-1 flex items-center gap-1">
+              <CheckCircle2 className="w-3 h-3 text-gray-400" />
+              <span>Project Closed Date</span>
+              {(formData.projectStage === 'Closed' || formData.installationStatus === 'Closed') && (
+                <span className="text-[9px] font-mono text-emerald-400 bg-emerald-500/10 px-1 rounded ml-auto">Auto-filled</span>
+              )}
+            </label>
+            <input
+              type="date"
+              value={formData.projectClosedDate}
+              onChange={e => handleChange('projectClosedDate', e.target.value)}
+              className="w-full px-3 py-2 bg-[#121212] border border-[#333] rounded-lg text-xs text-white focus:border-[#bef264] focus:outline-none transition-colors"
+            />
+          </div>
+        </div>
+      </section>
+
       {/* SECTION 1: Customer & Sales Details */}
       <section className="bg-[#181818] border border-[#2e2e2e] rounded-xl p-4 sm:p-5 space-y-4 shadow-md">
         <div className="flex items-center justify-between border-b border-[#2a2a2a] pb-3">

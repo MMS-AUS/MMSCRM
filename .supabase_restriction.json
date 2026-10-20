@@ -1,0 +1,5 @@
+{
+  "isRestricted": true,
+  "reason": "Service for this project is restricted due to the following violations: exceed_egress_quota. The project owner must upgrade their plan or remove spend caps to restore service.",
+  "checkedAt": 1792468513366
+}

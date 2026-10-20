@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import { getSupabase } from './supabase.ts';
+import { getSupabase, isSupabaseQuotaError, markSupabaseRestricted } from './supabase.ts';
 import { formatToE164 } from './messagemedia.ts';
 
 // ============================================================================
@@ -164,8 +164,15 @@ export async function getStoredWhatsAppSettings(tenantId?: string): Promise<What
       if (!error && data) {
         return data as WhatsAppSettingsRow;
       }
+      if (error && isSupabaseQuotaError(error)) {
+        markSupabaseRestricted(error.message);
+      }
     } catch (err: any) {
-      console.warn('[WhatsApp] Could not fetch settings from Supabase, using fallback:', err.message || err);
+      if (isSupabaseQuotaError(err)) {
+        markSupabaseRestricted(err.message);
+      } else {
+        console.warn('[WhatsApp] Could not fetch settings from Supabase, using fallback:', err.message || err);
+      }
     }
   }
 
@@ -207,8 +214,15 @@ export async function upsertStoredWhatsAppSettings(
         fs.writeFileSync(SETTINGS_FILE, JSON.stringify(data, null, 2), 'utf8');
         return data as WhatsAppSettingsRow;
       }
+      if (error && isSupabaseQuotaError(error)) {
+        markSupabaseRestricted(error.message);
+      }
     } catch (err: any) {
-      console.warn('[WhatsApp] Error saving settings to Supabase, falling back to local file:', err.message || err);
+      if (isSupabaseQuotaError(err)) {
+        markSupabaseRestricted(err.message);
+      } else {
+        console.warn('[WhatsApp] Error saving settings to Supabase, falling back to local file:', err.message || err);
+      }
     }
   }
 
@@ -242,8 +256,15 @@ export async function getStoredWhatsAppMessages(
       if (!error && data && data.length > 0) {
         return data as WhatsAppMessageRow[];
       }
+      if (error && isSupabaseQuotaError(error)) {
+        markSupabaseRestricted(error.message);
+      }
     } catch (err: any) {
-      console.warn('[WhatsApp] Error querying whatsapp_messages from Supabase:', err.message || err);
+      if (isSupabaseQuotaError(err)) {
+        markSupabaseRestricted(err.message);
+      } else {
+        console.warn('[WhatsApp] Error querying whatsapp_messages from Supabase:', err.message || err);
+      }
     }
   }
 
@@ -307,8 +328,15 @@ export async function insertStoredWhatsAppMessage(
         await appendToLocalMessagesCache(record);
         return data as WhatsAppMessageRow;
       }
+      if (error && isSupabaseQuotaError(error)) {
+        markSupabaseRestricted(error.message);
+      }
     } catch (err: any) {
-      console.warn('[WhatsApp] Supabase insert failed, storing locally:', err.message || err);
+      if (isSupabaseQuotaError(err)) {
+        markSupabaseRestricted(err.message);
+      } else {
+        console.warn('[WhatsApp] Supabase insert failed, storing locally:', err.message || err);
+      }
     }
   }
 
@@ -338,8 +366,15 @@ export async function updateStoredWhatsAppMessageStatus(
       if (!error && data) {
         updatedCount = data.length;
       }
+      if (error && isSupabaseQuotaError(error)) {
+        markSupabaseRestricted(error.message);
+      }
     } catch (err: any) {
-      console.warn('[WhatsApp] Supabase update status failed:', err.message || err);
+      if (isSupabaseQuotaError(err)) {
+        markSupabaseRestricted(err.message);
+      } else {
+        console.warn('[WhatsApp] Supabase update status failed:', err.message || err);
+      }
     }
   }
 

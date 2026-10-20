@@ -1,0 +1,39 @@
+[
+  {
+    "id": "00000000-0000-0000-0000-000000000001",
+    "tenant_id": "00000000-0000-0000-0000-000000000001",
+    "channel_name": "Official Enterprise WhatsApp (Meta Cloud API)",
+    "channel_type": "cloud_api",
+    "is_active": false,
+    "status": "connected",
+    "credentials": {
+      "phone_number_id": "109823749281726",
+      "waba_id": "392019485019283",
+      "access_token": "EAAGm0PX4ZBZB4BA...system_user_permanent_token_sec_9941",
+      "webhook_verify_token": "solarflow_wa_verify_token_2026_australia",
+      "display_phone_number": "+61 480 019 822",
+      "verified_name": "SolarFlow Clean Energy Australia",
+      "api_version": "v20.0"
+    },
+    "created_at": "2026-09-19T18:09:26.162Z",
+    "updated_at": "2026-10-19T18:09:26.162Z"
+  },
+  {
+    "id": "00000000-0000-0000-0000-000000000002",
+    "tenant_id": "00000000-0000-0000-0000-000000000001",
+    "channel_name": "Dave Miller - Personal Field WhatsApp (Baileys Web)",
+    "channel_type": "baileys_web",
+    "is_active": true,
+    "status": "connected",
+    "credentials": {
+      "session_id": "session_field_dave_01",
+      "paired_phone": "+61 412 884 910",
+      "push_name": "Dave Miller (Field Tech)",
+      "qr_code_url": null,
+      "raw_qr": null,
+      "last_connected_at": "2026-10-19T18:10:18.464Z"
+    },
+    "created_at": "2026-10-12T18:09:26.162Z",
+    "updated_at": "2026-10-19T18:10:18.612Z"
+  }
+]

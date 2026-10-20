@@ -101,9 +101,9 @@ import {
   normalizePhoneForComparison,
   areDistinctProperties
 } from '../utils/googleSheetsTemplate';
-import { dispatchSystemAlert, getPersonalEmailConfig } from '../services/systemAlertsEmailService';
-import { triggerCapiStageEvent } from '../services/metaAdsService';
+import { dispatchSystemAlert, getPersonalEmailConfig, fetchServerSystemEmailConfig } from '../services/systemAlertsEmailService';
 import { normalizeProjectStatus, normalizeProjectStage } from '../utils/statusUtils';
+import { triggerCapiStageEvent } from '../services/metaAdsService';
 
 interface AppContextType {
   currentUser: UserProfile;
@@ -1264,10 +1264,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     ]);
   }, [refreshLeads, refreshProjects, refreshTickets, refreshContacts, refreshCompanies, refreshDropdowns, refreshHardwareHierarchy]);
 
-  // Sync hardware and dropdowns on mount and listen to reload events
+  // Sync hardware, dropdowns, and system email configuration on mount and listen to reload events
   useEffect(() => {
     refreshDropdowns();
     refreshHardwareHierarchy();
+    fetchServerSystemEmailConfig().catch(e => console.warn('Failed to hydrate email config:', e));
     const handleSync = () => {
       refreshDropdowns();
       refreshHardwareHierarchy();
@@ -2829,6 +2830,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         merged.saleDate = todayDate;
       }
 
+      // If status becomes Proposal Sent or Quote Sent, dispatch proposal system alert
+      if ((updated.status === 'Proposal Sent' || updated.status === 'Quote Sent') && l.status !== updated.status) {
+        const customerPrimaryEmail = merged.email ? merged.email.split(',')[0].trim() : '';
+        if (customerPrimaryEmail && customerPrimaryEmail.includes('@')) {
+          dispatchSystemAlert({
+            type: 'proposal_sent',
+            title: `Solar Energy Proposal & Detailed Quote Ready - ${merged.customerName}`,
+            recipientEmail: customerPrimaryEmail,
+            recipientName: merged.customerName || 'Valued Customer',
+            data: {
+              customerName: merged.customerName,
+              systemSize: `${merged.systemSizeKw || '6.6'} kW Solar System`,
+              address: `${merged.address || ''}, ${merged.suburb || ''} ${merged.state || ''}`.trim(),
+              sellingPrice: merged.sellingPrice ? `$${merged.sellingPrice}` : '$9,400 AUD',
+              proposalUrl: `https://customer.mysolarcrm.com.au/proposal?lead=${merged.id}`,
+              description: `Your custom solar proposal and engineering system layout is prepared. Review your projected energy savings, feed-in tariff calculations, and contract terms.`
+            }
+          }).catch(e => console.warn('Proposal alert dispatch failed:', e));
+        }
+      }
+
       // If status is or becomes Contract Signed, automatically provision Customer Portal Credentials & invite
       if ((updated.status === 'Contract Signed' || merged.status === 'Contract Signed') && !merged.portalCredentials) {
         const safeLastName = (merged.lastName || merged.customerName?.split(' ')[1] || 'Apex').replace(/[^a-zA-Z]/g, '');
@@ -3440,6 +3462,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       amount: initialSellingPriceAud,
       projectCreatedDate: todayDate,
       projectClosedDate: '',
+      projectStatus: 'Active',
       projectStage: 'Site Survey',
 
       // Section 1: Customer & Sales

@@ -27,6 +27,9 @@ import {
 import {
   getSystemEmailConfig,
   saveSystemEmailConfig,
+  saveSystemEmailConfigAsync,
+  fetchServerSystemEmailConfig,
+  verifySmtpSettings,
   getOutboundEmailLogs,
   sendSystemEmail,
   clearOutboundEmailLogs
@@ -42,21 +45,53 @@ export const SystemEmailSettingsTab: React.FC<Props> = ({ isLight }) => {
   const [isSaved, setIsSaved] = useState(false);
   const [newAdminEmail, setNewAdminEmail] = useState('');
   
+  // Connection verification state
+  const [isTestingConnection, setIsTestingConnection] = useState(false);
+  const [connectionTestResult, setConnectionTestResult] = useState<{ success: boolean; message: string; details?: any } | null>(null);
+
   // Test email state
   const [testRecipient, setTestRecipient] = useState('');
   const [isSendingTest, setIsSendingTest] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string; mode?: string } | null>(null);
 
   useEffect(() => {
-    setConfig(getSystemEmailConfig());
+    // Hydrate latest configuration from backend server database, fallback to local storage
+    fetchServerSystemEmailConfig().then(srvConfig => {
+      if (srvConfig) {
+        setConfig(srvConfig);
+      }
+    }).catch(() => {
+      setConfig(getSystemEmailConfig());
+    });
     setLogs(getOutboundEmailLogs());
   }, []);
 
-  const handleSave = () => {
-    const updated = saveSystemEmailConfig(config);
+  const handleSave = async () => {
+    const hasSmtp = Boolean((config.smtpHost || '').trim() && (config.smtpUsername || '').trim());
+    const toSave: SystemEmailConfig = {
+      ...config,
+      deliveryMode: hasSmtp && config.deliveryMode === 'simulation_audit' ? 'custom_smtp' : config.deliveryMode
+    };
+    const updated = await saveSystemEmailConfigAsync(toSave);
     setConfig(updated);
     setIsSaved(true);
     setTimeout(() => setIsSaved(false), 3000);
+  };
+
+  const handleTestConnection = async () => {
+    setIsTestingConnection(true);
+    setConnectionTestResult(null);
+    try {
+      const res = await verifySmtpSettings(config);
+      setConnectionTestResult(res);
+    } catch (err: any) {
+      setConnectionTestResult({
+        success: false,
+        message: err.message || 'SMTP connection verification failed.'
+      });
+    } finally {
+      setIsTestingConnection(false);
+    }
   };
 
   const handleAddAdminEmail = () => {
@@ -96,10 +131,14 @@ export const SystemEmailSettingsTab: React.FC<Props> = ({ isLight }) => {
     setTestResult(null);
 
     try {
+      // Auto-persist config before testing to ensure server has current credentials
+      saveSystemEmailConfigAsync(config).catch(() => {});
+
       const result = await sendSystemEmail({
         to: testRecipient,
         subject: 'MySolarCRM System Mailer Test Notification',
         category: 'System Diagnostic Test',
+        customConfig: config,
         bodyHtml: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
             <div style="background-color: #0f172a; padding: 16px 20px; border-radius: 8px; margin-bottom: 20px;">
@@ -116,7 +155,7 @@ export const SystemEmailSettingsTab: React.FC<Props> = ({ isLight }) => {
               </tr>
               <tr>
                 <td style="padding: 8px; border-bottom: 1px solid #f1f5f9; color: #64748b;">System Sender:</td>
-                <td style="padding: 8px; border-bottom: 1px solid #f1f5f9; color: #0f172a;">${config.senderName} &lt;${config.senderEmail || 'default@system'}&gt;</td>
+                <td style="padding: 8px; border-bottom: 1px solid #f1f5f9; color: #0f172a;">${config.senderName} &lt;${config.senderEmail || config.smtpUsername || 'default@system'}&gt;</td>
               </tr>
               <tr>
                 <td style="padding: 8px; border-bottom: 1px solid #f1f5f9; color: #64748b;">Timestamp:</td>
@@ -382,39 +421,113 @@ export const SystemEmailSettingsTab: React.FC<Props> = ({ isLight }) => {
 
             {/* SMTP Settings Panel */}
             {config.deliveryMode === 'custom_smtp' && (
-              <div className={`p-4 rounded-xl border space-y-3 ${
+              <div className={`p-4 rounded-xl border space-y-3.5 ${
                 isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/80 border-slate-800'
               }`}>
-                <div className="flex items-center gap-2">
-                  <Terminal className="w-4 h-4 text-emerald-500" />
-                  <h4 className={`text-xs font-bold ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>
-                    SMTP Relay Connection Parameters
-                  </h4>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b pb-2.5 border-slate-200 dark:border-slate-800">
+                  <div className="flex items-center gap-2">
+                    <Terminal className="w-4 h-4 text-emerald-500" />
+                    <h4 className={`text-xs font-bold ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>
+                      SMTP Relay Connection Parameters
+                    </h4>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleTestConnection}
+                    disabled={isTestingConnection || !config.smtpHost || !config.smtpUsername}
+                    className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-white transition-all flex items-center gap-1.5 cursor-pointer self-start sm:self-auto shrink-0"
+                  >
+                    {isTestingConnection ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-400" />
+                        <span>Verifying Connection...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Zap className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Test SMTP Connection</span>
+                      </>
+                    )}
+                  </button>
                 </div>
+
+                {/* Connection Test Feedback */}
+                {connectionTestResult && (
+                  <div className={`p-3 rounded-xl border text-xs flex items-start gap-2 ${
+                    connectionTestResult.success
+                      ? (isLight ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-emerald-950/40 border-emerald-800 text-emerald-200')
+                      : (isLight ? 'bg-red-50 border-red-200 text-red-900' : 'bg-red-950/40 border-red-800 text-red-200')
+                  }`}>
+                    {connectionTestResult.success ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                    ) : (
+                      <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+                    )}
+                    <div className="space-y-0.5 flex-1">
+                      <p className="font-semibold">{connectionTestResult.message}</p>
+                      {connectionTestResult.details?.response && (
+                        <p className="text-[10px] opacity-75 font-mono">{String(connectionTestResult.details.response)}</p>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div className="sm:col-span-2">
                     <label className={`block text-xs font-semibold mb-1 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                      SMTP Host *
+                      SMTP Host Server *
                     </label>
                     <input
                       type="text"
                       value={config.smtpHost}
                       onChange={e => setConfig({ ...config, smtpHost: e.target.value })}
-                      placeholder="e.g. smtp.mailgun.org, smtp.sendgrid.net, mail.apexsolar.com.au"
+                      placeholder="e.g. smtp.gmail.com, smtp.mailgun.org, smtp.sendgrid.net"
                       className={`w-full text-xs px-3 py-2 rounded-xl border focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono ${
                         isLight ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-900 border-slate-800 text-white'
                       }`}
                     />
                   </div>
                   <div>
-                    <label className={`block text-xs font-semibold mb-1 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                      SMTP Port *
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className={`block text-xs font-semibold ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+                        Port *
+                      </label>
+                      <div className="flex items-center gap-1 text-[10px]">
+                        <button
+                          type="button"
+                          onClick={() => setConfig({ ...config, smtpPort: 587, smtpSecure: false })}
+                          className={`px-1.5 py-0.5 rounded cursor-pointer ${
+                            config.smtpPort === 587 && !config.smtpSecure
+                              ? 'bg-emerald-600 text-white font-bold'
+                              : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                          }`}
+                        >
+                          587
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfig({ ...config, smtpPort: 465, smtpSecure: true })}
+                          className={`px-1.5 py-0.5 rounded cursor-pointer ${
+                            config.smtpPort === 465 && config.smtpSecure
+                              ? 'bg-emerald-600 text-white font-bold'
+                              : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                          }`}
+                        >
+                          465
+                        </button>
+                      </div>
+                    </div>
                     <input
                       type="number"
                       value={config.smtpPort}
-                      onChange={e => setConfig({ ...config, smtpPort: parseInt(e.target.value) || 587 })}
+                      onChange={e => {
+                        const p = parseInt(e.target.value) || 587;
+                        setConfig({
+                          ...config,
+                          smtpPort: p,
+                          smtpSecure: p === 465 ? true : (p === 587 ? false : config.smtpSecure)
+                        });
+                      }}
                       placeholder="587"
                       className={`w-full text-xs px-3 py-2 rounded-xl border focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono ${
                         isLight ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-900 border-slate-800 text-white'
@@ -426,13 +539,13 @@ export const SystemEmailSettingsTab: React.FC<Props> = ({ isLight }) => {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className={`block text-xs font-semibold mb-1 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                      SMTP Username
+                      SMTP Username / Account *
                     </label>
                     <input
                       type="text"
                       value={config.smtpUsername}
                       onChange={e => setConfig({ ...config, smtpUsername: e.target.value })}
-                      placeholder="system-relay@apexsolar.com.au"
+                      placeholder="e.g. solar-system@yourdomain.com or user@gmail.com"
                       className={`w-full text-xs px-3 py-2 rounded-xl border focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono ${
                         isLight ? 'bg-white border-slate-200 text-slate-900' : 'bg-slate-900 border-slate-800 text-white'
                       }`}
@@ -440,7 +553,7 @@ export const SystemEmailSettingsTab: React.FC<Props> = ({ isLight }) => {
                   </div>
                   <div>
                     <label className={`block text-xs font-semibold mb-1 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                      SMTP Password / Secret
+                      SMTP Password / App Password *
                     </label>
                     <input
                       type="password"
@@ -454,17 +567,38 @@ export const SystemEmailSettingsTab: React.FC<Props> = ({ isLight }) => {
                   </div>
                 </div>
 
-                <label className="flex items-center gap-2 cursor-pointer pt-1">
-                  <input
-                    type="checkbox"
-                    checked={config.smtpSecure}
-                    onChange={e => setConfig({ ...config, smtpSecure: e.target.checked })}
-                    className="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500"
-                  />
-                  <span className={`text-xs font-medium ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                    Use TLS / SSL encryption (recommended for ports 465 and 587)
-                  </span>
-                </label>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={config.smtpSecure}
+                      onChange={e => setConfig({ ...config, smtpSecure: e.target.checked })}
+                      className="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500"
+                    />
+                    <span className={`text-xs font-medium ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+                      Require Direct SSL/TLS (Always enabled for Port 465; Keep off for Port 587 STARTTLS)
+                    </span>
+                  </label>
+                </div>
+
+                {/* Helpful Provider Guide */}
+                <div className={`p-3 rounded-xl border text-[11px] leading-relaxed space-y-1 ${
+                  isLight ? 'bg-sky-50/70 border-sky-200 text-sky-900' : 'bg-sky-950/30 border-sky-800/60 text-sky-200'
+                }`}>
+                  <p className="font-semibold flex items-center gap-1.5">
+                    <Info className="w-3.5 h-3.5 shrink-0 text-sky-400" />
+                    <span>Quick Configuration Guide:</span>
+                  </p>
+                  <p>
+                    &bull; <strong>Gmail / Google Workspace:</strong> Host: <code className="font-mono">smtp.gmail.com</code> | Port: <code className="font-mono">587</code> | Password: 16-character <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noreferrer" className="underline font-bold">Google App Password</a>.
+                  </p>
+                  <p>
+                    &bull; <strong>Microsoft Office 365 / Outlook:</strong> Host: <code className="font-mono">smtp.office365.com</code> | Port: <code className="font-mono">587</code> (STARTTLS).
+                  </p>
+                  <p>
+                    &bull; <strong>Mailgun / SendGrid:</strong> Host: <code className="font-mono">smtp.mailgun.org</code> or <code className="font-mono">smtp.sendgrid.net</code> | Port: <code className="font-mono">587</code>.
+                  </p>
+                </div>
               </div>
             )}
 
