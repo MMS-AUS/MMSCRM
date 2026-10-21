@@ -22,7 +22,9 @@ import {
   UserCheck,
   Sparkles,
   PlusCircle,
-  Zap
+  Zap,
+  Database,
+  Terminal
 } from 'lucide-react';
 import {
   getPersonalEmailConfig,
@@ -33,7 +35,10 @@ import {
   sendTestEmail,
   getOutboundEmailLogs,
   clearOutboundEmailLogs,
-  sendSystemEmail
+  sendSystemEmail,
+  fetchDbEmailLogs,
+  clearDbEmailLogsApi,
+  fetchEmailLogsMigrationSql
 } from '../../services/systemAlertsEmailService';
 import {
   PersonalEmailIntegrationConfig,
@@ -41,6 +46,7 @@ import {
   EmailDeliveryMode
 } from '../../types';
 import { useApp } from '../../context/AppContext';
+import { SmtpDiagnosticModal } from './SmtpDiagnosticModal';
 
 interface Props {
   isOpen: boolean;
@@ -83,6 +89,25 @@ export const SystemEmailAlertsModal: React.FC<Props> = ({
     typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'default'
   );
 
+  // Supabase email_logs database state
+  const [dbLogs, setDbLogs] = useState<any[]>([]);
+  const [dbLogsSource, setDbLogsSource] = useState<'supabase' | 'local'>('local');
+  const [isLoadingDbLogs, setIsLoadingDbLogs] = useState(false);
+  const [isDiagnosticModalOpen, setIsDiagnosticModalOpen] = useState(false);
+
+  const loadDbLogs = async () => {
+    setIsLoadingDbLogs(true);
+    try {
+      const res = await fetchDbEmailLogs({ limit: 50 });
+      setDbLogs(res.logs || []);
+      setDbLogsSource(res.source);
+    } catch {
+      // fallback
+    } finally {
+      setIsLoadingDbLogs(false);
+    }
+  };
+
   useEffect(() => {
     if (isOpen) {
       fetchServerSystemEmailConfig().then(srvConfig => {
@@ -100,6 +125,7 @@ export const SystemEmailAlertsModal: React.FC<Props> = ({
         );
       });
       setLogs(getOutboundEmailLogs());
+      loadDbLogs();
       setActiveTab(initialTab);
     }
   }, [isOpen, initialTab, appUser?.email, connectedDomain]);
@@ -125,11 +151,13 @@ export const SystemEmailAlertsModal: React.FC<Props> = ({
     try {
       const res = await verifySmtpSettings(config);
       setConnectionTestResult(res);
+      setTimeout(() => loadDbLogs(), 500);
     } catch (err: any) {
       setConnectionTestResult({
         success: false,
         message: err.message || 'SMTP connection verification failed.'
       });
+      setTimeout(() => loadDbLogs(), 500);
     } finally {
       setIsTestingConnection(false);
     }
@@ -146,6 +174,7 @@ export const SystemEmailAlertsModal: React.FC<Props> = ({
       saveSystemEmailConfigAsync(config).catch(() => {});
       const res = await sendTestEmail(testRecipient.trim(), testCustomNote, config);
       setLogs(getOutboundEmailLogs());
+      loadDbLogs();
 
       if (res.success) {
         setTestResult({
@@ -169,6 +198,7 @@ export const SystemEmailAlertsModal: React.FC<Props> = ({
         success: false,
         message: err.message || 'Error occurred during test dispatch'
       });
+      loadDbLogs();
     } finally {
       setIsSendingTest(false);
     }
@@ -1006,30 +1036,64 @@ export const SystemEmailAlertsModal: React.FC<Props> = ({
           {/* TAB 5: OUTBOX & SENT HISTORY LEDGER */}
           {activeTab === 'logs' && (
             <div className="space-y-3 text-xs">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#262626] pb-3">
                 <div>
-                  <h3 className="font-bold text-white text-sm">Dispatched System Email Ledger</h3>
-                  <p className="text-[11px] text-gray-400">
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-bold text-white text-sm">Dispatched System Email Ledger</h3>
+                    <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider border ${
+                      dbLogsSource === 'supabase'
+                        ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                        : 'bg-purple-500/20 text-purple-400 border-purple-500/30'
+                    }`}>
+                      {dbLogsSource === 'supabase' ? 'Supabase Cloud' : 'Local DB Cache'}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-gray-400 mt-0.5">
                     Audit trail of all automated alerts, proposals, portal links, and customer emails.
                   </p>
                 </div>
-                {logs.length > 0 && (
+
+                <div className="flex items-center gap-2">
                   <button
-                    onClick={() => {
-                      if (confirm('Clear all outbound email logs?')) {
-                        clearOutboundEmailLogs();
-                        setLogs([]);
-                      }
-                    }}
-                    className="px-2.5 py-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 rounded-md text-[11px] font-semibold flex items-center gap-1 transition-colors"
+                    type="button"
+                    onClick={() => setIsDiagnosticModalOpen(true)}
+                    className="px-2.5 py-1 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 rounded text-[11px] font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+                    title="Open the SMTP Diagnostic Console to troubleshoot connection and delivery errors"
                   >
-                    <Trash2 className="w-3 h-3" />
-                    <span>Clear Logs</span>
+                    <Terminal className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Diagnostics Console</span>
                   </button>
-                )}
+
+                  <button
+                    type="button"
+                    onClick={() => loadDbLogs()}
+                    disabled={isLoadingDbLogs}
+                    className="px-2.5 py-1 bg-[#222] hover:bg-[#2c2c2c] text-gray-300 rounded text-[11px] font-semibold flex items-center gap-1 border border-[#383838] transition-colors"
+                    title="Refresh logs from database"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${isLoadingDbLogs ? 'animate-spin text-emerald-400' : ''}`} />
+                    <span>Refresh</span>
+                  </button>
+
+                  {(dbLogs.length > 0 || logs.length > 0) && (
+                    <button
+                      onClick={async () => {
+                        if (confirm('Clear all outbound email logs and diagnostic records?')) {
+                          await clearDbEmailLogsApi();
+                          setLogs([]);
+                          setDbLogs([]);
+                        }
+                      }}
+                      className="px-2.5 py-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 rounded-md text-[11px] font-semibold flex items-center gap-1 transition-colors"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                      <span>Clear Logs</span>
+                    </button>
+                  )}
+                </div>
               </div>
 
-              {logs.length === 0 ? (
+              {(dbLogs.length === 0 && logs.length === 0) ? (
                 <div className="p-8 text-center bg-[#141414] rounded-xl border border-[#2d2d2d] text-gray-400 space-y-2">
                   <Mail className="w-8 h-8 text-gray-600 mx-auto" />
                   <p className="font-semibold text-white">No Outbound Emails Logged Yet</p>
@@ -1038,67 +1102,84 @@ export const SystemEmailAlertsModal: React.FC<Props> = ({
                   </p>
                 </div>
               ) : (
-                <div className="space-y-2">
-                  {logs.map(log => (
-                    <div
-                      key={log.id}
-                      className="p-3 bg-[#141414] hover:bg-[#181818] border border-[#262626] rounded-xl transition-colors space-y-2"
-                    >
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
-                        <div className="flex items-center gap-2 overflow-hidden">
-                          <span
-                            className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase shrink-0 ${
-                              log.status === 'delivered'
-                                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                                : log.status === 'failed'
-                                ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
-                                : 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
-                            }`}
-                          >
-                            {log.status}
+                <div className="space-y-2 max-h-[460px] overflow-y-auto pr-1">
+                  {(dbLogs.length > 0 ? dbLogs : logs).map((log: any) => {
+                    const isSuccess = log.success !== undefined ? Boolean(log.success) : (log.status === 'delivered' || log.status === 'sent');
+                    const recipient = log.recipient_email || (Array.isArray(log.recipient_emails) ? log.recipient_emails.join(', ') : log.to || 'Unknown');
+                    const timestamp = log.sent_at || log.created_at || log.timestamp;
+                    const errorMsg = log.error_message || log.errorMessage || (log.error_details?.message ? String(log.error_details.message) : null);
+                    const channel = log.delivery_mode || log.channel || 'custom_smtp';
+
+                    return (
+                      <div
+                        key={log.id}
+                        className="p-3 bg-[#141414] hover:bg-[#181818] border border-[#262626] rounded-xl transition-colors space-y-2"
+                      >
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                          <div className="flex items-center gap-2 overflow-hidden">
+                            <span
+                              className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase shrink-0 ${
+                                isSuccess
+                                  ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                  : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                              }`}
+                            >
+                              {isSuccess ? (log.status || 'delivered') : 'FAILED'}
+                            </span>
+                            <strong className="text-white text-xs truncate">{log.subject || '(No Subject)'}</strong>
+                          </div>
+
+                          <span className="text-[10px] text-gray-500 shrink-0 font-mono">
+                            {timestamp ? new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—'} &bull;{' '}
+                            {timestamp ? new Date(timestamp).toLocaleDateString([], { day: 'numeric', month: 'short' }) : '—'}
                           </span>
-                          <strong className="text-white text-xs truncate">{log.subject}</strong>
                         </div>
 
-                        <span className="text-[10px] text-gray-500 shrink-0 font-mono">
-                          {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} &bull;{' '}
-                          {new Date(log.timestamp).toLocaleDateString([], { day: 'numeric', month: 'short' })}
-                        </span>
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-gray-400">
+                          <div>
+                            To: <strong className="text-gray-200 font-mono">{recipient}</strong> &bull; Channel:{' '}
+                            <span className="text-[#bef264]">{channel}</span>
+                            {log.smtp_host && (
+                              <span className="ml-2 font-mono text-[10px] text-gray-500">
+                                ({log.smtp_host}:{log.smtp_port || 587})
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedPreviewLog(log)}
+                              className="px-2 py-0.5 bg-[#252525] hover:bg-[#333] text-gray-200 rounded text-[11px] flex items-center gap-1 border border-[#383838]"
+                            >
+                              <Eye className="w-3 h-3 text-[#bef264]" />
+                              <span>Preview</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleResendLog(log)}
+                              className="px-2 py-0.5 bg-[#252525] hover:bg-[#333] text-gray-200 rounded text-[11px] flex items-center gap-1 border border-[#383838]"
+                            >
+                              <RefreshCw className="w-3 h-3 text-blue-400" />
+                              <span>Resend</span>
+                            </button>
+                          </div>
+                        </div>
+
+                        {errorMsg && (
+                          <div className="text-[10px] text-rose-400 bg-rose-500/10 p-2 rounded-lg border border-rose-500/20 font-mono space-y-1">
+                            <div className="font-semibold">SMTP Error: {errorMsg}</div>
+                            {(log.error_code || log.error_command) && (
+                              <div className="text-rose-300 text-[9px] flex items-center gap-2">
+                                {log.error_code && <span>Code: {log.error_code}</span>}
+                                {log.error_command && <span>Command: {log.error_command}</span>}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
-
-                      <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-gray-400">
-                        <div>
-                          To: <strong className="text-gray-200 font-mono">{log.to}</strong> &bull; Channel:{' '}
-                          <span className="text-[#bef264]">{log.channel}</span>
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setSelectedPreviewLog(log)}
-                            className="px-2 py-0.5 bg-[#252525] hover:bg-[#333] text-gray-200 rounded text-[11px] flex items-center gap-1 border border-[#383838]"
-                          >
-                            <Eye className="w-3 h-3 text-[#bef264]" />
-                            <span>Preview</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleResendLog(log)}
-                            className="px-2 py-0.5 bg-[#252525] hover:bg-[#333] text-gray-200 rounded text-[11px] flex items-center gap-1 border border-[#383838]"
-                          >
-                            <RefreshCw className="w-3 h-3 text-blue-400" />
-                            <span>Resend</span>
-                          </button>
-                        </div>
-                      </div>
-
-                      {log.errorMessage && (
-                        <div className="text-[10px] text-rose-400 bg-rose-500/10 p-1.5 rounded border border-rose-500/20 font-mono">
-                          Error: {log.errorMessage}
-                        </div>
-                      )}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -1164,6 +1245,15 @@ export const SystemEmailAlertsModal: React.FC<Props> = ({
           </div>
         </div>
       )}
+
+      {/* Embedded SMTP Diagnostic Modal Console */}
+      <SmtpDiagnosticModal
+        isOpen={isDiagnosticModalOpen}
+        onClose={() => {
+          setIsDiagnosticModalOpen(false);
+          loadDbLogs();
+        }}
+      />
     </div>
   );
 };

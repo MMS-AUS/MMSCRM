@@ -574,10 +574,11 @@ export const SettingsView: React.FC = () => {
                 onClick={async () => {
                   try {
                     const res = await fetch('/api/system/schema-sql');
-                    const data = await res.json();
-                    if (data.success && data.sql) {
+                    const text = await res.text().catch(() => '');
+                    const data = text && text.trim() ? JSON.parse(text) : null;
+                    if (data && data.success && data.sql) {
                       await navigator.clipboard.writeText(data.sql);
-                      setFeedback('Copied Supabase master SQL migration script (22 CRM tables) to clipboard!');
+                      setFeedback('Copied Supabase master SQL migration script (23 CRM tables including email_logs) to clipboard!');
                       setTimeout(() => setFeedback(null), 3500);
                     }
                   } catch {
@@ -594,9 +595,33 @@ export const SettingsView: React.FC = () => {
                 type="button"
                 onClick={async () => {
                   try {
+                    const res = await fetch('/api/email/logs/migration-sql');
+                    const text = await res.text().catch(() => '');
+                    const data = text && text.trim() ? JSON.parse(text) : null;
+                    if (data && data.success && data.sql) {
+                      await navigator.clipboard.writeText(data.sql);
+                      setFeedback('Copied email_logs Supabase SQL table migration to clipboard! Run in Supabase SQL Editor.');
+                      setTimeout(() => setFeedback(null), 4500);
+                    }
+                  } catch {
+                    setFeedback('Error copying email_logs SQL.');
+                  }
+                }}
+                className="px-3.5 py-2 rounded-lg bg-sky-500 hover:bg-sky-400 text-slate-950 text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs"
+                title="Copy SQL to create email_logs table in Supabase"
+              >
+                <Mail className="w-3.5 h-3.5" />
+                <span>Copy email_logs Table SQL</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
                     const res = await fetch('/api/system/financial-migration-sql');
-                    const data = await res.json();
-                    if (data.success && data.sql) {
+                    const text = await res.text().catch(() => '');
+                    const data = text && text.trim() ? JSON.parse(text) : null;
+                    if (data && data.success && data.sql) {
                       await navigator.clipboard.writeText(data.sql);
                       setFeedback('Copied Deposit (AUD), System Price (AUD) & Deposit Received Date SQL migration to clipboard! Run in Supabase SQL Editor.');
                       setTimeout(() => setFeedback(null), 4500);

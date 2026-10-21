@@ -55,6 +55,7 @@ import {
   sendOutboundSms,
   fetchSmsLogs
 } from '../services/messageMediaService';
+import { safeResponseJson } from '../utils/safeFetch';
 import {
   INITIAL_DROPDOWNS,
   INITIAL_USERS,
@@ -610,7 +611,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const refreshContacts = useCallback(async (): Promise<Contact[]> => {
     try {
       const r = await fetch(`/api/contacts?_t=${Date.now()}`, { cache: 'no-store' });
-      const d = await r.json();
+      const d = await safeResponseJson(r, { success: false, contacts: [] });
       if (d && d.success && Array.isArray(d.contacts)) {
         setContacts(d.contacts);
         contactsRef.current = d.contacts;
@@ -647,7 +648,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const refreshCompanies = useCallback(async (): Promise<Company[]> => {
     try {
       const r = await fetch(`/api/companies?_t=${Date.now()}`, { cache: 'no-store' });
-      const d = await r.json();
+      const d = await safeResponseJson(r, { success: false, companies: [] });
       if (d && d.success && Array.isArray(d.companies)) {
         setCompanies(d.companies);
         try {
@@ -697,7 +698,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const refreshLeads = useCallback(async (): Promise<Lead[]> => {
     try {
       const r = await fetch(`/api/leads?_t=${Date.now()}`, { cache: 'no-store' });
-      const d = await r.json();
+      const d = await safeResponseJson(r, { success: false, leads: [] });
       if (d.success && Array.isArray(d.leads)) {
         if (d.leads.length === 0) {
           setLeads([]);
@@ -939,7 +940,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const refreshProjects = useCallback(async (): Promise<Project[]> => {
     try {
       const r = await fetch(`/api/projects?_t=${Date.now()}`, { cache: 'no-store' });
-      const d = await r.json();
+      const d = await safeResponseJson(r, { success: false, projects: [] });
       if (d && d.success && Array.isArray(d.projects)) {
         const normalized = d.projects.map((p: any) => {
           const systemKw = Number(p.systemSizeKw) || 6.6;
@@ -1002,7 +1003,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const refreshTickets = useCallback(async (): Promise<Ticket[]> => {
     try {
       const r = await fetch(`/api/tickets?_t=${Date.now()}`, { cache: 'no-store' });
-      const d = await r.json();
+      const d = await safeResponseJson(r, { success: false, tickets: [] });
       if (d && d.success && Array.isArray(d.tickets)) {
         setTickets(d.tickets);
         try {
@@ -1178,11 +1179,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (!res.ok) {
         throw new Error(`Server returned HTTP ${res.status}`);
       }
-      const contentType = res.headers.get('content-type') || '';
-      if (!contentType.includes('application/json')) {
-        throw new Error('Server returned non-JSON response');
-      }
-      const d = await res.json();
+      const d = await safeResponseJson(res, { success: false });
       if (d && d.success) {
         setDropdowns(prev => {
           const hasPanels = Array.isArray(d.panelHierarchy) && d.panelHierarchy.length > 0;
@@ -1224,8 +1221,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const refreshDropdowns = useCallback(async (): Promise<DynamicDropdownConfig> => {
     try {
       const res = await fetch(`/api/dropdowns?_t=${Date.now()}`, { cache: 'no-store' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const d = await res.json();
+      const d = await safeResponseJson(res, { success: false, dropdowns: null });
       if (d && d.success && d.dropdowns) {
         let updatedDropdowns: DynamicDropdownConfig = INITIAL_DROPDOWNS;
         setDropdowns(prev => {
@@ -1622,7 +1618,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // Check Supabase Settings database connectivity
     fetch('/api/settings/status')
-      .then(r => r.json())
+      .then(r => safeResponseJson(r, null))
       .then(d => {
         if (isMounted && d && d.success) {
           setSupabaseSettingsStatus(prev => ({
@@ -1638,7 +1634,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // Hydrate Settings from app_settings
     fetch('/api/settings')
-      .then(r => r.json())
+      .then(r => safeResponseJson(r, null))
       .then(d => {
         if (!isMounted || !d || !d.success || !d.settings) return;
         const s = d.settings;
@@ -1681,7 +1677,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // Hydrate Integrations from integrations_config
     fetch('/api/integrations')
-      .then(r => r.json())
+      .then(r => safeResponseJson(r, null))
       .then(d => {
         if (!isMounted || !d || !d.success || !Array.isArray(d.integrations) || d.integrations.length === 0) return;
         setIntegrations(prev => {
@@ -1732,8 +1728,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         })
       ]);
 
-      const sData = await settingsRes.json();
-      const iData = await integrationsRes.json();
+      const sData = await safeResponseJson(settingsRes, {});
+      const iData = await safeResponseJson(integrationsRes, {});
       const now = new Date().toLocaleTimeString();
 
       const isCloud = sData.source === 'supabase' || iData.source === 'supabase';
@@ -2367,7 +2363,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(newCompany)
     })
-      .then(r => r.json())
+      .then(r => safeResponseJson(r, {}))
       .then(async res => {
         if (res.success && res.company) {
           setCompanies(prev => prev.map(c => c.id === newCompany.id ? res.company : c));
@@ -2395,7 +2391,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(mergedCompany)
       })
-        .then(r => r.json())
+        .then(r => safeResponseJson(r, {}))
         .then(async res => {
           if (res.success && res.company) {
             setCompanies(prev => prev.map(c => c.id === id ? res.company : c));
@@ -4104,7 +4100,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Google Sheets Auto-Sync background listener and timer
   useEffect(() => {
     fetch('/api/leads/sheet-sync-settings')
-      .then(r => r.json())
+      .then(r => safeResponseJson(r, {}))
       .then(d => {
         if (d.success && d.sheetUrl && !googleSheetUrl) {
           setGoogleSheetUrl(d.sheetUrl);
@@ -4305,7 +4301,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     try {
       const r = await fetch('/api/system/clear-all-data', { method: 'POST' });
-      const d = await r.json();
+      const d = await safeResponseJson(r, { success: false });
       return Boolean(d.success);
     } catch (err) {
       console.error('[AppContext] Failed to clear all system data:', err);
@@ -4679,7 +4675,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(newTicket)
     })
-      .then(r => r.json())
+      .then(r => safeResponseJson(r, {}))
       .then(async res => {
         if (res.success && res.ticket) {
           setTickets(prev => prev.map(t => (t.id === newTicket.id || t.ticketNumber === newTicket.ticketNumber ? res.ticket : t)));
@@ -4729,7 +4725,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(mergedTicket)
       })
-        .then(r => r.json())
+        .then(r => safeResponseJson(r, {}))
         .then(async res => {
           if (res.success && res.ticket) {
             setTickets(prev => prev.map(t => (t.id === id || t.ticketNumber === id ? res.ticket : t)));
@@ -5036,7 +5032,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ dropdowns: nextDropdowns })
       });
-      return await res.json();
+      return await safeResponseJson(res, { success: false });
     } catch (err) {
       console.warn('[AppContext] Failed to sync dropdowns to database:', err);
     }

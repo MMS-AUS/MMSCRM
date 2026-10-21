@@ -27,6 +27,7 @@ import { OpenSolarModal } from './components/modals/OpenSolarModal';
 import { UserProfileModal } from './components/modals/UserProfileModal';
 import { DropdownMappingModal } from './components/modals/DropdownMappingModal';
 import { PortalQRCodeModal } from './components/common/PortalQRCodeModal';
+import { SmtpDiagnosticModal } from './components/modals/SmtpDiagnosticModal';
 import { CRMLoginScreen } from './components/auth/CRMLoginScreen';
 import { JoinERPSetPasswordScreen } from './components/auth/JoinERPSetPasswordScreen';
 import {
@@ -73,10 +74,17 @@ const MainLayout: React.FC = () => {
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
   const [copiedBannerUrl, setCopiedBannerUrl] = useState(false);
   const [gmailToast, setGmailToast] = useState<{ message: string; isError?: boolean } | null>(null);
+  const [isSmtpDiagnosticOpen, setIsSmtpDiagnosticOpen] = useState(false);
   const [isSettingPasswordFromInvite, setIsSettingPasswordFromInvite] = useState(() => {
     if (typeof window === 'undefined') return false;
     return new URLSearchParams(window.location.search).has('invite_token');
   });
+
+  useEffect(() => {
+    const handleOpenDiag = () => setIsSmtpDiagnosticOpen(true);
+    window.addEventListener('solar:open_smtp_diagnostic', handleOpenDiag);
+    return () => window.removeEventListener('solar:open_smtp_diagnostic', handleOpenDiag);
+  }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -600,6 +608,11 @@ const MainLayout: React.FC = () => {
           portalConfig={currentPortalConfig}
         />
       )}
+      <SmtpDiagnosticModal
+        isOpen={isSmtpDiagnosticOpen}
+        onClose={() => setIsSmtpDiagnosticOpen(false)}
+        onOpenSettings={() => setCurrentSection('settings')}
+      />
     </div>
   );
 };

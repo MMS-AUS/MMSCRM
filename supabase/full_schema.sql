@@ -677,6 +677,52 @@ CREATE INDEX IF NOT EXISTS idx_integrations_config_category ON public.integratio
 CREATE INDEX IF NOT EXISTS idx_dropdown_options_category ON public.dropdown_options(category);
 
 -- ==============================================================================
+-- 6. email_logs (Outbound & SMTP System Transmission & Diagnostic Logs)
+CREATE TABLE IF NOT EXISTS public.email_logs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID DEFAULT '00000000-0000-0000-0000-000000000001',
+  message_id TEXT,
+  client_ref_id TEXT,
+  sender_email TEXT NOT NULL,
+  sender_name TEXT,
+  recipient_email TEXT NOT NULL,
+  recipient_emails TEXT[] DEFAULT '{}'::TEXT[],
+  cc_emails TEXT[] DEFAULT '{}'::TEXT[],
+  bcc_emails TEXT[] DEFAULT '{}'::TEXT[],
+  reply_to TEXT,
+  subject TEXT NOT NULL,
+  snippet TEXT,
+  body_html TEXT,
+  body_text TEXT,
+  category VARCHAR(100) DEFAULT 'general',
+  reference_id TEXT,
+  delivery_mode VARCHAR(50) DEFAULT 'custom_smtp',
+  status VARCHAR(50) NOT NULL DEFAULT 'sent',
+  success BOOLEAN NOT NULL DEFAULT true,
+  smtp_host TEXT,
+  smtp_port INTEGER DEFAULT 587,
+  smtp_secure BOOLEAN DEFAULT false,
+  smtp_username TEXT,
+  smtp_response_code INTEGER,
+  smtp_response_message TEXT,
+  accepted_recipients TEXT[] DEFAULT '{}'::TEXT[],
+  rejected_recipients TEXT[] DEFAULT '{}'::TEXT[],
+  error_message TEXT,
+  error_code VARCHAR(100),
+  error_command VARCHAR(100),
+  error_details JSONB DEFAULT '{}'::JSONB,
+  sent_at TIMESTAMPTZ DEFAULT NOW(),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_email_logs_created_at ON public.email_logs (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_email_logs_success ON public.email_logs (success);
+CREATE INDEX IF NOT EXISTS idx_email_logs_status ON public.email_logs (status);
+CREATE INDEX IF NOT EXISTS idx_email_logs_recipient ON public.email_logs (recipient_email);
+CREATE INDEX IF NOT EXISTS idx_email_logs_category ON public.email_logs (category);
+
+-- ==============================================================================
 -- 7. ENABLE ROW LEVEL SECURITY & PERMISSIVE POLICIES
 -- ==============================================================================
 
@@ -697,12 +743,13 @@ BEGIN
       'teams_webhooks', 'teams_integration_settings', 'meta_page_connections',
       'app_settings', 'integrations_config', 'dropdown_options',
       'solar_panels', 'solar_inverters', 'battery_storage', 'system_dropdowns',
-      'customer_support_tickets'
+      'customer_support_tickets', 'email_logs'
     )
   LOOP
     EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY;', tbl);
     EXECUTE format('DROP POLICY IF EXISTS "crm_allow_all_%s" ON public.%I;', tbl, tbl);
     EXECUTE format('CREATE POLICY "crm_allow_all_%s" ON public.%I FOR ALL USING (true);', tbl, tbl);
+
   END LOOP;
 END $$;
 

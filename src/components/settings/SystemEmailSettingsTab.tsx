@@ -17,7 +17,13 @@ import {
   Trash2,
   Terminal,
   ExternalLink,
-  Info
+  Info,
+  Copy,
+  Database,
+  Search,
+  Check,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import {
   SystemEmailConfig,
@@ -32,8 +38,12 @@ import {
   verifySmtpSettings,
   getOutboundEmailLogs,
   sendSystemEmail,
-  clearOutboundEmailLogs
+  clearOutboundEmailLogs,
+  fetchDbEmailLogs,
+  fetchEmailLogsMigrationSql,
+  clearDbEmailLogsApi
 } from '../../services/systemAlertsEmailService';
+import { SmtpDiagnosticModal } from '../modals/SmtpDiagnosticModal';
 
 interface Props {
   isLight: boolean;
@@ -42,6 +52,16 @@ interface Props {
 export const SystemEmailSettingsTab: React.FC<Props> = ({ isLight }) => {
   const [config, setConfig] = useState<SystemEmailConfig>(getSystemEmailConfig());
   const [logs, setLogs] = useState<OutboundEmailLog[]>(getOutboundEmailLogs());
+  const [dbLogs, setDbLogs] = useState<any[]>([]);
+  const [logsSource, setLogsSource] = useState<'supabase' | 'local'>('local');
+  const [isLoadingLogs, setIsLoadingLogs] = useState(false);
+  const [logsFilter, setLogsFilter] = useState<'all' | 'success' | 'failed'>('all');
+  const [logsSearch, setLogsSearch] = useState('');
+  const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
+  const [copiedSql, setCopiedSql] = useState(false);
+  const [tableStatus, setTableStatus] = useState<{ supabaseConfigured: boolean; emailLogsTableOk: boolean; message: string } | null>(null);
+  const [isDiagnosticModalOpen, setIsDiagnosticModalOpen] = useState(false);
+
   const [isSaved, setIsSaved] = useState(false);
   const [newAdminEmail, setNewAdminEmail] = useState('');
   
@@ -54,6 +74,37 @@ export const SystemEmailSettingsTab: React.FC<Props> = ({ isLight }) => {
   const [isSendingTest, setIsSendingTest] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string; mode?: string } | null>(null);
 
+  const loadLogs = async (filter = logsFilter, search = logsSearch) => {
+    setIsLoadingLogs(true);
+    try {
+      const successParam = filter === 'all' ? undefined : filter === 'success';
+      const res = await fetchDbEmailLogs({
+        success: successParam,
+        search: search ? search.trim() : undefined,
+        limit: 100
+      });
+      setDbLogs(res.logs || []);
+      setLogsSource(res.source);
+    } catch (err) {
+      console.warn('Failed loading email logs:', err);
+    } finally {
+      setIsLoadingLogs(false);
+    }
+  };
+
+  const checkTable = async () => {
+    try {
+      const res = await fetch('/api/email/logs/status');
+      const text = await res.text().catch(() => '');
+      if (text && text.trim()) {
+        const data = JSON.parse(text);
+        if (data && data.success) {
+          setTableStatus(data);
+        }
+      }
+    } catch {}
+  };
+
   useEffect(() => {
     // Hydrate latest configuration from backend server database, fallback to local storage
     fetchServerSystemEmailConfig().then(srvConfig => {
@@ -64,7 +115,20 @@ export const SystemEmailSettingsTab: React.FC<Props> = ({ isLight }) => {
       setConfig(getSystemEmailConfig());
     });
     setLogs(getOutboundEmailLogs());
+    loadLogs('all', '');
+    checkTable();
   }, []);
+
+  const handleCopySql = async () => {
+    try {
+      const sql = await fetchEmailLogsMigrationSql();
+      if (sql) {
+        await navigator.clipboard.writeText(sql);
+        setCopiedSql(true);
+        setTimeout(() => setCopiedSql(false), 3500);
+      }
+    } catch {}
+  };
 
   const handleSave = async () => {
     const hasSmtp = Boolean((config.smtpHost || '').trim() && (config.smtpUsername || '').trim());
@@ -84,11 +148,14 @@ export const SystemEmailSettingsTab: React.FC<Props> = ({ isLight }) => {
     try {
       const res = await verifySmtpSettings(config);
       setConnectionTestResult(res);
+      // Immediately reload logs to show the new connection test log
+      setTimeout(() => loadLogs(), 500);
     } catch (err: any) {
       setConnectionTestResult({
         success: false,
         message: err.message || 'SMTP connection verification failed.'
       });
+      setTimeout(() => loadLogs(), 500);
     } finally {
       setIsTestingConnection(false);
     }
@@ -175,19 +242,24 @@ export const SystemEmailSettingsTab: React.FC<Props> = ({ isLight }) => {
         mode: result.channel
       });
       setLogs(getOutboundEmailLogs());
+      loadLogs();
     } catch (err: any) {
       setTestResult({
         success: false,
         message: err.message || 'System test dispatch failed.'
       });
+      loadLogs();
     } finally {
       setIsSendingTest(false);
     }
   };
 
-  const handleClearLogs = () => {
-    clearOutboundEmailLogs();
-    setLogs([]);
+  const handleClearLogs = async () => {
+    if (confirm('Clear all system email and SMTP diagnostic logs?')) {
+      await clearDbEmailLogsApi();
+      setLogs([]);
+      setDbLogs([]);
+    }
   };
 
   return (
@@ -215,7 +287,17 @@ export const SystemEmailSettingsTab: React.FC<Props> = ({ isLight }) => {
             </p>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 shrink-0 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setIsDiagnosticModalOpen(true)}
+              className="px-3.5 py-2 text-xs font-bold rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
+              title="Open the SMTP Diagnostic Console to troubleshoot connection and delivery errors"
+            >
+              <Terminal className="w-4 h-4 text-emerald-400" />
+              <span>Diagnostic Console</span>
+            </button>
+
             <button
               onClick={handleSave}
               className="px-4 py-2 text-xs font-bold rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white transition-all shadow-md flex items-center gap-2 cursor-pointer"
@@ -431,24 +513,36 @@ export const SystemEmailSettingsTab: React.FC<Props> = ({ isLight }) => {
                       SMTP Relay Connection Parameters
                     </h4>
                   </div>
-                  <button
-                    type="button"
-                    onClick={handleTestConnection}
-                    disabled={isTestingConnection || !config.smtpHost || !config.smtpUsername}
-                    className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-white transition-all flex items-center gap-1.5 cursor-pointer self-start sm:self-auto shrink-0"
-                  >
-                    {isTestingConnection ? (
-                      <>
-                        <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-400" />
-                        <span>Verifying Connection...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Zap className="w-3.5 h-3.5 text-amber-400" />
-                        <span>Test SMTP Connection</span>
-                      </>
-                    )}
-                  </button>
+                  <div className="flex items-center gap-2 self-start sm:self-auto shrink-0 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => setIsDiagnosticModalOpen(true)}
+                      className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
+                      title="Open full SMTP diagnostic console"
+                    >
+                      <Terminal className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Troubleshoot & Logs</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleTestConnection}
+                      disabled={isTestingConnection || !config.smtpHost || !config.smtpUsername}
+                      className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-white transition-all flex items-center gap-1.5 cursor-pointer"
+                    >
+                      {isTestingConnection ? (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-400" />
+                          <span>Verifying Connection...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Zap className="w-3.5 h-3.5 text-amber-400" />
+                          <span>Test SMTP Connection</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
 
                 {/* Connection Test Feedback */}
@@ -860,6 +954,363 @@ export const SystemEmailSettingsTab: React.FC<Props> = ({ isLight }) => {
           </div>
         </div>
       </div>
+
+      {/* Full-width Section: Supabase email_logs Table & SMTP Diagnostics */}
+      <div className={`border rounded-2xl p-6 space-y-5 ${
+        isLight ? 'bg-white border-slate-200 shadow-soft-sm' : 'bg-slate-900/70 border-slate-800'
+      }`}>
+        {/* Header & Actions */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b pb-4 border-slate-200 dark:border-slate-800">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <Database className="w-5 h-5 text-emerald-500" />
+              <h3 className={`text-base font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                Supabase 'email_logs' Diagnostic Table
+              </h3>
+              <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border ${
+                logsSource === 'supabase'
+                  ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/30 dark:text-emerald-400'
+                  : 'bg-purple-500/10 text-purple-600 border-purple-500/30 dark:text-purple-400'
+              }`}>
+                {logsSource === 'supabase' ? '● Supabase Cloud Active' : '○ Local Database Cache'}
+              </span>
+              {tableStatus && (
+                <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${
+                  tableStatus.emailLogsTableOk
+                    ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300'
+                    : 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300'
+                }`}>
+                  {tableStatus.message}
+                </span>
+              )}
+            </div>
+            <p className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+              Captures all outbound emails, verification attempts, delivery success status, and granular SMTP error codes (e.g. EDNS, EAUTH, ECONNREFUSED) for debugging configuration issues.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0 flex-wrap">
+            <button
+              type="button"
+              onClick={handleCopySql}
+              className={`px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shadow-sm ${
+                copiedSql
+                  ? 'bg-emerald-600 text-white border-emerald-600'
+                  : (isLight ? 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700' : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-200')
+              }`}
+              title="Copy the SQL migration script to create public.email_logs in Supabase"
+            >
+              {copiedSql ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+              <span>{copiedSql ? 'SQL Copied!' : 'Copy Supabase SQL'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                loadLogs(logsFilter, logsSearch);
+                checkTable();
+              }}
+              disabled={isLoadingLogs}
+              className={`p-2 rounded-xl border transition-colors cursor-pointer ${
+                isLight ? 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-600' : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-300'
+              }`}
+              title="Refresh logs from Supabase"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isLoadingLogs ? 'animate-spin text-emerald-500' : ''}`} />
+            </button>
+
+            {dbLogs.length > 0 && (
+              <button
+                type="button"
+                onClick={handleClearLogs}
+                className="px-3 py-1.5 rounded-xl border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Clear Table</span>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Filter and Search Bar */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl">
+            {(['all', 'success', 'failed'] as const).map(f => {
+              const active = logsFilter === f;
+              const count = f === 'all'
+                ? dbLogs.length
+                : dbLogs.filter(l => f === 'success' ? l.success : !l.success).length;
+              return (
+                <button
+                  key={f}
+                  type="button"
+                  onClick={() => {
+                    setLogsFilter(f);
+                    loadLogs(f, logsSearch);
+                  }}
+                  className={`px-3 py-1 text-xs font-semibold rounded-lg transition-all capitalize flex items-center gap-1.5 cursor-pointer ${
+                    active
+                      ? (isLight ? 'bg-white text-slate-900 shadow-sm' : 'bg-slate-700 text-white shadow-sm')
+                      : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  <span>{f === 'failed' ? 'Errors / Failed' : f}</span>
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+                    f === 'failed'
+                      ? 'bg-rose-500/20 text-rose-500 font-bold'
+                      : f === 'success'
+                      ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 font-bold'
+                      : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                  }`}>
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="relative flex-1 max-w-md">
+            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              value={logsSearch}
+              onChange={e => {
+                const val = e.target.value;
+                setLogsSearch(val);
+                loadLogs(logsFilter, val);
+              }}
+              placeholder="Search by recipient, subject, error message, or SMTP host..."
+              className={`w-full text-xs pl-8 pr-3 py-1.5 rounded-xl border focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
+                isLight ? 'bg-slate-50 border-slate-200 text-slate-900' : 'bg-slate-950 border-slate-800 text-white'
+              }`}
+            />
+          </div>
+        </div>
+
+        {/* Diagnostic Logs Table */}
+        {isLoadingLogs ? (
+          <div className="p-12 text-center text-slate-400 space-y-2">
+            <RefreshCw className="w-6 h-6 animate-spin mx-auto text-emerald-500" />
+            <p className="text-xs">Querying Supabase email_logs table...</p>
+          </div>
+        ) : dbLogs.length === 0 ? (
+          <div className={`p-8 text-center rounded-xl border space-y-2 ${
+            isLight ? 'bg-slate-50 border-slate-200 text-slate-500' : 'bg-slate-950/40 border-slate-800 text-slate-400'
+          }`}>
+            <Database className="w-8 h-8 mx-auto opacity-30" />
+            <p className="text-xs font-semibold">No Email Logs Found</p>
+            <p className="text-[11px] text-slate-400 max-w-md mx-auto">
+              Any SMTP connection tests, verification attempts, or outbound automated emails will automatically appear here with complete delivery receipts and failure stack traces.
+            </p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className={isLight ? 'bg-slate-50 text-slate-600 border-b border-slate-200' : 'bg-slate-950/80 text-slate-400 border-b border-slate-800'}>
+                  <th className="py-2.5 px-3 font-semibold w-28">Status</th>
+                  <th className="py-2.5 px-3 font-semibold w-48">Recipient</th>
+                  <th className="py-2.5 px-3 font-semibold">Subject & Category</th>
+                  <th className="py-2.5 px-3 font-semibold w-44">SMTP Server</th>
+                  <th className="py-2.5 px-3 font-semibold">SMTP Error Diagnostics</th>
+                  <th className="py-2.5 px-3 font-semibold w-24 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {dbLogs.map((log: any) => {
+                  const isExpanded = expandedLogId === log.id;
+                  const isSuccess = Boolean(log.success);
+                  const recipient = log.recipient_email || (Array.isArray(log.recipient_emails) ? log.recipient_emails.join(', ') : log.to || 'Unknown');
+                  const errorMsg = log.error_message || (log.error_details?.message ? String(log.error_details.message) : null);
+                  const sentDate = log.sent_at || log.created_at || log.timestamp;
+
+                  return (
+                    <React.Fragment key={log.id}>
+                      <tr className={`transition-colors ${
+                        isExpanded
+                          ? (isLight ? 'bg-slate-100/70' : 'bg-slate-800/60')
+                          : (isLight ? 'hover:bg-slate-50' : 'hover:bg-slate-800/30')
+                      }`}>
+                        {/* Status */}
+                        <td className="py-2.5 px-3 align-top">
+                          <div className="space-y-1">
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${
+                              isSuccess
+                                ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/30 dark:text-emerald-400'
+                                : 'bg-rose-500/10 text-rose-600 border-rose-500/30 dark:text-rose-400'
+                            }`}>
+                              {isSuccess ? <CheckCircle2 className="w-3 h-3 text-emerald-500" /> : <AlertTriangle className="w-3 h-3 text-rose-500" />}
+                              <span>{isSuccess ? (log.status || 'SENT') : 'FAILED'}</span>
+                            </span>
+                            <div className="text-[10px] font-mono text-slate-400">
+                              {sentDate ? new Date(sentDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—'}
+                            </div>
+                          </div>
+                        </td>
+
+                        {/* Recipient */}
+                        <td className="py-2.5 px-3 align-top">
+                          <div className="font-mono text-xs font-semibold text-slate-900 dark:text-white truncate max-w-[190px]" title={recipient}>
+                            {recipient}
+                          </div>
+                          {log.sender_email && (
+                            <div className="text-[10px] text-slate-400 truncate max-w-[190px]" title={log.sender_email}>
+                              From: {log.sender_name ? `${log.sender_name} ` : ''}&lt;{log.sender_email}&gt;
+                            </div>
+                          )}
+                        </td>
+
+                        {/* Subject */}
+                        <td className="py-2.5 px-3 align-top">
+                          <div className="font-medium text-slate-800 dark:text-slate-200 line-clamp-1">
+                            {log.subject || '(No Subject)'}
+                          </div>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-[9px] uppercase px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 font-semibold">
+                              {log.category || log.delivery_mode || 'general'}
+                            </span>
+                            {log.message_id && (
+                              <span className="text-[9px] font-mono text-slate-400 truncate max-w-[160px]" title={log.message_id}>
+                                ID: {log.message_id}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+
+                        {/* SMTP Server */}
+                        <td className="py-2.5 px-3 align-top">
+                          {log.smtp_host ? (
+                            <div className="space-y-0.5">
+                              <div className="font-mono text-[11px] text-slate-700 dark:text-slate-300">
+                                {log.smtp_host}:{log.smtp_port || 587}
+                              </div>
+                              <div className="text-[10px] text-slate-400">
+                                {log.smtp_secure ? 'SSL/TLS (Port 465)' : 'STARTTLS (Port 587)'}
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-slate-400 text-[11px] italic">Local Dispatch</span>
+                          )}
+                        </td>
+
+                        {/* Error Diagnostics */}
+                        <td className="py-2.5 px-3 align-top">
+                          {isSuccess ? (
+                            <div className="text-emerald-600 dark:text-emerald-400 text-[11px] flex items-center gap-1 font-medium">
+                              <span>✓ Handshake & transmission confirmed</span>
+                              {log.smtp_response_code && (
+                                <span className="font-mono text-[10px] opacity-75">({log.smtp_response_code})</span>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="space-y-1">
+                              <div className="text-rose-600 dark:text-rose-400 text-[11px] font-semibold break-words">
+                                {errorMsg || 'SMTP handshake rejected or connection timed out.'}
+                              </div>
+                              {(log.error_code || log.error_command) && (
+                                <div className="flex items-center gap-2 text-[10px] font-mono text-rose-500">
+                                  {log.error_code && <span className="px-1 py-0.2 rounded bg-rose-500/10 border border-rose-500/20">Code: {log.error_code}</span>}
+                                  {log.error_command && <span className="px-1 py-0.2 rounded bg-rose-500/10 border border-rose-500/20">Cmd: {log.error_command}</span>}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </td>
+
+                        {/* Actions */}
+                        <td className="py-2.5 px-3 align-top text-right">
+                          <button
+                            type="button"
+                            onClick={() => setExpandedLogId(isExpanded ? null : log.id)}
+                            className={`px-2 py-1 rounded text-[11px] font-medium border flex items-center gap-1 ml-auto cursor-pointer transition-colors ${
+                              isExpanded
+                                ? 'bg-slate-800 text-white border-slate-700'
+                                : (isLight ? 'bg-slate-100 hover:bg-slate-200 border-slate-200 text-slate-700' : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-300')
+                            }`}
+                          >
+                            <span>{isExpanded ? 'Hide' : 'Details'}</span>
+                            {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                          </button>
+                        </td>
+                      </tr>
+
+                      {/* Expandable JSON & Diagnostics Drawer */}
+                      {isExpanded && (
+                        <tr className={isLight ? 'bg-slate-100/90' : 'bg-slate-950'}>
+                          <td colSpan={6} className="p-4">
+                            <div className="space-y-3">
+                              <div className="flex items-center justify-between text-xs font-semibold">
+                                <span className={isLight ? 'text-slate-700' : 'text-slate-300'}>
+                                  Full SMTP Transmission & Diagnostic Record (UUID: {log.id})
+                                </span>
+                                <span className="text-[10px] font-mono text-slate-400">
+                                  Timestamp: {sentDate ? new Date(sentDate).toISOString() : '—'}
+                                </span>
+                              </div>
+
+                              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-[11px]">
+                                <div className={`p-2.5 rounded-lg border space-y-1 ${isLight ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'}`}>
+                                  <div className="font-semibold text-slate-500">SMTP Parameters</div>
+                                  <div className="font-mono">Host: {log.smtp_host || '—'}</div>
+                                  <div className="font-mono">Port: {log.smtp_port || '—'}</div>
+                                  <div className="font-mono">Security: {log.smtp_secure ? 'Direct SSL/TLS' : 'STARTTLS'}</div>
+                                  <div className="font-mono">Username: {log.smtp_username || '—'}</div>
+                                </div>
+
+                                <div className={`p-2.5 rounded-lg border space-y-1 ${isLight ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'}`}>
+                                  <div className="font-semibold text-slate-500">Recipients & Dispatch</div>
+                                  <div className="font-mono truncate">To: {recipient}</div>
+                                  <div className="font-mono truncate">Accepted: {Array.isArray(log.accepted_recipients) && log.accepted_recipients.length > 0 ? log.accepted_recipients.join(', ') : 'None'}</div>
+                                  <div className="font-mono truncate text-rose-500">Rejected: {Array.isArray(log.rejected_recipients) && log.rejected_recipients.length > 0 ? log.rejected_recipients.join(', ') : 'None'}</div>
+                                  <div className="font-mono">Mode: {log.delivery_mode || 'custom_smtp'}</div>
+                                </div>
+
+                                <div className={`p-2.5 rounded-lg border space-y-1 ${isLight ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'}`}>
+                                  <div className="font-semibold text-slate-500">Error & Stack Signature</div>
+                                  <div className="font-mono text-rose-500">Code: {log.error_code || 'None'}</div>
+                                  <div className="font-mono">Command: {log.error_command || 'None'}</div>
+                                  <div className="font-mono">Status: {log.status || 'unknown'}</div>
+                                </div>
+                              </div>
+
+                              {log.snippet && (
+                                <div className={`p-2.5 rounded-lg border space-y-1 text-xs ${isLight ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'}`}>
+                                  <div className="font-semibold text-slate-500 text-[11px]">Email Snippet</div>
+                                  <div className="text-slate-700 dark:text-slate-300 font-mono text-[11px] whitespace-pre-wrap">{log.snippet}</div>
+                                </div>
+                              )}
+
+                              {log.error_details && Object.keys(log.error_details).length > 0 && (
+                                <div className="space-y-1">
+                                  <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
+                                    Raw Error Details JSON
+                                  </div>
+                                  <pre className="p-3 rounded-lg bg-black text-emerald-400 font-mono text-[10px] overflow-x-auto max-h-48 border border-slate-800">
+                                    {JSON.stringify(log.error_details, null, 2)}
+                                  </pre>
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* SMTP Diagnostic Modal Component */}
+      <SmtpDiagnosticModal
+        isOpen={isDiagnosticModalOpen}
+        onClose={() => {
+          setIsDiagnosticModalOpen(false);
+          loadLogs();
+        }}
+      />
     </div>
   );
 };

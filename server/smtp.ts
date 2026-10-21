@@ -1,4 +1,5 @@
 import nodemailer from 'nodemailer';
+import { recordEmailLog } from './emailLogsDb.ts';
 
 export interface SmtpConfig {
   smtpHost: string;
@@ -62,9 +63,9 @@ export function createSmtpTransporter(config: SmtpConfig) {
       // Allow self-signed or internal certificates without blocking
       rejectUnauthorized: false
     },
-    connectionTimeout: 20000,
-    greetingTimeout: 15000,
-    socketTimeout: 25000
+    connectionTimeout: 8000,
+    greetingTimeout: 8000,
+    socketTimeout: 10000
   };
 
   return nodemailer.createTransport(transportOptions);
@@ -83,14 +84,41 @@ export async function testSmtpConnection(config: SmtpConfig): Promise<{ success:
 
   const transporter = createSmtpTransporter(config);
   try {
-    await transporter.verify();
     const port = parseInt(String(config.smtpPort || '587'), 10) || 587;
+    const verifyPromise = transporter.verify();
+    const timeoutPromise = new Promise((_, reject) => {
+      const timer = setTimeout(() => {
+        reject(new Error(`Connection to SMTP server timed out after 10s (${config.smtpHost}:${port}). Please verify host server, port, and network reachability.`));
+      }, 10000);
+      if (typeof timer.unref === 'function') timer.unref();
+    });
+
+    await Promise.race([verifyPromise, timeoutPromise]);
     const isSecure = port === 465 ? true : (port === 587 || port === 25 ? false : Boolean(config.smtpSecure));
     const modeDesc = isSecure ? 'Direct SSL/TLS' : 'STARTTLS Encrypted';
-    return {
+    const verifySuccessResult = {
       success: true,
       message: `Successfully connected and authenticated with SMTP server (${config.smtpHost}:${port} via ${modeDesc})`
     };
+
+    recordEmailLog({
+      category: 'smtp_verification',
+      subject: `SMTP Connection Test (${config.smtpHost}:${port})`,
+      recipient_email: config.smtpUsername,
+      recipient_emails: [config.smtpUsername],
+      sender_email: config.senderEmail || config.smtpUsername,
+      sender_name: config.senderName || 'SMTP Diagnostic',
+      delivery_mode: 'custom_smtp',
+      status: 'verified',
+      success: true,
+      smtp_host: config.smtpHost,
+      smtp_port: port,
+      smtp_secure: isSecure,
+      smtp_username: config.smtpUsername,
+      body_text: verifySuccessResult.message
+    }).catch(() => {});
+
+    return verifySuccessResult;
   } catch (err: any) {
     let errMsg = err.message || 'SMTP connection verification failed';
     const host = (config.smtpHost || '').toLowerCase();
@@ -111,7 +139,7 @@ export async function testSmtpConnection(config: SmtpConfig): Promise<{ success:
       errMsg = `SMTP server rejected request: ${err.response}`;
     }
 
-    return {
+    const verifyFailResult = {
       success: false,
       message: errMsg,
       details: {
@@ -121,6 +149,29 @@ export async function testSmtpConnection(config: SmtpConfig): Promise<{ success:
         responseCode: err.responseCode
       }
     };
+
+    recordEmailLog({
+      category: 'smtp_verification',
+      subject: `SMTP Connection Test Failed (${config.smtpHost}:${config.smtpPort || 587})`,
+      recipient_email: config.smtpUsername || 'unknown',
+      recipient_emails: config.smtpUsername ? [config.smtpUsername] : [],
+      sender_email: config.senderEmail || config.smtpUsername || 'default@system',
+      sender_name: config.senderName || 'SMTP Diagnostic',
+      delivery_mode: 'custom_smtp',
+      status: 'failed',
+      success: false,
+      smtp_host: config.smtpHost,
+      smtp_port: parseInt(String(config.smtpPort || '587'), 10) || 587,
+      smtp_secure: Boolean(config.smtpSecure),
+      smtp_username: config.smtpUsername,
+      error_message: errMsg,
+      error_code: err.code ? String(err.code) : undefined,
+      error_command: err.command ? String(err.command) : undefined,
+      error_details: verifyFailResult.details,
+      body_text: `SMTP Verification Failed: ${errMsg}`
+    }).catch(() => {});
+
+    return verifyFailResult;
   }
 }
 
@@ -244,6 +295,35 @@ export async function sendSmtpEmail(
 
     console.info(`[SMTP] Email successfully dispatched to "${toList.join(', ')}". Message ID: ${info.messageId}`);
 
+    const isSecureMode = (parseInt(String(cfg.smtpPort || '587'), 10) || 587) === 465;
+    recordEmailLog({
+      message_id: info.messageId,
+      sender_email: senderEmail,
+      sender_name: senderName,
+      recipient_email: toList[0],
+      recipient_emails: toList,
+      cc_emails: ccList,
+      bcc_emails: bccList,
+      reply_to: replyTo,
+      subject: payload.subject,
+      snippet: textContent.slice(0, 300),
+      body_html: payload.html,
+      body_text: textContent,
+      category: (payload as any).category || 'system_email',
+      reference_id: (payload as any).referenceId,
+      delivery_mode: 'custom_smtp',
+      status: 'delivered',
+      success: true,
+      smtp_host: cfg.smtpHost,
+      smtp_port: parseInt(String(cfg.smtpPort || '587'), 10) || 587,
+      smtp_secure: isSecureMode,
+      smtp_username: cfg.smtpUsername,
+      smtp_response_code: info.responseCode,
+      smtp_response_message: info.response,
+      accepted_recipients: Array.isArray(info.accepted) ? info.accepted.map(String) : [],
+      rejected_recipients: Array.isArray(info.rejected) ? info.rejected.map(String) : []
+    }).catch(() => {});
+
     return {
       success: true,
       messageId: info.messageId,
@@ -272,15 +352,44 @@ export async function sendSmtpEmail(
       friendlyError = `Connection to SMTP server timed out at ${cfg.smtpHost}:${cfg.smtpPort || 587}.`;
     }
 
+    const failDetails = {
+      code: err.code,
+      command: err.command,
+      response: err.response,
+      responseCode: err.responseCode
+    };
+
+    recordEmailLog({
+      sender_email: senderEmail,
+      sender_name: senderName,
+      recipient_email: toList[0] || 'unknown',
+      recipient_emails: toList,
+      cc_emails: ccList,
+      bcc_emails: bccList,
+      reply_to: replyTo,
+      subject: payload.subject,
+      snippet: textContent.slice(0, 300),
+      body_html: payload.html,
+      body_text: textContent,
+      category: (payload as any).category || 'system_email',
+      reference_id: (payload as any).referenceId,
+      delivery_mode: 'custom_smtp',
+      status: 'failed',
+      success: false,
+      smtp_host: cfg.smtpHost,
+      smtp_port: parseInt(String(cfg.smtpPort || '587'), 10) || 587,
+      smtp_secure: Boolean(cfg.smtpSecure),
+      smtp_username: cfg.smtpUsername,
+      error_message: friendlyError,
+      error_code: err.code ? String(err.code) : undefined,
+      error_command: err.command ? String(err.command) : undefined,
+      error_details: failDetails
+    }).catch(() => {});
+
     return {
       success: false,
       error: friendlyError,
-      details: {
-        code: err.code,
-        command: err.command,
-        response: err.response,
-        responseCode: err.responseCode
-      }
+      details: failDetails
     };
   }
 }

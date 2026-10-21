@@ -118,9 +118,14 @@ export const saveSystemEmailConfigAsync = async (config: Partial<SystemEmailConf
         body: JSON.stringify({ config: updated })
       });
       if (res.ok) {
-        const data = await res.json().catch(() => ({}));
-        if (data && data.config) {
-          return { ...updated, ...data.config };
+        const rawText = await res.text().catch(() => '');
+        if (rawText && rawText.trim()) {
+          try {
+            const data = JSON.parse(rawText);
+            if (data && data.config) {
+              return { ...updated, ...data.config };
+            }
+          } catch {}
         }
       }
     } catch (netErr) {
@@ -190,29 +195,38 @@ export const savePersonalEmailConfig = saveSystemEmailConfig;
  */
 export const fetchServerSystemEmailConfig = async (): Promise<SystemEmailConfig> => {
   try {
-    const res = await fetch(`/api/settings/system-email?_t=${Date.now()}`);
+    const res = await fetch(`/api/settings/system-email?_t=${Date.now()}`, {
+      headers: { 'Accept': 'application/json' }
+    });
     if (res.ok) {
-      const data = await res.json();
-      const srvConfig = data?.config || (data?.key === 'system-email' ? data?.value : null);
-      if (srvConfig && typeof srvConfig === 'object' && Object.keys(srvConfig).length > 0) {
-        const local = getSystemEmailConfig();
-        const hasSmtp = Boolean(srvConfig.smtpHost && srvConfig.smtpUsername);
-        const merged: SystemEmailConfig = {
-          ...DEFAULT_SYSTEM_EMAIL_CONFIG,
-          ...local,
-          ...srvConfig,
-          deliveryMode: srvConfig.deliveryMode || (hasSmtp ? 'custom_smtp' : local.deliveryMode),
-          adminAlertEmails: Array.isArray(srvConfig.adminAlertEmails) ? srvConfig.adminAlertEmails : (local.adminAlertEmails || []),
-          triggers: {
-            ...DEFAULT_SYSTEM_EMAIL_CONFIG.triggers,
-            ...(local.triggers || {}),
-            ...(srvConfig.triggers || {})
-          }
-        };
+      const rawText = await res.text().catch(() => '');
+      if (rawText && rawText.trim()) {
         try {
-          localStorage.setItem(SYSTEM_CONFIG_STORAGE_KEY, JSON.stringify(merged));
-        } catch {}
-        return merged;
+          const data = JSON.parse(rawText);
+          const srvConfig = data?.config || (data?.key === 'system-email' ? data?.value : null);
+          if (srvConfig && typeof srvConfig === 'object' && Object.keys(srvConfig).length > 0) {
+            const local = getSystemEmailConfig();
+            const hasSmtp = Boolean(srvConfig.smtpHost && srvConfig.smtpUsername);
+            const merged: SystemEmailConfig = {
+              ...DEFAULT_SYSTEM_EMAIL_CONFIG,
+              ...local,
+              ...srvConfig,
+              deliveryMode: srvConfig.deliveryMode || (hasSmtp ? 'custom_smtp' : local.deliveryMode),
+              adminAlertEmails: Array.isArray(srvConfig.adminAlertEmails) ? srvConfig.adminAlertEmails : (local.adminAlertEmails || []),
+              triggers: {
+                ...DEFAULT_SYSTEM_EMAIL_CONFIG.triggers,
+                ...(local.triggers || {}),
+                ...(srvConfig.triggers || {})
+              }
+            };
+            try {
+              localStorage.setItem(SYSTEM_CONFIG_STORAGE_KEY, JSON.stringify(merged));
+            } catch {}
+            return merged;
+          }
+        } catch (jsonErr) {
+          console.warn('[SystemEmail] Non-JSON response for server email config:', jsonErr);
+        }
       }
     }
   } catch (err) {
@@ -232,15 +246,34 @@ export const verifySmtpSettings = async (
   try {
     const res = await fetch('/api/email/verify-smtp', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
       body: JSON.stringify({ smtpConfig: effective })
     });
-    const data = await res.json();
-    return data;
+
+    const rawText = await res.text().catch(() => '');
+    if (!rawText || !rawText.trim()) {
+      return {
+        success: false,
+        message: `SMTP verification service returned an empty response (HTTP ${res.status}). Server may still be establishing connection or port is blocked.`
+      };
+    }
+
+    try {
+      const data = JSON.parse(rawText);
+      return data;
+    } catch {
+      return {
+        success: false,
+        message: `Invalid server response (HTTP ${res.status}): ${rawText.slice(0, 160)}`
+      };
+    }
   } catch (err: any) {
     return {
       success: false,
-      message: err.message || 'Failed to communicate with SMTP verification service'
+      message: err?.message || 'Failed to communicate with SMTP verification service'
     };
   }
 };
@@ -259,6 +292,63 @@ export const getOutboundEmailLogs = (): OutboundEmailLog[] => {
     console.error('Failed to read outbound email logs:', e);
   }
   return [];
+};
+
+/**
+ * Retrieve Outbound Email Logs from server (Supabase email_logs table with local fallback)
+ */
+export const fetchDbEmailLogs = async (options?: {
+  limit?: number;
+  offset?: number;
+  success?: boolean;
+  category?: string;
+  search?: string;
+}): Promise<{ logs: any[]; total: number; source: 'supabase' | 'local' }> => {
+  try {
+    const params = new URLSearchParams();
+    if (options?.limit) params.set('limit', String(options.limit));
+    if (options?.offset) params.set('offset', String(options.offset));
+    if (options?.success !== undefined) params.set('success', String(options.success));
+    if (options?.category) params.set('category', options.category);
+    if (options?.search) params.set('search', options.search);
+
+    const res = await fetch(`/api/email/logs?${params.toString()}`);
+    const rawText = await res.text().catch(() => '');
+    if (rawText && rawText.trim()) {
+      const data = JSON.parse(rawText);
+      if (data && data.success && Array.isArray(data.logs)) {
+        return { logs: data.logs, total: data.total ?? data.logs.length, source: data.source || 'local' };
+      }
+    }
+  } catch (err) {
+    console.warn('[SystemEmail] Failed to fetch server email logs:', err);
+  }
+  return { logs: getOutboundEmailLogs(), total: getOutboundEmailLogs().length, source: 'local' };
+};
+
+/**
+ * Fetch Supabase SQL migration script for email_logs table
+ */
+export const fetchEmailLogsMigrationSql = async (): Promise<string> => {
+  try {
+    const res = await fetch('/api/email/logs/migration-sql');
+    const rawText = await res.text().catch(() => '');
+    if (rawText && rawText.trim()) {
+      const data = JSON.parse(rawText);
+      if (data && data.sql) return data.sql;
+    }
+  } catch {}
+  return '';
+};
+
+/**
+ * Clear email logs both locally and on server
+ */
+export const clearDbEmailLogsApi = async (): Promise<void> => {
+  clearOutboundEmailLogs();
+  try {
+    await fetch('/api/email/logs', { method: 'DELETE' });
+  } catch {}
 };
 
 /**
@@ -390,7 +480,13 @@ export async function sendSystemEmail(options: {
       });
 
       if (res.ok) {
-        const data = await res.json().catch(() => ({}));
+        const rawBody = await res.text().catch(() => '');
+        let data: any = {};
+        if (rawBody && rawBody.trim()) {
+          try {
+            data = JSON.parse(rawBody);
+          } catch {}
+        }
         result = {
           success: true,
           messageId: data.id || `wh-${Date.now()}`,
@@ -449,7 +545,13 @@ export async function sendSystemEmail(options: {
         })
       });
 
-      const data = await res.json().catch(() => ({}));
+      const rawText = await res.text().catch(() => '');
+      let data: any = {};
+      if (rawText && rawText.trim()) {
+        try {
+          data = JSON.parse(rawText);
+        } catch {}
+      }
       if (res.ok && data.success) {
         result = {
           success: true,
@@ -464,7 +566,7 @@ export async function sendSystemEmail(options: {
           messageId: `smtp-err-${Date.now()}`,
           status: 'failed',
           channel: 'custom_smtp',
-          error: data.error || data.message || `SMTP dispatch returned HTTP ${res.status}`,
+          error: data.error || data.message || (rawText ? rawText.slice(0, 160) : `SMTP dispatch returned HTTP ${res.status}`),
           timestamp
         };
       }
